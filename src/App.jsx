@@ -3867,6 +3867,226 @@ const AUBAccreditationSystem = () => {
       </div>
     </div>
   );
+
+  // Criterion 8 Page
+  const Criterion8Page = () => (
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
+      <GlobalHeader title="Criterion 8 – Institutional Support" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
+
+      <div style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Institutional Support Workspace</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Five-part layout (A–E) with uploads and AI Extract matching the dedicated page flow.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={16} />
+                Save Draft
+              </button>
+              <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={16} />
+                Mark as Complete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* A. Leadership */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>A. Leadership</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe leadership structure, adequacy, and participation in decisions. Upload org charts or policies.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} /> Organizational Chart
+              </button>
+              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={14} /> AI Extract hierarchy
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {[{ label: 'Leadership structure (Program Chair, Department Head, Dean)', placeholder: 'Describe leadership roles and decision-making chain.' }, { label: 'Adequacy of leadership to ensure program quality and continuity', placeholder: 'Explain how leadership supports continuity and quality assurance.' }, { label: 'How leaders participate in curriculum and faculty decisions', placeholder: 'Document leadership involvement in curriculum and faculty processes.' }].map((item) => (
+              <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
+                <textarea placeholder={item.placeholder} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* B. Program Budget and Financial Support */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>B. Program Budget and Financial Support</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Four sub-parts (B1–B4) displayed as collapsible-style cards with uploads and AI summaries.</p>
+            </div>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Scan financial reports
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px' }}>
+            {[{
+              title: 'B1 – Budget Process and Continuity',
+              desc: 'Describe how annual budget is set, approved, and monitored.',
+              upload: 'Department Budget Policy.pdf',
+              ai: 'AI summarize recurring vs temporary funds'
+            }, {
+              title: 'B2 – Teaching Support',
+              desc: 'Explain support for teaching (graders, TAs, workshops, equipment).',
+              upload: 'TA Assignments.xlsx',
+              ai: 'AI summarize TAs, training, grants'
+            }, {
+              title: 'B3 – Infrastructure Funding',
+              desc: 'How the university funds maintenance and lab/facility upgrades.',
+              upload: 'Facilities Funding Plan.pdf',
+              ai: 'AI identify funding amounts and cycles'
+            }, {
+              title: 'B4 – Adequacy of Resources',
+              desc: 'Assess how current budget supports students achieving SOs.',
+              upload: 'Annual Assessment Report.pdf',
+              ai: 'AI pull students/credits/budget per student'
+            }].map((card) => (
+              <div key={card.title} style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                  <div>
+                    <div style={{ fontWeight: '800', color: colors.darkGray }}>{card.title}</div>
+                    <p style={{ color: colors.mediumGray, margin: '6px 0 10px 0', fontSize: '13px' }}>{card.desc}</p>
+                  </div>
+                  <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Upload size={14} /> {card.upload}
+                  </button>
+                </div>
+                <textarea placeholder="Enter details or paste summary" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+                <button style={{ marginTop: '10px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Sparkles size={14} /> {card.ai}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* C. Staffing */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>C. Staffing</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Summarize administrative and technical staff counts with roles and retention practices.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> HR Staff List.xlsx
+            </button>
+          </div>
+          <div style={{ marginTop: '12px', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: colors.lightGray, color: colors.darkGray }}>
+                  {['Category', 'Number', 'Primary Role', 'Training / Retention Practices'].map((h) => (
+                    <th key={h} style={{ padding: '12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[{ category: 'Administrative', number: '4', role: 'Program coordinator, scheduling, student records', training: 'Annual HR workshops; cross-training plan' }, { category: 'Technical', number: '6', role: 'Lab engineers, equipment upkeep', training: 'Vendor certifications; safety refreshers' }, { category: 'Instructional Assistants', number: '10', role: 'Grading, lab supervision, tutorial sessions', training: 'TA orientation; mentorship with faculty' }].map((row) => (
+                  <tr key={row.category} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '12px', fontWeight: '700', color: colors.darkGray }}>{row.category}</td>
+                    <td style={{ padding: '12px' }}>{row.number}</td>
+                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.role}</td>
+                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.training}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <textarea placeholder="Additional narrative on staffing adequacy and linkage to ☰ Faculty Members" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '10px' }} />
+          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Extract counts from HR list
+            </button>
+            <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={14} /> Attach Training Policy.pdf
+            </button>
+          </div>
+        </div>
+
+        {/* D. Faculty Hiring and Retention */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Faculty Hiring and Retention</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Sub-sections D1 (hiring process) and D2 (retention strategies) with uploads and AI extraction.</p>
+            </div>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI summarize policy
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {[{
+              title: 'D1 – Hiring Process',
+              placeholder: 'Describe recruitment procedure (advertising, committees, approvals).',
+              upload: 'Faculty Hiring Policy.pdf',
+              ai: 'AI summarize steps & timeline'
+            }, {
+              title: 'D2 – Retention Strategies',
+              placeholder: 'Explain promotion, recognition, salary review, mentorship systems.',
+              upload: 'Retention Plan.pdf',
+              ai: 'AI identify key benefits & retention methods'
+            }].map((card) => (
+              <div key={card.title} style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: '800', color: colors.darkGray }}>{card.title}</div>
+                  <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Upload size={14} /> {card.upload}
+                  </button>
+                </div>
+                <textarea placeholder={card.placeholder} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '10px' }} />
+                <button style={{ marginTop: '10px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Sparkles size={14} /> {card.ai}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* E. Support of Faculty Professional Development */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>E. Support of Faculty Professional Development</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Document support types, request/approval process, and funding activities.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Professional Development Policy.pdf
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {[{ label: 'Support types (sabbaticals, travel funds, workshops, seminars)', placeholder: 'List and describe available professional development supports.' }, { label: 'Process for request + approval', placeholder: 'Outline how faculty submit, approve, and track requests.' }, { label: 'Funding activity details (per year if available)', placeholder: 'Capture amounts, number of participants, and frequency.' }].map((item) => (
+              <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
+                <textarea placeholder={item.placeholder} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px', justifyContent: 'flex-end' }}>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Extract activities & funding
+            </button>
+            <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Save size={16} /> Save Draft
+            </button>
+            <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Check size={16} /> Mark as Complete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
   // Appendices Page
   const AppendicesPage = () => (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
