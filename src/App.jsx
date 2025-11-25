@@ -2722,8 +2722,28 @@ const AUBAccreditationSystem = () => {
               <div style={{ width: '45%', height: '100%', backgroundColor: colors.primary, transition: 'width 0.3s' }}></div>
             </div>
 
-            <div style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '12px', fontWeight: '500' }}>
-              Last updated: November 25, 2025
+            <div style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '12px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <span>Last updated: November 25, 2025</span>
+              <button
+                onClick={() => setCurrentPage('fullReport')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  backgroundColor: colors.primary,
+                  color: 'white',
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  letterSpacing: '0.2px'
+                }}
+              >
+                <FileText size={16} />
+                View Full Report
+              </button>
             </div>
           </div>
 
@@ -2790,6 +2810,120 @@ const AUBAccreditationSystem = () => {
                     letterSpacing: '0.2px'
                   }}>
                     {item.status === 'not-started' ? 'Start' : 'View / Edit'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Full Report Page (100% completion view)
+  const FullReportPage = () => {
+    const completedItems = [
+      'Background Information',
+      'Criterion 1 – Students',
+      'Criterion 2 – Program Educational Objectives',
+      'Criterion 3 – Student Outcomes',
+      'Criterion 4 – Continuous Improvement',
+      'Criterion 5 – Curriculum',
+      'Criterion 6 – Faculty',
+      'Criterion 7 – Facilities',
+      'Criterion 8 – Institutional Support',
+      'Appendices A & B'
+    ];
+
+    return (
+      <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
+        <GlobalHeader title="Full Accreditation Report" subtitle="Complete submission overview" showBackButton={true} />
+
+        <div style={{ padding: '48px' }}>
+          {/* Progress Header */}
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '36px', marginBottom: '32px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+              <div>
+                <h2 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.4px' }}>Computer & Communication Engineering</h2>
+                <p style={{ color: colors.mediumGray, fontSize: '15px', margin: 0, fontWeight: '500' }}>ABET Cycle 2025-2027</p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '42px', fontWeight: '800', color: colors.success, marginBottom: '4px', letterSpacing: '-1px' }}>100%</div>
+                <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Overall Progress</div>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div style={{ height: '14px', backgroundColor: colors.lightGray, borderRadius: '7px', overflow: 'hidden', border: `1px solid ${colors.border}` }}>
+              <div style={{ width: '100%', height: '100%', backgroundColor: colors.success, transition: 'width 0.3s' }}></div>
+            </div>
+
+            <div style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '12px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <span>Last updated: November 25, 2025</span>
+              <button
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  backgroundColor: colors.primary,
+                  color: 'white',
+                  padding: '12px 18px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '700',
+                  letterSpacing: '0.2px'
+                }}
+              >
+                <FileText size={18} />
+                Generate Full Report
+              </button>
+            </div>
+          </div>
+
+          {/* Completed Checklist */}
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '36px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+            <h3 style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '700', marginBottom: '28px', letterSpacing: '-0.3px' }}>Accreditation Checklist (Completed)</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {completedItems.map((name, index) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '24px',
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: '10px',
+                    backgroundColor: 'white'
+                  }}
+                >
+                  <div style={{ marginRight: '20px' }}>
+                    <CheckCircle2 size={28} color={colors.success} strokeWidth={2.5} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                      <h4 style={{ color: colors.darkGray, fontSize: '16px', fontWeight: '700', margin: 0, letterSpacing: '-0.1px' }}>{name}</h4>
+                      <span style={{ color: colors.darkGray, fontSize: '15px', fontWeight: '700', marginRight: '20px' }}>100%</span>
+                    </div>
+                    <div style={{ height: '8px', backgroundColor: colors.lightGray, borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: '100%', height: '100%', backgroundColor: colors.success, transition: 'width 0.3s' }}></div>
+                    </div>
+                  </div>
+                  <button style={{
+                    marginLeft: '24px',
+                    backgroundColor: colors.success,
+                    color: 'white',
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '700',
+                    letterSpacing: '0.2px'
+                  }}>
+                    View Section
                   </button>
                 </div>
               ))}
@@ -3408,6 +3542,8 @@ const AUBAccreditationSystem = () => {
         return <SelectionPage />;
       case 'checklist':
         return <ChecklistPage />;
+      case 'fullReport':
+        return <FullReportPage />;
       case 'background':
         return <BackgroundPage />;
       case 'criterion1':
@@ -3440,6 +3576,7 @@ const AUBAccreditationSystem = () => {
           <option value="login">Login Page</option>
           <option value="selection">Program Selection</option>
           <option value="checklist">ABET Checklist</option>
+          <option value="fullReport">Full Report (100%)</option>
           <option value="background">Background Info</option>
           <option value="criterion1">Criterion 1</option>
           <option value="criterion3">Criterion 3</option>
