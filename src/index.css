@@ -1,0 +1,13 @@
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background-color: #f8f9fa;
+}
+
+* {
+  box-sizing: border-box;
+}
