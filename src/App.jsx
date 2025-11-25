@@ -3117,7 +3117,7 @@ const AUBAccreditationSystem = () => {
     </div>
   );
 
-  // Criterion 1 Page
+    // Criterion 1 Page (ensure section blocks stay balanced to avoid bracket parse errors)
   const Criterion1Page = () => (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
       <GlobalHeader title="Criterion 1 – Students" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
