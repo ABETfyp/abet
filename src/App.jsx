@@ -3123,7 +3123,16 @@ const AUBAccreditationSystem = () => {
       <GlobalHeader title="Criterion 1 – Students" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
 
       <div style={{ padding: '48px', maxWidth: '1300px', margin: '0 auto' }}>
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '24px',
+            marginBottom: '18px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Criterion 1 – Students</div>
@@ -3132,7 +3141,17 @@ const AUBAccreditationSystem = () => {
               </p>
             </div>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${colors.border}`, color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
+              <div
+                style={{
+                  backgroundColor: colors.lightGray,
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  border: `1px solid ${colors.border}`,
+                  color: colors.darkGray,
+                  fontWeight: '700',
+                  fontSize: '13px'
+                }}
+              >
                 Program: <span style={{ color: colors.primary }}>Computer & Communication Engineering</span> • Cycle: <span style={{ color: colors.primary }}>ABET 2025–2026</span>
               </div>
               <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3148,7 +3167,16 @@ const AUBAccreditationSystem = () => {
         </div>
 
         {/* A. Student Admissions */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '26px',
+            marginBottom: '18px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>A. Student Admissions</h3>
@@ -3168,13 +3196,22 @@ const AUBAccreditationSystem = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
             <textarea placeholder="Admission Requirements (e.g., grades, entrance exams)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
-            <textarea placeholder="Admission Process Summary (online application, interview, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Admission Process Summary (e.g., online application, interview, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             <textarea placeholder="Transfer Pathways (if applicable)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
           </div>
         </div>
 
         {/* B. Evaluating Student Performance */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '26px',
+            marginBottom: '18px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>B. Evaluating Student Performance</h3>
@@ -3187,7 +3224,7 @@ const AUBAccreditationSystem = () => {
               </button>
               <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Sparkles size={16} />
-                AI Extract evaluation rules
+                AI Extract performance rules
               </button>
             </div>
           </div>
@@ -3200,7 +3237,16 @@ const AUBAccreditationSystem = () => {
         </div>
 
         {/* C. Transfer Students and Transfer Courses */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '26px',
+            marginBottom: '18px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>C. Transfer Students and Transfer Courses</h3>
@@ -3217,7 +3263,6 @@ const AUBAccreditationSystem = () => {
               </button>
             </div>
           </div>
-        </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
             <textarea placeholder="Transfer policy summary" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
@@ -3227,7 +3272,16 @@ const AUBAccreditationSystem = () => {
         </div>
 
         {/* D. Advising and Career Guidance */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '26px',
+            marginBottom: '18px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Advising and Career Guidance</h3>
@@ -3244,7 +3298,6 @@ const AUBAccreditationSystem = () => {
               </button>
             </div>
           </div>
-          <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: aligns with advising resources and evidence already uploaded; can reuse data from faculty and career center materials.</p>
         </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
@@ -3256,7 +3309,16 @@ const AUBAccreditationSystem = () => {
         </div>
 
         {/* E. Work in Lieu of Courses */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '26px',
+            marginBottom: '18px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>E. Work in Lieu of Courses</h3>
@@ -3273,6 +3335,8 @@ const AUBAccreditationSystem = () => {
               </button>
             </div>
           </div>
+          <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: aligns with advising resources and evidence already uploaded; can reuse data from faculty and career center materials.</p>
+        </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
             <textarea placeholder="Policies for advanced placement, test-out, dual enrollment, or work experience" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
@@ -3281,7 +3345,16 @@ const AUBAccreditationSystem = () => {
         </div>
 
         {/* F. Graduation Requirements */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '26px',
+            marginBottom: '18px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>F. Graduation Requirements</h3>
@@ -3309,7 +3382,15 @@ const AUBAccreditationSystem = () => {
         </div>
 
         {/* G. Transcripts of Recent Graduates */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '26px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            border: `1px solid ${colors.border}`
+          }}
+        >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>G. Transcripts of Recent Graduates</h3>
