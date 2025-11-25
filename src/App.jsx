@@ -3217,6 +3217,7 @@ const AUBAccreditationSystem = () => {
               </button>
             </div>
           </div>
+        </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
             <textarea placeholder="Transfer policy summary" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
@@ -3243,6 +3244,8 @@ const AUBAccreditationSystem = () => {
               </button>
             </div>
           </div>
+          <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: aligns with advising resources and evidence already uploaded; can reuse data from faculty and career center materials.</p>
+        </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
             <textarea placeholder="Who provides advising (faculty, department, college advisor, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
@@ -3332,6 +3335,169 @@ const AUBAccreditationSystem = () => {
               <label htmlFor="initialAccreditation" style={{ color: colors.darkGray, fontWeight: '600' }}>Initial Accreditation (if first cycle)</label>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Criterion 2 Page
+  const Criterion2Page = () => (
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
+      <GlobalHeader title="Criterion 2 – Program Educational Objectives" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
+
+      <div style={{ padding: '48px', maxWidth: '1300px', margin: '0 auto' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Program Educational Objectives Workspace</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>
+                Sections A–E with editable fields, uploads, and AI auto-fill support for mission, PEOs, alignment, constituencies, and review process.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${colors.border}`, color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
+                Program: <span style={{ color: colors.primary }}>Computer & Communication Engineering</span> • Cycle: <span style={{ color: colors.primary }}>ABET 2025–2026</span>
+              </div>
+              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={16} />
+                Save Draft
+              </button>
+              <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={16} />
+                Mark as Complete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* A. Mission Statement */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>A. Mission Statement</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Purpose: show the university or program mission statement with source or link.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} />
+                Upload Strategic Plan / Mission Doc
+              </button>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={16} />
+                AI Extract mission
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
+            <textarea placeholder="Institutional Mission Statement" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Program Mission Statement (if different)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Source or link (published URL)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+          </div>
+          <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: auto-fills from Background Information if already captured.</p>
+        </div>
+
+        {/* B. Program Educational Objectives */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>B. Program Educational Objectives (PEOs)</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Purpose: list long-term objectives and where they are published.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} />
+                Upload PEO Review Report / Brochure
+              </button>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={16} />
+                AI Extract PEOs
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
+            <textarea placeholder="Editable list of PEOs" style={{ width: '100%', minHeight: '140px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Short descriptions under each objective (optional)" style={{ width: '100%', minHeight: '140px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Where PEOs are published (URL or document name)" style={{ width: '100%', minHeight: '140px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+          </div>
+          <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: links later to Criterion 3 mapping (Student Outcomes → PEOs).</p>
+        </div>
+
+        {/* C. Consistency with Institutional Mission */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>C. Consistency of PEOs with Institutional Mission</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Purpose: explain how objectives support the university mission.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} />
+                Upload Strategic Alignment Docs
+              </button>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={16} />
+                AI Summarize alignment
+              </button>
+            </div>
+          </div>
+
+          <textarea placeholder="How our program’s objectives align with the institutional mission" style={{ width: '100%', minHeight: '140px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '14px' }} />
+        </div>
+
+        {/* D. Program Constituencies */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Program Constituencies</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Purpose: identify constituencies and describe how each contributes to PEOs.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} />
+                Upload Advisory Minutes / Stakeholder Reports
+              </button>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={16} />
+                AI Identify constituencies
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
+            <textarea placeholder="List of constituencies (students, alumni, employers, faculty, advisory board, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="How each group contributes to developing or reviewing PEOs" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+          </div>
+          <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: can pull stakeholder names from Evidence Uploads and sidebar lists.</p>
+        </div>
+
+        {/* E. Process for Review of PEOs */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>E. Process for Review of PEOs</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Purpose: describe review cadence, participants, feedback collection, and changes.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} />
+                Upload review process documents
+              </button>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={16} />
+                AI Extract timeline & actions
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
+            <textarea placeholder="Frequency of review (e.g., every 3 years)" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Who is involved (faculty, alumni, employers, advisory board)" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="How feedback is collected and decisions are made" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Changes made during the last review" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+          </div>
+          <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: links to stakeholder evidence and previous PEO versions.</p>
         </div>
       </div>
     </div>
@@ -4065,7 +4231,7 @@ const AUBAccreditationSystem = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <div>
               <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Appendix Dashboard</div>
-              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Course syllabi pull from ☰ Courses; faculty vitae pull from ☰ Faculty Members.</p>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Course syllabi pull from the Courses sidebar; faculty vitae pull from Faculty Members.</p>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4112,7 +4278,7 @@ const AUBAccreditationSystem = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>Appendix B – Faculty Vitae</h3>
-                <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>CV uploads from ☰ Faculty Members feed the 10 ABET sections automatically.</p>
+                <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>CV uploads from the Faculty Members sidebar feed the 10 ABET sections automatically.</p>
               </div>
               <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Download size={16} /> Generate All Vitae
@@ -4133,7 +4299,7 @@ const AUBAccreditationSystem = () => {
                     <tr key={faculty.id} style={{ borderBottom: `1px solid ${colors.border}`, backgroundColor: 'white' }}>
                       <td style={{ padding: '12px', fontWeight: '700', color: colors.darkGray }}>{faculty.name}</td>
                       <td style={{ padding: '12px', color: colors.mediumGray }}>{faculty.rank}</td>
-                      <td style={{ padding: '12px', color: colors.success, fontWeight: '700' }}>✅ Ready</td>
+                      <td style={{ padding: '12px', color: colors.success, fontWeight: '700' }}>Ready</td>
                       <td style={{ padding: '12px', color: colors.mediumGray }}>Oct 2025</td>
                     </tr>
                   ))}
