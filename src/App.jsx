@@ -2758,7 +2758,11 @@ const AUBAccreditationSystem = () => {
                   onClick={() => {
                     if (item.name.includes('Background')) setCurrentPage('background');
                     else if (item.name.includes('Criterion 1')) setCurrentPage('criterion1');
+                    else if (item.name.includes('Criterion 2')) setCurrentPage('criterion2');
                     else if (item.name.includes('Criterion 3')) setCurrentPage('criterion3');
+                    else if (item.name.includes('Criterion 7')) setCurrentPage('criterion7');
+                    else if (item.name.includes('Criterion 8')) setCurrentPage('criterion8');
+                    else if (item.name.includes('Appendices')) setCurrentPage('appendices');
                   }}
                   style={{ 
                     display: 'flex', 
@@ -3229,6 +3233,141 @@ const AUBAccreditationSystem = () => {
     </div>
   );
 
+  // Criterion 2 Page
+  const Criterion2Page = () => (
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
+      <GlobalHeader title="Criterion 2 – Program Educational Objectives" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
+
+      <div style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '28px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>PEO Workspace</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Mission + objectives are prefilled from Background Info and the sidebar evidence uploads</p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={16} />
+                Save Draft
+              </button>
+              <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={16} />
+                Mark Complete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Mission Statement */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '28px', marginBottom: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '19px', fontWeight: '800' }}>A. Mission Statement</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Auto-pulled from Background → Public Disclosure and institutional evidence</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={16} />
+              AI Fill from Strategic Plan
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginTop: '16px' }}>
+            <textarea placeholder="Institutional mission statement" defaultValue="Advance knowledge, serve the community, and graduate global engineers." style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Program mission statement" defaultValue="Prepare CCE graduates to design impactful communication and computing systems for regional needs." style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+          </div>
+          <div style={{ marginTop: '12px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <input type="text" placeholder="Source / URL" defaultValue="https://www.aub.edu.lb/engineering" style={{ flex: 1, padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '14px', fontFamily: 'inherit' }} />
+            <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '10px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} />
+              Upload Mission PDF
+            </button>
+          </div>
+        </div>
+
+        {/* PEOs */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '28px', marginBottom: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '19px', fontWeight: '800' }}>B. Program Educational Objectives</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Editable list reuses stakeholder names from Evidence uploads and advisory board minutes</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={16} />
+              Extract PEOs from PDF
+            </button>
+          </div>
+
+          {[1, 2, 3, 4].map((peo) => (
+            <div key={peo} style={{ marginTop: '14px', border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ backgroundColor: colors.primary, color: 'white', borderRadius: '6px', padding: '6px 10px', fontWeight: '800', fontSize: '12px' }}>PEO {peo}</div>
+                <input type="text" defaultValue={`Graduates achieve objective ${peo} within 3-5 years.`} style={{ flex: 1, padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '14px', fontFamily: 'inherit' }} />
+              </div>
+              <input type="text" placeholder="Publication link or document" defaultValue="https://aub.edu.lb/peo" style={{ marginTop: '10px', width: '100%', padding: '10px 12px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '14px', fontFamily: 'inherit' }} />
+            </div>
+          ))}
+        </div>
+
+        {/* Alignment */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '28px', marginBottom: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '19px', fontWeight: '800', marginBottom: '8px' }}>C. Consistency with Institutional Mission</h3>
+          <p style={{ color: colors.mediumGray, margin: '0 0 12px 0', fontSize: '14px' }}>Narrative links PEOs to mission; AI summarizes alignment language from strategic plan.</p>
+          <textarea defaultValue="Our PEOs emphasize societal impact, research engagement, and ethical practice, mirroring university pillars." style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+        </div>
+
+        {/* Constituencies */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '28px', marginBottom: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '19px', fontWeight: '800' }}>D. Program Constituencies</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Auto-suggests stakeholders from advisory board evidence and sidebar faculty list</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Users size={16} />
+              Add Stakeholder
+            </button>
+          </div>
+
+          <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+            {['Students', 'Alumni', 'Employers', 'Advisory Board', 'Faculty'].map((group) => (
+              <div key={group} style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '12px', backgroundColor: colors.lightGray }}>
+                <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>{group}</div>
+                <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Feedback captured through surveys and annual meetings; uploads tagged automatically.</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Review process */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '28px', boxShadow: '0 2px 10px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '19px', fontWeight: '800' }}>E. Process for Review of PEOs</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Timeline and responsible groups pull names from sidebar → Faculty Members</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Clock size={16} />
+              AI Extract Timeline
+            </button>
+          </div>
+
+          <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '10px', alignItems: 'center' }}>
+            {[
+              { label: 'Frequency', value: 'Every 3 years with mid-cycle check-ins' },
+              { label: 'Participants', value: 'Faculty committee, advisory board, alumni reps' },
+              { label: 'Evidence', value: 'PEO Review Report 2024.pdf (from Evidence uploads)' }
+            ].map((row) => (
+              <div key={row.label} style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: colors.lightGray }}>
+                <div style={{ fontSize: '12px', fontWeight: '800', color: colors.darkGray, letterSpacing: '0.4px' }}>{row.label}</div>
+                <div style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '4px', fontWeight: '600' }}>{row.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   // Criterion 3 Page
   const Criterion3Page = () => (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
@@ -3439,6 +3578,606 @@ const AUBAccreditationSystem = () => {
     </div>
   );
 
+  // Criterion 7 Page
+  const Criterion7Page = () => (
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
+      <GlobalHeader title="Criterion 7 – Facilities" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
+
+      <div style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Criterion 7 – Facilities</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>
+                Full-page layout with six parts: Offices/Classrooms/Laboratories • Computing Resources • Guidance • Maintenance & Upgrading • Library Services • Overall Comments.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={16} />
+                Save Draft
+              </button>
+              <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={16} />
+                Mark Complete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* A. Offices, Classrooms & Laboratories */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800', marginBottom: '8px' }}>A. Offices, Classrooms & Laboratories</h3>
+          <p style={{ color: colors.mediumGray, margin: '0 0 14px 0', fontSize: '14px' }}>Text-based subsections with upload boxes and AI extraction for inventory data.</p>
+
+          <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', marginBottom: '14px', backgroundColor: colors.lightGray }}>
+            <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Offices</div>
+            <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Describe faculty, administrative, and TA offices; include size and distribution.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginTop: '10px' }}>
+              <input defaultValue="Total offices: 32" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+              <input defaultValue="Avg workspace: 12 m²" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+              <input defaultValue="Student availability: posted hours" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload: Facilities Report.pdf
+              </button>
+              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={14} /> AI Extract counts & adequacy
+              </button>
+            </div>
+          </div>
+
+          <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', marginBottom: '14px', backgroundColor: colors.lightGray }}>
+            <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Classrooms</div>
+            <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Table for quick data entry. Upload “Classroom Equipment List.xlsx” or “Timetable Summary.pdf.” AI fills capacities, network access, and equipment automatically.</p>
+            <div style={{ marginTop: '10px', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'white', color: colors.darkGray }}>
+                    {['Room', 'Capacity', 'Multimedia', 'Internet Access', 'Typical Use', 'Adequacy Comments'].map((h) => (
+                      <th key={h} style={{ padding: '10px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[{ room: 'ENG 203', capacity: '45', multimedia: 'Projector + Audio', internet: 'Wi‑Fi + LAN', use: 'Core lectures', adequacy: 'Ready' }, { room: 'ENG 305', capacity: '60', multimedia: 'Smart board', internet: 'Wi‑Fi', use: 'Large lectures', adequacy: 'Upgrade AV planned' }].map((row) => (
+                    <tr key={row.room} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '10px' }}>{row.room}</td>
+                      <td style={{ padding: '10px' }}>{row.capacity}</td>
+                      <td style={{ padding: '10px' }}>{row.multimedia}</td>
+                      <td style={{ padding: '10px' }}>{row.internet}</td>
+                      <td style={{ padding: '10px' }}>{row.use}</td>
+                      <td style={{ padding: '10px', color: colors.mediumGray }}>{row.adequacy}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload equipment/timetable
+              </button>
+              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={14} /> AI Extract classroom details
+              </button>
+            </div>
+          </div>
+
+          <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
+            <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Laboratories (+ Appendix C Generator)</div>
+            <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Each lab row shows linked courses from ☰ Courses. Upload inventories and AI fills hardware/software lists. Generate Appendix C automatically.</p>
+            <div style={{ marginTop: '10px', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'white', color: colors.darkGray }}>
+                    {['Lab Name', 'Room', 'Category', 'Hardware List', 'Software List', 'Open Hours', 'Courses Using Lab'].map((h) => (
+                      <th key={h} style={{ padding: '10px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[{ lab: 'Embedded Systems Lab', room: 'ENG B12', cat: 'Electrical/Computer', hardware: 'Oscilloscopes, FPGA kits, logic analyzers', software: 'Keil, Vivado, MATLAB', hours: 'Mon–Fri 8:00–18:00', courses: 'EECE 320, EECE 401' }, { lab: 'Networks Lab', room: 'ENG C08', cat: 'Comm/Networking', hardware: 'Routers, switches, Wi‑Fi controllers', software: 'Packet Tracer, GNS3', hours: 'Mon–Fri 9:00–19:00', courses: 'EECE 311, EECE 350' }].map((row) => (
+                    <tr key={row.lab} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '10px' }}>{row.lab}</td>
+                      <td style={{ padding: '10px' }}>{row.room}</td>
+                      <td style={{ padding: '10px' }}>{row.cat}</td>
+                      <td style={{ padding: '10px', color: colors.mediumGray }}>{row.hardware}</td>
+                      <td style={{ padding: '10px', color: colors.mediumGray }}>{row.software}</td>
+                      <td style={{ padding: '10px' }}>{row.hours}</td>
+                      <td style={{ padding: '10px' }}>{row.courses}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload inventory spreadsheets
+              </button>
+              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={14} /> AI Extract hardware/software
+              </button>
+              <button style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <FileText size={14} /> Generate Appendix C – Equipment List
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* B. Computing Resources */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>B. Computing Resources</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe computing infrastructure beyond specific labs. Labs defined in part A appear here automatically.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload IT Infrastructure Summary
+            </button>
+          </div>
+
+          <div style={{ marginTop: '12px', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: colors.lightGray, color: colors.darkGray }}>
+                  {['Resource', 'Location', 'Access Type (on-campus/VPN)', 'Hours Available', 'Adequacy Notes'].map((h) => (
+                    <th key={h} style={{ padding: '12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[{ resource: 'Virtual Compute Cluster', location: 'Data Center 2', access: 'VPN / Remote Desktop', hours: '24/7', adequacy: 'Handles high-load simulations; burst credits available.' }, { resource: 'Software License Server', location: 'Central IT', access: 'On-campus & VPN', hours: '24/7', adequacy: 'MATLAB, Cadence, Altium seats tracked; alerts on shortage.' }].map((row) => (
+                  <tr key={row.resource} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '12px' }}>{row.resource}</td>
+                    <td style={{ padding: '12px' }}>{row.location}</td>
+                    <td style={{ padding: '12px' }}>{row.access}</td>
+                    <td style={{ padding: '12px' }}>{row.hours}</td>
+                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.adequacy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* C. Guidance */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>C. Guidance</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Multi-line box for orientations/tutorials/safety training. Responsible faculty pulled from ☰ Faculty Members.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload Lab Manual.pdf
+            </button>
+          </div>
+          <textarea defaultValue="Orientation week 1; safety checklist required before lab access; Moodle video tutorials for software; refresher every semester." style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
+          <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+            <select style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }}>
+              {facultyMembers.map((f) => (
+                <option key={f.id}>{f.name} – safety lead</option>
+              ))}
+            </select>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Extract training schedule
+            </button>
+          </div>
+        </div>
+
+        {/* D. Maintenance and Upgrading */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Maintenance and Upgrading of Facilities</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe how the program keeps tools and resources current. Labs in part A automatically appear here.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload Maintenance Plan.xlsx
+            </button>
+          </div>
+          <textarea defaultValue="Policy: annual review with lab engineers + IT; procurement via university portal; emergency replacements within 2 weeks." style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
+          <div style={{ marginTop: '10px', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: colors.lightGray, color: colors.darkGray }}>
+                  {['Facility / Lab', 'Last Upgrade', 'Next Scheduled', 'Responsible Staff', 'Notes'].map((h) => (
+                    <th key={h} style={{ padding: '12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[{ lab: 'Embedded Systems Lab', last: 'Aug 2024', next: 'Jul 2026', resp: 'Eng. Rami (from sidebar)', notes: 'Oscilloscopes recalibrated; add FPGA boards' }, { lab: 'Networks Lab', last: 'Jan 2023', next: 'Dec 2024', resp: 'IT Ops + CCE TA team', notes: 'VPN routers refresh aligned with cybersecurity policy' }].map((row) => (
+                  <tr key={row.lab} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '12px' }}>{row.lab}</td>
+                    <td style={{ padding: '12px' }}>{row.last}</td>
+                    <td style={{ padding: '12px' }}>{row.next}</td>
+                    <td style={{ padding: '12px' }}>{row.resp}</td>
+                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.notes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Detect upgrade cycles
+            </button>
+            <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={14} /> Attach Procurement Policy.pdf
+            </button>
+          </div>
+        </div>
+
+        {/* E. Library Services */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>E. Library Services</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Summarize technical collections, e-resources, request process, and access hours/systems.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload Library Summary.pdf
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginTop: '12px' }}>
+            {[{ label: 'Technical collections and journals', value: 'IEEE, ACM, ASME current; 120+ titles updated yearly.' }, { label: 'Electronic databases and e-resources', value: 'Scopus, ScienceDirect, IEEE Xplore; VPN/EZproxy access.' }, { label: 'Process for faculty book requests', value: 'Online request via liaison librarian; average 2-week fulfillment.' }, { label: 'Access hours and systems (e-catalog, VPN)', value: 'Physical 8am–10pm; digital catalog 24/7; remote via VPN.' }].map((item) => (
+              <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
+                <textarea defaultValue={item.value} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              </div>
+            ))}
+          </div>
+          <button style={{ marginTop: '12px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Sparkles size={14} /> AI Extract titles & services
+          </button>
+        </div>
+
+        {/* F. Overall Comments */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>F. Overall Comments on Facilities</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Optional fields: how facilities support student outcomes, safety/inspection, and university policy compliance.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Upload size={16} /> Upload Safety Audit Report.pdf
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginTop: '12px' }}>
+            {[{ label: 'Facilities support student outcomes', value: 'Laboratories align to SO 1, 2, 4; design spaces support capstone needs.' }, { label: 'Safety and inspection processes', value: 'Annual inspections; weekly safety checks logged; PPE signage posted.' }, { label: 'Compliance with university policy', value: 'Follows university lab policy; evacuation drills each semester.' }].map((item) => (
+              <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
+                <textarea defaultValue={item.value} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px', justifyContent: 'flex-end' }}>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Create adequacy paragraph
+            </button>
+            <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Save size={16} /> Save Draft
+            </button>
+            <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Check size={16} /> Mark as Complete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Criterion 8 Page
+  const Criterion8Page = () => (
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
+      <GlobalHeader title="Criterion 8 – Institutional Support" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
+
+      <div style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Institutional Support Workspace</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Five-part layout (A–E) with uploads and AI Extract matching the dedicated page flow.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={16} />
+                Save Draft
+              </button>
+              <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={16} />
+                Mark as Complete
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* A. Leadership */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>A. Leadership</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe leadership structure, adequacy, and participation in decisions. Upload org charts or policies.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} /> Organizational Chart
+              </button>
+              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={14} /> AI Extract hierarchy
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {[{ label: 'Leadership structure (Program Chair, Department Head, Dean)', placeholder: 'Describe leadership roles and decision-making chain.' }, { label: 'Adequacy of leadership to ensure program quality and continuity', placeholder: 'Explain how leadership supports continuity and quality assurance.' }, { label: 'How leaders participate in curriculum and faculty decisions', placeholder: 'Document leadership involvement in curriculum and faculty processes.' }].map((item) => (
+              <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
+                <textarea placeholder={item.placeholder} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* B. Program Budget and Financial Support */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>B. Program Budget and Financial Support</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Four sub-parts (B1–B4) displayed as collapsible-style cards with uploads and AI summaries.</p>
+            </div>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Scan financial reports
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px' }}>
+            {[{
+              title: 'B1 – Budget Process and Continuity',
+              desc: 'Describe how annual budget is set, approved, and monitored.',
+              upload: 'Department Budget Policy.pdf',
+              ai: 'AI summarize recurring vs temporary funds'
+            }, {
+              title: 'B2 – Teaching Support',
+              desc: 'Explain support for teaching (graders, TAs, workshops, equipment).',
+              upload: 'TA Assignments.xlsx',
+              ai: 'AI summarize TAs, training, grants'
+            }, {
+              title: 'B3 – Infrastructure Funding',
+              desc: 'How the university funds maintenance and lab/facility upgrades.',
+              upload: 'Facilities Funding Plan.pdf',
+              ai: 'AI identify funding amounts and cycles'
+            }, {
+              title: 'B4 – Adequacy of Resources',
+              desc: 'Assess how current budget supports students achieving SOs.',
+              upload: 'Annual Assessment Report.pdf',
+              ai: 'AI pull students/credits/budget per student'
+            }].map((card) => (
+              <div key={card.title} style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                  <div>
+                    <div style={{ fontWeight: '800', color: colors.darkGray }}>{card.title}</div>
+                    <p style={{ color: colors.mediumGray, margin: '6px 0 10px 0', fontSize: '13px' }}>{card.desc}</p>
+                  </div>
+                  <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Upload size={14} /> {card.upload}
+                  </button>
+                </div>
+                <textarea placeholder="Enter details or paste summary" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+                <button style={{ marginTop: '10px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Sparkles size={14} /> {card.ai}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* C. Staffing */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>C. Staffing</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Summarize administrative and technical staff counts with roles and retention practices.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> HR Staff List.xlsx
+            </button>
+          </div>
+          <div style={{ marginTop: '12px', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ backgroundColor: colors.lightGray, color: colors.darkGray }}>
+                  {['Category', 'Number', 'Primary Role', 'Training / Retention Practices'].map((h) => (
+                    <th key={h} style={{ padding: '12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[{ category: 'Administrative', number: '4', role: 'Program coordinator, scheduling, student records', training: 'Annual HR workshops; cross-training plan' }, { category: 'Technical', number: '6', role: 'Lab engineers, equipment upkeep', training: 'Vendor certifications; safety refreshers' }, { category: 'Instructional Assistants', number: '10', role: 'Grading, lab supervision, tutorial sessions', training: 'TA orientation; mentorship with faculty' }].map((row) => (
+                  <tr key={row.category} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '12px', fontWeight: '700', color: colors.darkGray }}>{row.category}</td>
+                    <td style={{ padding: '12px' }}>{row.number}</td>
+                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.role}</td>
+                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.training}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <textarea placeholder="Additional narrative on staffing adequacy and linkage to ☰ Faculty Members" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '10px' }} />
+          <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Extract counts from HR list
+            </button>
+            <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={14} /> Attach Training Policy.pdf
+            </button>
+          </div>
+        </div>
+
+        {/* D. Faculty Hiring and Retention */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Faculty Hiring and Retention</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Sub-sections D1 (hiring process) and D2 (retention strategies) with uploads and AI extraction.</p>
+            </div>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI summarize policy
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {[{
+              title: 'D1 – Hiring Process',
+              placeholder: 'Describe recruitment procedure (advertising, committees, approvals).',
+              upload: 'Faculty Hiring Policy.pdf',
+              ai: 'AI summarize steps & timeline'
+            }, {
+              title: 'D2 – Retention Strategies',
+              placeholder: 'Explain promotion, recognition, salary review, mentorship systems.',
+              upload: 'Retention Plan.pdf',
+              ai: 'AI identify key benefits & retention methods'
+            }].map((card) => (
+              <div key={card.title} style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: '800', color: colors.darkGray }}>{card.title}</div>
+                  <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Upload size={14} /> {card.upload}
+                  </button>
+                </div>
+                <textarea placeholder={card.placeholder} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '10px' }} />
+                <button style={{ marginTop: '10px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Sparkles size={14} /> {card.ai}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* E. Support of Faculty Professional Development */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>E. Support of Faculty Professional Development</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Document support types, request/approval process, and funding activities.</p>
+            </div>
+            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Professional Development Policy.pdf
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {[{ label: 'Support types (sabbaticals, travel funds, workshops, seminars)', placeholder: 'List and describe available professional development supports.' }, { label: 'Process for request + approval', placeholder: 'Outline how faculty submit, approve, and track requests.' }, { label: 'Funding activity details (per year if available)', placeholder: 'Capture amounts, number of participants, and frequency.' }].map((item) => (
+              <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
+                <textarea placeholder={item.placeholder} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '12px', justifyContent: 'flex-end' }}>
+            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} /> AI Extract activities & funding
+            </button>
+            <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Save size={16} /> Save Draft
+            </button>
+            <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Check size={16} /> Mark as Complete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  // Appendices Page
+  const AppendicesPage = () => (
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
+      <GlobalHeader title="Appendices A & B" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
+
+      <div style={{ padding: '48px', maxWidth: '1200px', margin: '0 auto' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Appendix Dashboard</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Course syllabi pull from ☰ Courses; faculty vitae pull from ☰ Faculty Members.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Download size={16} />
+                Export All
+              </button>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Sparkles size={16} />
+                Auto-Gather Evidence
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>Appendix A – Course Syllabi</h3>
+                <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Auto-generated from unified syllabi; CLO→SO mapping imported from Criterion 3.</p>
+              </div>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Eye size={16} /> Preview PDF
+              </button>
+            </div>
+            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {courses.map((course) => (
+                <div key={course.id} style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '12px', backgroundColor: colors.lightGray }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: '800', color: colors.darkGray }}>{course.code} – {course.name}</div>
+                      <div style={{ color: colors.mediumGray, fontSize: '13px' }}>Credits & contact hours imported from course record; topics extracted from syllabi uploads.</div>
+                    </div>
+                    <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Sparkles size={14} /> Generate 2-page layout
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>Appendix B – Faculty Vitae</h3>
+                <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>CV uploads from ☰ Faculty Members feed the 10 ABET sections automatically.</p>
+              </div>
+              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Download size={16} /> Generate All Vitae
+              </button>
+            </div>
+            <div style={{ marginTop: '12px', border: `1px solid ${colors.border}`, borderRadius: '10px', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: colors.primary, color: 'white' }}>
+                    <th style={{ padding: '12px', textAlign: 'left' }}>Faculty Name</th>
+                    <th style={{ padding: '12px', textAlign: 'left' }}>Rank</th>
+                    <th style={{ padding: '12px', textAlign: 'left' }}>Vitae Status</th>
+                    <th style={{ padding: '12px', textAlign: 'left' }}>Last Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {facultyMembers.map((faculty) => (
+                    <tr key={faculty.id} style={{ borderBottom: `1px solid ${colors.border}`, backgroundColor: 'white' }}>
+                      <td style={{ padding: '12px', fontWeight: '700', color: colors.darkGray }}>{faculty.name}</td>
+                      <td style={{ padding: '12px', color: colors.mediumGray }}>{faculty.rank}</td>
+                      <td style={{ padding: '12px', color: colors.success, fontWeight: '700' }}>✅ Ready</td>
+                      <td style={{ padding: '12px', color: colors.mediumGray }}>Oct 2025</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   // Evidence Library Page
   const EvidencePage = () => (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
@@ -3548,8 +4287,16 @@ const AUBAccreditationSystem = () => {
         return <BackgroundPage />;
       case 'criterion1':
         return <Criterion1Page />;
+      case 'criterion2':
+        return <Criterion2Page />;
       case 'criterion3':
         return <Criterion3Page />;
+      case 'criterion7':
+        return <Criterion7Page />;
+      case 'criterion8':
+        return <Criterion8Page />;
+      case 'appendices':
+        return <AppendicesPage />;
       case 'evidence':
         return <EvidencePage />;
       default:
@@ -3579,7 +4326,11 @@ const AUBAccreditationSystem = () => {
           <option value="fullReport">Full Report (100%)</option>
           <option value="background">Background Info</option>
           <option value="criterion1">Criterion 1</option>
+          <option value="criterion2">Criterion 2</option>
           <option value="criterion3">Criterion 3</option>
+          <option value="criterion7">Criterion 7</option>
+          <option value="criterion8">Criterion 8</option>
+          <option value="appendices">Appendices</option>
           <option value="evidence">Evidence Library</option>
         </select>
         {currentPage !== 'login' && (
