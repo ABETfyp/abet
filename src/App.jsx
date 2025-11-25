@@ -3167,9 +3167,9 @@ const AUBAccreditationSystem = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
-            <textarea placeholder="Admission Requirements (e.g., grades, entrance exams)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Grades, national entrance exam, English proficiency, and portfolio for selected tracks." />
-            <textarea placeholder="Admission Process Summary (online application, interview, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Online application → automated eligibility check → committee review → interview for conditional admits." />
-            <textarea placeholder="Transfer Pathways (if applicable)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Internal transfers permitted after first year with GPA threshold; external transfers follow course-by-course mapping." />
+            <textarea placeholder="Admission Requirements (e.g., grades, entrance exams)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Admission Process Summary (online application, interview, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Transfer Pathways (if applicable)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
           </div>
         </div>
 
@@ -3193,9 +3193,9 @@ const AUBAccreditationSystem = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
-            <textarea placeholder="Process for evaluating academic performance" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Advisors monitor GPA, degree audit, and course repeats; probation triggers mandatory plans." />
-            <textarea placeholder="How prerequisites are verified" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Registration system blocks without prerequisites; overrides require advisor approval." />
-            <textarea placeholder="What happens when prerequisites are not met" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Conditional enrollment allowed with parallel prerequisite completion; otherwise course dropped." />
+            <textarea placeholder="Process for evaluating academic performance" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="How prerequisites are verified" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="What happens when prerequisites are not met" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
           </div>
         </div>
 
@@ -3219,9 +3219,9 @@ const AUBAccreditationSystem = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
-            <textarea placeholder="Transfer policy summary" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Transfer credit accepted from accredited institutions; minimum grade requirement enforced." />
-            <textarea placeholder="Evaluation process for transfer credits" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Course equivalence validated by chair using syllabi and lab parity; dean approval recorded." />
-            <textarea placeholder="State or institutional articulation agreements" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Regional articulation lists maintained; pre-approved pathways noted for community colleges." />
+            <textarea placeholder="Transfer policy summary" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Evaluation process for transfer credits" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="State or institutional articulation agreements" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
           </div>
         </div>
 
@@ -3245,9 +3245,9 @@ const AUBAccreditationSystem = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
-            <textarea placeholder="Who provides advising (faculty, department, college advisor, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Faculty advisors per cohort, department coordinator, and college career center." />
-            <textarea placeholder="How often advising sessions occur" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Start-of-term planning, midterm checkpoints, and pre-graduation audits." />
-            <textarea placeholder="Description of career guidance services" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Career coaching, internship pipeline, employer info sessions, and alumni panels." />
+            <textarea placeholder="Who provides advising (faculty, department, college advisor, etc.)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="How often advising sessions occur" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Description of career guidance services" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
           </div>
           <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: aligns with advising resources and evidence already uploaded; can reuse data from faculty and career center materials.</p>
         </div>
@@ -3272,8 +3272,8 @@ const AUBAccreditationSystem = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
-            <textarea placeholder="Policies for advanced placement, test-out, dual enrollment, or work experience" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Advanced placement via AP/IB; credit for industry experience with documented outcomes; exam-based test-out allowed." />
-            <textarea placeholder="Approval process and documentation required" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Submit portfolio or exam results; committee validates outcomes and dean signs approvals." />
+            <textarea placeholder="Policies for advanced placement, test-out, dual enrollment, or work experience" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Approval process and documentation required" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
           </div>
         </div>
 
@@ -3297,10 +3297,10 @@ const AUBAccreditationSystem = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
-            <textarea placeholder="Minimum required credits" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Minimum 143 credits including math, science, engineering topics, and general education." />
-            <textarea placeholder="Required GPA or standing" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Cumulative GPA ≥ 2.0 with satisfactory standing in program core." />
-            <textarea placeholder="List of essential courses / categories" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Mathematics, basic sciences, engineering topics, design sequence, capstone, general education." />
-            <textarea placeholder="Degree name (e.g., Bachelor of Engineering in CCE)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Bachelor of Engineering in Computer & Communication Engineering" />
+            <textarea placeholder="Minimum required credits" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Required GPA or standing" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="List of essential courses / categories" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Degree name (e.g., Bachelor of Engineering in CCE)" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
           </div>
           <p style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '10px' }}>Connected Feature: pulls total credits and curriculum details directly from Curriculum Overview in Background Info and Courses section (Table 5-1).</p>
         </div>
@@ -3325,8 +3325,8 @@ const AUBAccreditationSystem = () => {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '14px' }}>
-            <textarea placeholder="Explanation of transcript format" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Transcripts list official degree title, program options, and academic standing; electronic and sealed versions available." />
-            <textarea placeholder="Statement of how degree/program name appears" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} defaultValue="Appears as Bachelor of Engineering in Computer & Communication Engineering; options appended in parentheses." />
+            <textarea placeholder="Explanation of transcript format" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+            <textarea placeholder="Statement of how degree/program name appears" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', border: `1px solid ${colors.border}`, borderRadius: '8px', backgroundColor: colors.lightGray }}>
               <input type="checkbox" id="initialAccreditation" />
               <label htmlFor="initialAccreditation" style={{ color: colors.darkGray, fontWeight: '600' }}>Initial Accreditation (if first cycle)</label>
@@ -3582,9 +3582,9 @@ const AUBAccreditationSystem = () => {
             <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Offices</div>
             <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Describe faculty, administrative, and TA offices; include size and distribution.</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginTop: '10px' }}>
-              <input defaultValue="Total offices: 32" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
-              <input defaultValue="Avg workspace: 12 m²" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
-              <input defaultValue="Student availability: posted hours" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+              <input placeholder="Total number of offices" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+              <input placeholder="Average workspace size" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+              <input placeholder="Student availability details" style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
             </div>
             <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
               <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -3720,7 +3720,7 @@ const AUBAccreditationSystem = () => {
               <Upload size={16} /> Upload Lab Manual.pdf
             </button>
           </div>
-          <textarea defaultValue="Orientation week 1; safety checklist required before lab access; Moodle video tutorials for software; refresher every semester." style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
+          <textarea placeholder="Describe orientations / tutorials / safety training" style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
           <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
             <select style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }}>
               {facultyMembers.map((f) => (
@@ -3744,7 +3744,7 @@ const AUBAccreditationSystem = () => {
               <Upload size={16} /> Upload Maintenance Plan.xlsx
             </button>
           </div>
-          <textarea defaultValue="Policy: annual review with lab engineers + IT; procurement via university portal; emergency replacements within 2 weeks." style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
+          <textarea placeholder="Describe maintenance policy and upgrade cadence" style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
           <div style={{ marginTop: '10px', overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
@@ -3789,10 +3789,10 @@ const AUBAccreditationSystem = () => {
             </button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginTop: '12px' }}>
-            {[{ label: 'Technical collections and journals', value: 'IEEE, ACM, ASME current; 120+ titles updated yearly.' }, { label: 'Electronic databases and e-resources', value: 'Scopus, ScienceDirect, IEEE Xplore; VPN/EZproxy access.' }, { label: 'Process for faculty book requests', value: 'Online request via liaison librarian; average 2-week fulfillment.' }, { label: 'Access hours and systems (e-catalog, VPN)', value: 'Physical 8am–10pm; digital catalog 24/7; remote via VPN.' }].map((item) => (
+            {[{ label: 'Technical collections and journals' }, { label: 'Electronic databases and e-resources' }, { label: 'Process for faculty book requests' }, { label: 'Access hours and systems (e-catalog, VPN)' }].map((item) => (
               <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
-                <textarea defaultValue={item.value} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+                <textarea placeholder={item.label} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
               </div>
             ))}
           </div>
@@ -3813,10 +3813,10 @@ const AUBAccreditationSystem = () => {
             </button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginTop: '12px' }}>
-            {[{ label: 'Facilities support student outcomes', value: 'Laboratories align to SO 1, 2, 4; design spaces support capstone needs.' }, { label: 'Safety and inspection processes', value: 'Annual inspections; weekly safety checks logged; PPE signage posted.' }, { label: 'Compliance with university policy', value: 'Follows university lab policy; evacuation drills each semester.' }].map((item) => (
+            {[{ label: 'Facilities support student outcomes' }, { label: 'Safety and inspection processes' }, { label: 'Compliance with university policy' }].map((item) => (
               <div key={item.label} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>{item.label}</label>
-                <textarea defaultValue={item.value} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+                <textarea placeholder={item.label} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
               </div>
             ))}
           </div>
