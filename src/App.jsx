@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, Menu, X, Upload, Search, Check, Clock, AlertCircle, FileText, Users, BookOpen, Database, Plus, Edit, Trash2, Download, Eye, Save } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ChevronRight, ChevronDown, Menu, X, Upload, Search, Check, Clock, AlertCircle, FileText, Users, BookOpen, Database, Plus, Edit, Trash2, Download, Eye, Save, ShieldCheck, Mail, Lock, Award, Globe2, Cpu, Cog, FlaskConical, CheckCircle2, Sparkles, LayoutGrid, ClipboardList } from 'lucide-react';
 
 const AUBAccreditationSystem = () => {
   const [currentPage, setCurrentPage] = useState('login');
@@ -11,6 +11,19 @@ const AUBAccreditationSystem = () => {
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [selectedInstructor, setSelectedInstructor] = useState(null);
   const [syllabusMode, setSyllabusMode] = useState(null);
+
+  // Typography
+  const fontStack = '"Manrope", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif';
+
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap';
+    document.head.appendChild(link);
+    return () => {
+      document.head.removeChild(link);
+    };
+  }, []);
 
   // AUB Color Scheme - Professional Palette
   const colors = {
@@ -89,80 +102,124 @@ const AUBAccreditationSystem = () => {
 
   // Page 1: Login Page
   const LoginPage = () => (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: colors.lightGray, fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: `radial-gradient(circle at 10% 20%, ${colors.softHighlight}, transparent 45%), radial-gradient(circle at 90% 10%, rgba(107, 15, 42, 0.08), transparent 35%), ${colors.lightGray}`, fontFamily: fontStack }}>
       {/* Header */}
-      <div style={{ backgroundColor: colors.primary, padding: '24px 48px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-        <div style={{ backgroundColor: 'white', width: '70px', height: '70px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-          <div style={{ width: '45px', height: '45px', borderRadius: '50%', backgroundColor: colors.primary }}></div>
+      <div style={{ background: `linear-gradient(120deg, ${colors.primaryDark} 0%, ${colors.primary} 60%, #9b1a43 100%)`, padding: '24px 48px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 28px rgba(0,0,0,0.18)' }}>
+        <div style={{ backgroundColor: 'rgba(255,255,255,0.12)', width: '74px', height: '74px', borderRadius: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '20px', boxShadow: '0 8px 26px rgba(0,0,0,0.18)', border: '1px solid rgba(255,255,255,0.2)' }}>
+          <div style={{ width: '46px', height: '46px', borderRadius: '16px', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 30px rgba(0,0,0,0.22)' }}>
+            <ShieldCheck size={28} color={colors.primary} />
+          </div>
         </div>
         <div>
-          <div style={{ color: 'white', fontSize: '24px', fontWeight: '700', letterSpacing: '0.5px' }}>AMERICAN UNIVERSITY OF BEIRUT</div>
-          <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: '13px', fontWeight: '400', marginTop: '4px', letterSpacing: '1px' }}>FACULTY OF ENGINEERING</div>
+          <div style={{ color: 'white', fontSize: '24px', fontWeight: '800', letterSpacing: '0.5px' }}>AMERICAN UNIVERSITY OF BEIRUT</div>
+          <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: '13px', fontWeight: '500', marginTop: '6px', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sparkles size={16} /> FACULTY OF ENGINEERING
+          </div>
         </div>
       </div>
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 40px' }}>
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', padding: '60px', width: '100%', maxWidth: '480px', border: `1px solid ${colors.border}` }}>
-          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <h1 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '700', marginBottom: '12px', letterSpacing: '-0.5px' }}>ABET Accreditation Portal</h1>
-            <p style={{ color: colors.mediumGray, fontSize: '15px', fontWeight: '400', lineHeight: '1.5' }}>Sign in with your university credentials</p>
+        <div style={{ backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 30px 80px rgba(0,0,0,0.12)', padding: '56px', width: '100%', maxWidth: '520px', border: `1px solid ${colors.border}`, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(circle at 20% 0%, ${colors.softHighlight}, transparent 30%)` }}></div>
+          <div style={{ textAlign: 'center', marginBottom: '40px', position: 'relative' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '64px', height: '64px', borderRadius: '18px', backgroundColor: colors.softHighlight, color: colors.primary, marginBottom: '16px', boxShadow: '0 10px 30px rgba(0,0,0,0.08)' }}>
+              <LayoutGrid size={28} />
+            </div>
+            <h1 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '800', marginBottom: '10px', letterSpacing: '-0.5px' }}>ABET Accreditation Portal</h1>
+            <p style={{ color: colors.mediumGray, fontSize: '15px', fontWeight: '500', lineHeight: '1.6' }}>Securely access accreditation workflows and resources</p>
           </div>
 
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', color: colors.darkGray, fontSize: '14px', fontWeight: '600', marginBottom: '10px' }}>University Email</label>
-            <input 
-              type="email" 
-              placeholder="username@aub.edu.lb"
-              style={{ 
-                width: '100%', 
-                padding: '14px 16px', 
-                border: `1px solid ${colors.border}`, 
-                borderRadius: '6px', 
-                fontSize: '15px',
-                fontFamily: 'inherit',
-                transition: 'border-color 0.2s',
-                outline: 'none'
-              }}
-            />
+          <div style={{ marginBottom: '24px', position: 'relative' }}>
+            <label style={{ display: 'block', color: colors.darkGray, fontSize: '14px', fontWeight: '700', marginBottom: '10px', letterSpacing: '-0.2px' }}>University Email</label>
+            <div style={{ position: 'relative' }}>
+              <Mail size={18} color={colors.mediumGray} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="email"
+                placeholder="username@aub.edu.lb"
+                style={{
+                  width: '100%',
+                  padding: '14px 16px 14px 42px',
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: '10px',
+                  fontSize: '15px',
+                  fontFamily: 'inherit',
+                  transition: 'border-color 0.2s, box-shadow 0.2s',
+                  outline: 'none',
+                  backgroundColor: colors.lightGray
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = colors.primary;
+                  e.target.style.boxShadow = `0 0 0 3px ${colors.softHighlight}`;
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = colors.border;
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
           </div>
 
-          <div style={{ marginBottom: '32px' }}>
-            <label style={{ display: 'block', color: colors.darkGray, fontSize: '14px', fontWeight: '600', marginBottom: '10px' }}>Password</label>
-            <input 
-              type="password" 
-              placeholder="Enter your password"
-              style={{ 
-                width: '100%', 
-                padding: '14px 16px', 
-                border: `1px solid ${colors.border}`, 
-                borderRadius: '6px', 
-                fontSize: '15px',
-                fontFamily: 'inherit',
-                transition: 'border-color 0.2s',
-                outline: 'none'
-              }}
-            />
+          <div style={{ marginBottom: '32px', position: 'relative' }}>
+            <label style={{ display: 'block', color: colors.darkGray, fontSize: '14px', fontWeight: '700', marginBottom: '10px', letterSpacing: '-0.2px' }}>Password</label>
+            <div style={{ position: 'relative' }}>
+              <Lock size={18} color={colors.mediumGray} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="password"
+                placeholder="Enter your password"
+                style={{
+                  width: '100%',
+                  padding: '14px 16px 14px 42px',
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: '10px',
+                  fontSize: '15px',
+                  fontFamily: 'inherit',
+                  transition: 'border-color 0.2s, box-shadow 0.2s',
+                  outline: 'none',
+                  backgroundColor: colors.lightGray
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = colors.primary;
+                  e.target.style.boxShadow = `0 0 0 3px ${colors.softHighlight}`;
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = colors.border;
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
           </div>
 
-          <button 
+          <button
             onClick={() => setCurrentPage('selection')}
-            style={{ 
-              width: '100%', 
-              backgroundColor: colors.primary, 
-              color: 'white', 
-              padding: '16px', 
-              border: 'none', 
-              borderRadius: '6px', 
-              fontSize: '15px', 
-              fontWeight: '600', 
-              cursor: 'pointer', 
-              transition: 'background-color 0.2s',
-              letterSpacing: '0.3px'
+            style={{
+              width: '100%',
+              background: `linear-gradient(135deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)`,
+              color: 'white',
+              padding: '16px',
+              border: 'none',
+              borderRadius: '12px',
+              fontSize: '15px',
+              fontWeight: '700',
+              cursor: 'pointer',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              letterSpacing: '0.3px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              boxShadow: '0 12px 30px rgba(139,21,56,0.35)'
             }}
-            onMouseEnter={(e) => e.target.style.backgroundColor = colors.primaryDark}
-            onMouseLeave={(e) => e.target.style.backgroundColor = colors.primary}
+            onMouseEnter={(e) => {
+              e.target.style.transform = 'translateY(-1px)';
+              e.target.style.boxShadow = '0 16px 36px rgba(139,21,56,0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 12px 30px rgba(139,21,56,0.35)';
+            }}
           >
+            <ShieldCheck size={18} />
             Sign In
           </button>
 
@@ -184,30 +241,31 @@ const AUBAccreditationSystem = () => {
     <div style={{
       minHeight: '100vh',
       background: `linear-gradient(135deg, ${colors.lightGray} 0%, #ffffff 100%)`,
-      fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif'
+      fontFamily: fontStack
     }}>
       {/* Header */}
       <div style={{
-        backgroundColor: colors.primary,
+        background: `linear-gradient(120deg, ${colors.primaryDark} 0%, ${colors.primary} 60%, #9b1a43 100%)`,
         padding: '20px 48px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.15)'
+        boxShadow: '0 14px 34px rgba(0,0,0,0.18)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <div style={{
-            backgroundColor: 'white',
-            width: '44px',
-            height: '44px',
-            borderRadius: '50%',
+            backgroundColor: 'rgba(255,255,255,0.16)',
+            width: '48px',
+            height: '48px',
+            borderRadius: '14px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             marginRight: '16px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.12)'
+            boxShadow: '0 10px 24px rgba(0,0,0,0.18)',
+            border: '1px solid rgba(255,255,255,0.25)'
           }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: colors.primary, boxShadow: '0 0 0 6px rgba(255,255,255,0.6)' }}></div>
+            <ShieldCheck size={26} color="white" />
           </div>
           <div>
             <div style={{ color: 'white', fontSize: '17px', fontWeight: '700', letterSpacing: '0.3px' }}>ABET Accreditation System</div>
@@ -248,14 +306,22 @@ const AUBAccreditationSystem = () => {
                 transition: 'transform 0.2s, box-shadow 0.2s',
                 textAlign: 'center',
                 boxShadow: '0 14px 28px rgba(139,21,56,0.24)',
-                backdropFilter: 'blur(2px)'
+                backdropFilter: 'blur(2px)',
+                position: 'relative',
+                overflow: 'hidden'
               }}
             >
-              <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px', letterSpacing: '1px' }}>ABET</div>
-              <div style={{ fontSize: '13px', opacity: 0.9, fontWeight: '400' }}>Engineering Programs</div>
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.08), transparent 45%)' }}></div>
+              <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '58px', height: '58px', borderRadius: '16px', backgroundColor: 'rgba(255,255,255,0.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 30px rgba(0,0,0,0.18)' }}>
+                  <Award size={28} />
+                </div>
+                <div style={{ fontSize: '18px', fontWeight: '800', letterSpacing: '1px' }}>ABET</div>
+                <div style={{ fontSize: '13px', opacity: 0.9, fontWeight: '500' }}>Engineering Programs</div>
+              </div>
             </button>
 
-            <button 
+            <button
               disabled
               style={{
                 backgroundColor: colors.lightGray,
@@ -268,11 +334,14 @@ const AUBAccreditationSystem = () => {
                 boxShadow: '0 6px 18px rgba(0,0,0,0.04)'
               }}
             >
-              <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px', letterSpacing: '1px' }}>AACSB</div>
-              <div style={{ fontSize: '13px', fontWeight: '400' }}>Coming Soon</div>
+              <div style={{ width: '52px', height: '52px', borderRadius: '14px', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px auto', border: `1px solid ${colors.border}` }}>
+                <ClipboardList size={24} color={colors.mediumGray} />
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: '800', marginBottom: '6px', letterSpacing: '1px' }}>AACSB</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: colors.mediumGray }}>Coming Soon</div>
             </button>
 
-            <button 
+            <button
               disabled
               style={{
                 backgroundColor: colors.lightGray,
@@ -285,8 +354,11 @@ const AUBAccreditationSystem = () => {
                 boxShadow: '0 6px 18px rgba(0,0,0,0.04)'
               }}
             >
-              <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px', letterSpacing: '1px' }}>MSCHE</div>
-              <div style={{ fontSize: '13px', fontWeight: '400' }}>Coming Soon</div>
+              <div style={{ width: '52px', height: '52px', borderRadius: '14px', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px auto', border: `1px solid ${colors.border}` }}>
+                <Globe2 size={24} color={colors.mediumGray} />
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: '800', marginBottom: '6px', letterSpacing: '1px' }}>MSCHE</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: colors.mediumGray }}>Coming Soon</div>
             </button>
           </div>
           </div>
@@ -336,21 +408,35 @@ const AUBAccreditationSystem = () => {
               overflow: 'hidden',
               background: 'white'
             }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: colors.primary }}></div>
-              <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', marginBottom: '20px', letterSpacing: '-0.2px' }}>Computer & Communication Engineering</h3>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: `linear-gradient(90deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)` }}></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: colors.softHighlight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.primary }}>
+                  <Cpu size={22} />
+                </div>
+                <div>
+                  <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', margin: 0, letterSpacing: '-0.2px' }}>Computer & Communication Engineering</h3>
+                  <div style={{ color: colors.mediumGray, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Undergraduate Program</div>
+                </div>
+              </div>
 
               <div style={{ marginBottom: '24px' }}>
                 <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: colors.lightGray, borderRadius: '8px', border: `1px solid ${colors.border}` }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2022-2024</span>
-                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Check size={14} /> Completed
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle2 size={16} color={colors.primary} />
+                      ABET 2022-2024
+                    </span>
+                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', backgroundColor: 'rgba(40,167,69,0.08)', borderRadius: '999px' }}>
+                      <ShieldCheck size={14} /> Completed
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: '#FFF8E1', borderRadius: '8px', border: '1px solid #FFE082' }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2025-2027</span>
-                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '700' }}>In Progress (45%)</span>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Clock size={16} color="#F57C00" />
+                      ABET 2025-2027
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '800', padding: '6px 10px', backgroundColor: 'rgba(245,124,0,0.12)', borderRadius: '999px' }}>In Progress (45%)</span>
                   </div>
                 </div>
               </div>
@@ -400,21 +486,35 @@ const AUBAccreditationSystem = () => {
               overflow: 'hidden',
               background: 'white'
             }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: colors.primary }}></div>
-              <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', marginBottom: '20px', letterSpacing: '-0.2px' }}>Mechanical Engineering</h3>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: `linear-gradient(90deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)` }}></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: colors.softHighlight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.primary }}>
+                  <Cog size={22} />
+                </div>
+                <div>
+                  <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', margin: 0, letterSpacing: '-0.2px' }}>Mechanical Engineering</h3>
+                  <div style={{ color: colors.mediumGray, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Undergraduate Program</div>
+                </div>
+              </div>
 
               <div style={{ marginBottom: '24px' }}>
                 <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: colors.lightGray, borderRadius: '8px', border: `1px solid ${colors.border}` }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2021-2023</span>
-                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Check size={14} /> Completed
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle2 size={16} color={colors.primary} />
+                      ABET 2021-2023
+                    </span>
+                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', backgroundColor: 'rgba(40,167,69,0.08)', borderRadius: '999px' }}>
+                      <ShieldCheck size={14} /> Completed
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: '#FFF8E1', borderRadius: '8px', border: '1px solid #FFE082' }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2024-2026</span>
-                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '700' }}>Planning</span>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Clock size={16} color="#F57C00" />
+                      ABET 2024-2026
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '800', padding: '6px 10px', backgroundColor: 'rgba(245,124,0,0.12)', borderRadius: '999px' }}>Planning</span>
                   </div>
                 </div>
               </div>
@@ -465,21 +565,35 @@ const AUBAccreditationSystem = () => {
               overflow: 'hidden',
               background: 'white'
             }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: colors.primary }}></div>
-              <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', marginBottom: '20px', letterSpacing: '-0.2px' }}>Chemical Engineering</h3>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: `linear-gradient(90deg, ${colors.primary} 0%, ${colors.primaryDark} 100%)` }}></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: colors.softHighlight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.primary }}>
+                  <FlaskConical size={22} />
+                </div>
+                <div>
+                  <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', margin: 0, letterSpacing: '-0.2px' }}>Chemical Engineering</h3>
+                  <div style={{ color: colors.mediumGray, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>Undergraduate Program</div>
+                </div>
+              </div>
 
               <div style={{ marginBottom: '24px' }}>
                 <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: colors.lightGray, borderRadius: '8px', border: `1px solid ${colors.border}` }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2020-2022</span>
-                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Check size={14} /> Completed
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle2 size={16} color={colors.primary} />
+                      ABET 2020-2022
+                    </span>
+                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', backgroundColor: 'rgba(40,167,69,0.08)', borderRadius: '999px' }}>
+                      <ShieldCheck size={14} /> Completed
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: '#FFF8E1', borderRadius: '8px', border: '1px solid #FFE082' }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2023-2025</span>
-                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '700' }}>In Progress (20%)</span>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Clock size={16} color="#F57C00" />
+                      ABET 2023-2025
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '800', padding: '6px 10px', backgroundColor: 'rgba(245,124,0,0.12)', borderRadius: '999px' }}>In Progress (20%)</span>
                   </div>
                 </div>
               </div>
@@ -537,7 +651,7 @@ const AUBAccreditationSystem = () => {
       transition: 'left 0.3s ease-in-out',
       zIndex: 1000,
       overflowY: 'auto',
-      fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif'
+      fontFamily: fontStack
     }}>
       {/* Sidebar Header */}
       <div style={{ backgroundColor: colors.primary, padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -863,7 +977,7 @@ const AUBAccreditationSystem = () => {
             maxHeight: '90vh',
             overflow: 'auto',
             boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif'
+            fontFamily: fontStack
           }}>
           {/* Modal Header */}
           <div style={{ 
@@ -1695,7 +1809,7 @@ const AUBAccreditationSystem = () => {
             maxHeight: '90vh',
             overflow: 'auto',
             boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif'
+            fontFamily: fontStack
           }}>
           {/* Modal Header */}
           <div style={{ 
@@ -2383,7 +2497,7 @@ const AUBAccreditationSystem = () => {
             maxHeight: '90vh',
             overflow: 'auto',
             boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif'
+            fontFamily: fontStack
           }}>
           {/* Modal Header */}
           <div style={{ 
@@ -2586,7 +2700,7 @@ const AUBAccreditationSystem = () => {
     ];
 
     return (
-      <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+      <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
         <GlobalHeader title="ABET Accreditation System" showBackButton={false} />
 
         <div style={{ padding: '48px' }}>
@@ -2688,7 +2802,7 @@ const AUBAccreditationSystem = () => {
 
   // Background Information Page
   const BackgroundPage = () => (
-    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
       <GlobalHeader title="Background Information" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
 
       <div style={{ padding: '48px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -2867,7 +2981,7 @@ const AUBAccreditationSystem = () => {
 
   // Criterion 1 Page
   const Criterion1Page = () => (
-    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
       <GlobalHeader title="Criterion 1 – Students" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
 
       <div style={{ padding: '48px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -2983,7 +3097,7 @@ const AUBAccreditationSystem = () => {
 
   // Criterion 3 Page
   const Criterion3Page = () => (
-    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
       <GlobalHeader title="Criterion 3 – Student Outcomes" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
 
       <div style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
@@ -3193,7 +3307,7 @@ const AUBAccreditationSystem = () => {
 
   // Evidence Library Page
   const EvidencePage = () => (
-    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
       <GlobalHeader title="Evidence Library" subtitle="CCE - ABET 2025-2027" showBackButton={true} />
 
       <div style={{ padding: '48px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -3308,7 +3422,7 @@ const AUBAccreditationSystem = () => {
   };
 
   return (
-    <div style={{ fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+    <div style={{ fontFamily: fontStack }}>
       {renderPage()}
       {currentPage !== 'login' && <Sidebar />}
       {selectedFaculty && <FacultyProfileModal />}
