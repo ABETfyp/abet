@@ -24,7 +24,8 @@ const AUBAccreditationSystem = () => {
     success: '#28A745',
     warning: '#FFC107',
     danger: '#DC3545',
-    hover: '#F1F3F5'
+    hover: '#F1F3F5',
+    softHighlight: 'rgba(139, 21, 56, 0.06)'
   };
 
   // Sample Data
@@ -180,12 +181,33 @@ const AUBAccreditationSystem = () => {
 
   // Page 2: Selection Page
   const SelectionPage = () => (
-    <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif' }}>
+    <div style={{
+      minHeight: '100vh',
+      background: `linear-gradient(135deg, ${colors.lightGray} 0%, #ffffff 100%)`,
+      fontFamily: '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif'
+    }}>
       {/* Header */}
-      <div style={{ backgroundColor: colors.primary, padding: '20px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+      <div style={{
+        backgroundColor: colors.primary,
+        padding: '20px 48px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.15)'
+      }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <div style={{ backgroundColor: 'white', width: '44px', height: '44px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '16px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: colors.primary }}></div>
+          <div style={{
+            backgroundColor: 'white',
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: '16px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.12)'
+          }}>
+            <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: colors.primary, boxShadow: '0 0 0 6px rgba(255,255,255,0.6)' }}></div>
           </div>
           <div>
             <div style={{ color: 'white', fontSize: '17px', fontWeight: '700', letterSpacing: '0.3px' }}>ABET Accreditation System</div>
@@ -194,27 +216,39 @@ const AUBAccreditationSystem = () => {
         </div>
       </div>
 
-      <div style={{ padding: '48px' }}>
+      <div style={{ padding: '48px', maxWidth: '1280px', margin: '0 auto' }}>
         {/* Framework Selection */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '48px', marginBottom: '40px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: '16px',
+          padding: '48px',
+          marginBottom: '40px',
+          boxShadow: '0 14px 36px rgba(0,0,0,0.08)',
+          border: `1px solid ${colors.border}`,
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(circle at 20% 20%, ${colors.softHighlight}, transparent 45%)` }}></div>
+          <div style={{ position: 'relative' }}>
           <div style={{ marginBottom: '36px' }}>
             <h2 style={{ color: colors.darkGray, fontSize: '26px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.3px' }}>Select Accreditation Framework</h2>
             <p style={{ color: colors.mediumGray, fontSize: '15px', fontWeight: '400', margin: 0 }}>Choose the accreditation type for your program</p>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '24px' }}>
-            <button 
+            <button
               onClick={() => setCurrentPage('checklist')}
-              style={{ 
-                backgroundColor: colors.primary, 
-                color: 'white', 
-                padding: '36px', 
-                borderRadius: '10px', 
-                border: 'none', 
-                cursor: 'pointer', 
-                transition: 'transform 0.2s, box-shadow 0.2s', 
+              style={{
+                backgroundColor: colors.primary,
+                color: 'white',
+                padding: '36px',
+                borderRadius: '14px',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s',
                 textAlign: 'center',
-                boxShadow: '0 4px 12px rgba(139,21,56,0.2)'
+                boxShadow: '0 14px 28px rgba(139,21,56,0.24)',
+                backdropFilter: 'blur(2px)'
               }}
             >
               <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px', letterSpacing: '1px' }}>ABET</div>
@@ -223,14 +257,15 @@ const AUBAccreditationSystem = () => {
 
             <button 
               disabled
-              style={{ 
-                backgroundColor: colors.lightGray, 
-                color: colors.mediumGray, 
-                padding: '36px', 
-                borderRadius: '10px', 
-                border: `2px dashed ${colors.border}`, 
-                cursor: 'not-allowed', 
-                textAlign: 'center' 
+              style={{
+                backgroundColor: colors.lightGray,
+                color: colors.mediumGray,
+                padding: '36px',
+                borderRadius: '14px',
+                border: `2px dashed ${colors.border}`,
+                cursor: 'not-allowed',
+                textAlign: 'center',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.04)'
               }}
             >
               <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px', letterSpacing: '1px' }}>AACSB</div>
@@ -239,41 +274,50 @@ const AUBAccreditationSystem = () => {
 
             <button 
               disabled
-              style={{ 
-                backgroundColor: colors.lightGray, 
-                color: colors.mediumGray, 
-                padding: '36px', 
-                borderRadius: '10px', 
-                border: `2px dashed ${colors.border}`, 
-                cursor: 'not-allowed', 
-                textAlign: 'center' 
+              style={{
+                backgroundColor: colors.lightGray,
+                color: colors.mediumGray,
+                padding: '36px',
+                borderRadius: '14px',
+                border: `2px dashed ${colors.border}`,
+                cursor: 'not-allowed',
+                textAlign: 'center',
+                boxShadow: '0 6px 18px rgba(0,0,0,0.04)'
               }}
             >
               <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px', letterSpacing: '1px' }}>MSCHE</div>
               <div style={{ fontSize: '13px', fontWeight: '400' }}>Coming Soon</div>
             </button>
           </div>
+          </div>
         </div>
 
         {/* Programs */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '48px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+        <div style={{
+          backgroundColor: 'white',
+          borderRadius: '16px',
+          padding: '48px',
+          boxShadow: '0 14px 36px rgba(0,0,0,0.08)',
+          border: `1px solid ${colors.border}`
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '36px' }}>
             <div>
               <h2 style={{ color: colors.darkGray, fontSize: '26px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.3px' }}>Engineering Programs</h2>
               <p style={{ color: colors.mediumGray, fontSize: '15px', fontWeight: '400', margin: 0 }}>Select a program to view or start accreditation cycle</p>
             </div>
-            <button style={{ 
-              backgroundColor: colors.primary, 
-              color: 'white', 
-              padding: '12px 24px', 
-              borderRadius: '6px', 
-              border: 'none', 
-              cursor: 'pointer', 
-              fontWeight: '600',
+            <button style={{
+              backgroundColor: colors.primary,
+              color: 'white',
+              padding: '12px 24px',
+              borderRadius: '10px',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: '700',
               fontSize: '14px',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px'
+              gap: '8px',
+              boxShadow: '0 10px 24px rgba(139,21,56,0.25)'
             }}>
               <Plus size={18} />
               Add New Program
@@ -282,52 +326,193 @@ const AUBAccreditationSystem = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '24px' }}>
             {/* Program Card */}
-            <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '28px', transition: 'box-shadow 0.2s', cursor: 'pointer' }}>
-              <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '700', marginBottom: '20px', letterSpacing: '-0.2px' }}>Computer & Communication Engineering</h3>
-              
+            <div style={{
+              border: `1px solid ${colors.border}`,
+              borderRadius: '14px',
+              padding: '28px',
+              transition: 'box-shadow 0.2s, transform 0.2s',
+              cursor: 'pointer',
+              position: 'relative',
+              overflow: 'hidden',
+              background: 'white'
+            }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: colors.primary }}></div>
+              <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', marginBottom: '20px', letterSpacing: '-0.2px' }}>Computer & Communication Engineering</h3>
+
               <div style={{ marginBottom: '24px' }}>
-                <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
+                <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: colors.lightGray, borderRadius: '6px' }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '500' }}>ABET 2022-2024</span>
-                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: colors.lightGray, borderRadius: '8px', border: `1px solid ${colors.border}` }}>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2022-2024</span>
+                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <Check size={14} /> Completed
                     </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: '#FFF8E1', borderRadius: '6px', border: '1px solid #FFE082' }}>
-                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '500' }}>ABET 2025-2027</span>
-                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '600' }}>In Progress (45%)</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: '#FFF8E1', borderRadius: '8px', border: '1px solid #FFE082' }}>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2025-2027</span>
+                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '700' }}>In Progress (45%)</span>
                   </div>
                 </div>
               </div>
 
               <div style={{ display: 'flex', gap: '12px' }}>
-                <button 
+                <button
                   onClick={() => setCurrentPage('checklist')}
-                  style={{ 
-                    flex: 1, 
-                    backgroundColor: colors.primary, 
-                    color: 'white', 
-                    padding: '12px', 
-                    borderRadius: '6px', 
-                    border: 'none', 
-                    cursor: 'pointer', 
-                    fontWeight: '600',
-                    fontSize: '14px'
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.primary,
+                    color: 'white',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontWeight: '700',
+                    fontSize: '14px',
+                    boxShadow: '0 10px 20px rgba(139,21,56,0.2)'
                   }}
                 >
                   Open
                 </button>
-                <button style={{ 
-                  flex: 1, 
-                  backgroundColor: 'white', 
-                  color: colors.primary, 
-                  padding: '12px', 
-                  borderRadius: '6px', 
-                  border: `2px solid ${colors.primary}`, 
-                  cursor: 'pointer', 
-                  fontWeight: '600',
+                <button style={{
+                  flex: 1,
+                  backgroundColor: 'white',
+                  color: colors.primary,
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: `2px solid ${colors.primary}`,
+                  cursor: 'pointer',
+                  fontWeight: '700',
                   fontSize: '14px'
+                }}>
+                  New Cycle
+                </button>
+              </div>
+            </div>
+
+            {/* Program Card - Mechanical Engineering */}
+            <div style={{
+              border: `1px solid ${colors.border}`,
+              borderRadius: '14px',
+              padding: '28px',
+              transition: 'box-shadow 0.2s, transform 0.2s',
+              cursor: 'pointer',
+              position: 'relative',
+              overflow: 'hidden',
+              background: 'white'
+            }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: colors.primary }}></div>
+              <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', marginBottom: '20px', letterSpacing: '-0.2px' }}>Mechanical Engineering</h3>
+
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: colors.lightGray, borderRadius: '8px', border: `1px solid ${colors.border}` }}>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2021-2023</span>
+                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Check size={14} /> Completed
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: '#FFF8E1', borderRadius: '8px', border: '1px solid #FFE082' }}>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2024-2026</span>
+                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '700' }}>Planning</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.primary,
+                    color: 'white',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    cursor: 'default',
+                    fontWeight: '700',
+                    fontSize: '14px',
+                    boxShadow: '0 10px 20px rgba(139,21,56,0.2)',
+                    opacity: 0.85
+                  }}
+                >
+                  Open
+                </button>
+                <button style={{
+                  flex: 1,
+                  backgroundColor: 'white',
+                  color: colors.primary,
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: `2px solid ${colors.primary}`,
+                  cursor: 'default',
+                  fontWeight: '700',
+                  fontSize: '14px',
+                  opacity: 0.85
+                }}>
+                  New Cycle
+                </button>
+              </div>
+            </div>
+
+            {/* Program Card - Chemical Engineering */}
+            <div style={{
+              border: `1px solid ${colors.border}`,
+              borderRadius: '14px',
+              padding: '28px',
+              transition: 'box-shadow 0.2s, transform 0.2s',
+              cursor: 'pointer',
+              position: 'relative',
+              overflow: 'hidden',
+              background: 'white'
+            }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: colors.primary }}></div>
+              <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', marginBottom: '20px', letterSpacing: '-0.2px' }}>Chemical Engineering</h3>
+
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: colors.lightGray, borderRadius: '8px', border: `1px solid ${colors.border}` }}>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2020-2022</span>
+                    <span style={{ fontSize: '12px', color: colors.success, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Check size={14} /> Completed
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', backgroundColor: '#FFF8E1', borderRadius: '8px', border: '1px solid #FFE082' }}>
+                    <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '600' }}>ABET 2023-2025</span>
+                    <span style={{ fontSize: '12px', color: '#F57C00', fontWeight: '700' }}>In Progress (20%)</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  style={{
+                    flex: 1,
+                    backgroundColor: colors.primary,
+                    color: 'white',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    cursor: 'default',
+                    fontWeight: '700',
+                    fontSize: '14px',
+                    boxShadow: '0 10px 20px rgba(139,21,56,0.2)',
+                    opacity: 0.85
+                  }}
+                >
+                  Open
+                </button>
+                <button style={{
+                  flex: 1,
+                  backgroundColor: 'white',
+                  color: colors.primary,
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: `2px solid ${colors.primary}`,
+                  cursor: 'default',
+                  fontWeight: '700',
+                  fontSize: '14px',
+                  opacity: 0.85
                 }}>
                   New Cycle
                 </button>
