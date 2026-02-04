@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { colors, fontStack } from './styles/theme';
 import { useManropeFont } from './hooks/useManropeFont';
 import { apiRequest } from './utils/api';
-import { LoginPage, RegisterPage } from './pages/AuthPages';
+import { LoginPage } from './pages/AuthPages';
 import SelectionPage from './pages/SelectionPage';
 import ChecklistPage from './pages/ChecklistPage';
 import { FullReportPage, BackgroundPage } from './pages/ReportPages';
@@ -27,7 +27,29 @@ const AUBAccreditationSystem = () => {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [registerForm, setRegisterForm] = useState({ email: '', password: '', role: 'professor' });
+  const [programs, setPrograms] = useState([]);
+  const [selectedProgramId, setSelectedProgramId] = useState(null);
+  const [selectedCycleId, setSelectedCycleId] = useState(null);
+
+  const defaultChecklistItems = useMemo(
+    () => [
+      { name: 'Background Information', progress: 0 },
+      { name: 'Criterion 1 – Students', progress: 0 },
+      { name: 'Criterion 2 – Program Educational Objectives', progress: 0 },
+      { name: 'Criterion 3 – Student Outcomes', progress: 0 },
+      { name: 'Criterion 4 – Continuous Improvement', progress: 0 },
+      { name: 'Criterion 5 – Curriculum', progress: 0 },
+      { name: 'Criterion 6 – Faculty', progress: 0 },
+      { name: 'Criterion 7 – Facilities', progress: 0 },
+      { name: 'Criterion 8 – Institutional Support', progress: 0 },
+      { name: 'Appendices A & B', progress: 0 },
+      { name: 'Appendix C', progress: 0 },
+      { name: 'Appendix D', progress: 0 }
+    ],
+    []
+  );
+
+  const createChecklistItems = () => defaultChecklistItems.map((item) => ({ ...item }));
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -38,37 +60,21 @@ const AUBAccreditationSystem = () => {
         method: 'POST',
         body: JSON.stringify(loginForm)
       });
+      const role =
+        data?.role ||
+        data?.role_name ||
+        data?.user?.role ||
+        data?.user?.role_name ||
+        data?.user?.role?.name ||
+        data?.user?.role?.role_name;
+      if (!role || !`${role}`.toLowerCase().includes('admin')) {
+        throw new Error('Only ABET administrators can sign in.');
+      }
       localStorage.setItem('accessToken', data.access);
       localStorage.setItem('refreshToken', data.refresh);
       setCurrentPage('selection');
     } catch (error) {
       setAuthError(error.message || 'Login failed');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleRegister = async (event) => {
-    event.preventDefault();
-    setAuthLoading(true);
-    setAuthError('');
-    try {
-      await apiRequest('/auth/register/', {
-        method: 'POST',
-        body: JSON.stringify(registerForm)
-      });
-      const data = await apiRequest('/auth/login/', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: registerForm.email,
-          password: registerForm.password
-        })
-      });
-      localStorage.setItem('accessToken', data.access);
-      localStorage.setItem('refreshToken', data.refresh);
-      setCurrentPage('selection');
-    } catch (error) {
-      setAuthError(error.message || 'Signup failed');
     } finally {
       setAuthLoading(false);
     }
@@ -82,6 +88,55 @@ const AUBAccreditationSystem = () => {
   const handleToggleSidebar = () => setSidebarOpen((prev) => !prev);
   const handleBackToChecklist = () => setCurrentPage('checklist');
 
+  const handleAddProgram = ({ name, level, startYear, endYear }) => {
+    const newProgram = {
+      id: `program-${Date.now()}`,
+      name,
+      level,
+      cycles: [
+        {
+          id: `cycle-${Date.now()}`,
+          startYear,
+          endYear,
+          status: 'Planning',
+          overallProgress: 0,
+          lastUpdated: new Date().toISOString(),
+          checklist: createChecklistItems()
+        }
+      ]
+    };
+    setPrograms((prev) => [...prev, newProgram]);
+  };
+
+  const handleAddCycle = (programId, { startYear, endYear }) => {
+    setPrograms((prev) =>
+      prev.map((program) => {
+        if (program.id !== programId) return program;
+        return {
+          ...program,
+          cycles: [
+            ...program.cycles,
+            {
+              id: `cycle-${Date.now()}`,
+              startYear,
+              endYear,
+              status: 'Planning',
+              overallProgress: 0,
+              lastUpdated: new Date().toISOString(),
+              checklist: createChecklistItems()
+            }
+          ]
+        };
+      })
+    );
+  };
+
+  const handleOpenCycle = (programId, cycleId) => {
+    setSelectedProgramId(programId);
+    setSelectedCycleId(cycleId);
+    setCurrentPage('checklist');
+  };
+
   const renderPage = () => {
     switch (currentPage) {
       case 'login':
@@ -92,31 +147,28 @@ const AUBAccreditationSystem = () => {
             authError={authError}
             loginForm={loginForm}
             setLoginForm={setLoginForm}
-            setAuthError={setAuthError}
-            setCurrentPage={setCurrentPage}
             onForgotPassword={handleForgotPassword}
           />
         );
-      case 'register':
+      case 'selection':
         return (
-          <RegisterPage
-            handleRegister={handleRegister}
-            authLoading={authLoading}
-            authError={authError}
-            registerForm={registerForm}
-            setRegisterForm={setRegisterForm}
-            setAuthError={setAuthError}
-            setCurrentPage={setCurrentPage}
+          <SelectionPage
+            programs={programs}
+            onAddProgram={handleAddProgram}
+            onAddCycle={handleAddCycle}
+            onOpenCycle={handleOpenCycle}
           />
         );
-      case 'selection':
-        return <SelectionPage setCurrentPage={setCurrentPage} />;
       case 'checklist':
         return (
           <ChecklistPage
             setCurrentPage={setCurrentPage}
             onToggleSidebar={handleToggleSidebar}
             onBack={handleBackToChecklist}
+            program={programs.find((program) => program.id === selectedProgramId)}
+            cycle={programs
+              .find((program) => program.id === selectedProgramId)
+              ?.cycles.find((cycleItem) => cycleItem.id === selectedCycleId)}
           />
         );
       case 'fullReport':
@@ -161,8 +213,6 @@ const AUBAccreditationSystem = () => {
             authError={authError}
             loginForm={loginForm}
             setLoginForm={setLoginForm}
-            setAuthError={setAuthError}
-            setCurrentPage={setCurrentPage}
             onForgotPassword={handleForgotPassword}
           />
         );
@@ -172,7 +222,7 @@ const AUBAccreditationSystem = () => {
   return (
     <div style={{ fontFamily: fontStack }}>
       {renderPage()}
-      {currentPage !== 'login' && currentPage !== 'register' && (
+      {currentPage !== 'login' && (
         <Sidebar
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
@@ -222,10 +272,6 @@ const AUBAccreditationSystem = () => {
           onChange={(e) => setCurrentPage(e.target.value)}
           style={{ width: '220px', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: '500', marginBottom: '12px' }}
         >
-          <option value="login">Login</option>
-          <option value="register">Register</option>
-          <option value="selection">Framework Selection</option>
-          <option value="checklist">Checklist Dashboard</option>
           <option value="fullReport">Full Report</option>
           <option value="background">Background Info</option>
           <option value="criterion1">Criterion 1</option>
