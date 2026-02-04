@@ -3,31 +3,12 @@ import { Check, Clock, AlertCircle, FileText } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 
-  const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
-
-    const checklistItems = [
-
-      { name: 'Background Information', status: 'completed', progress: 100 },
-
-      { name: 'Criterion 1 – Students', status: 'completed', progress: 100 },
-
-      { name: 'Criterion 2 – Program Educational Objectives', status: 'in-progress', progress: 60 },
-
-      { name: 'Criterion 3 – Student Outcomes', status: 'in-progress', progress: 45 },
-
-      { name: 'Criterion 4 – Continuous Improvement', status: 'in-progress', progress: 30 },
-
-      { name: 'Criterion 5 – Curriculum', status: 'in-progress', progress: 55 },
-
-      { name: 'Criterion 6 – Faculty', status: 'not-started', progress: 0 },
-
-      { name: 'Criterion 7 – Facilities', status: 'not-started', progress: 0 },
-
-      { name: 'Criterion 8 – Institutional Support', status: 'not-started', progress: 0 },
-
-      { name: 'Appendices A & B', status: 'not-started', progress: 0 }
-
-    ];
+  const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack, program, cycle }) => {
+    const checklistItems = cycle?.checklist || [];
+    const totalProgress = checklistItems.length
+      ? Math.round(checklistItems.reduce((sum, item) => sum + item.progress, 0) / checklistItems.length)
+      : 0;
+    const lastUpdated = cycle?.lastUpdated ? new Date(cycle.lastUpdated).toLocaleDateString() : '—';
 
 
 
@@ -49,15 +30,19 @@ import { colors, fontStack } from '../styles/theme';
 
               <div>
 
-                <h2 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.4px' }}>Computer & Communication Engineering</h2>
+                <h2 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.4px' }}>
+                  {program?.name || 'Select a program'}
+                </h2>
 
-                <p style={{ color: colors.mediumGray, fontSize: '15px', margin: 0, fontWeight: '500' }}>ABET Cycle 2025-2027</p>
+                <p style={{ color: colors.mediumGray, fontSize: '15px', margin: 0, fontWeight: '500' }}>
+                  {cycle ? `ABET Cycle ${cycle.startYear}-${cycle.endYear}` : 'No cycle selected'}
+                </p>
 
               </div>
 
               <div style={{ textAlign: 'right' }}>
 
-                <div style={{ fontSize: '42px', fontWeight: '800', color: colors.primary, marginBottom: '4px', letterSpacing: '-1px' }}>45%</div>
+                <div style={{ fontSize: '42px', fontWeight: '800', color: colors.primary, marginBottom: '4px', letterSpacing: '-1px' }}>{totalProgress}%</div>
 
                 <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Overall Progress</div>
 
@@ -71,7 +56,7 @@ import { colors, fontStack } from '../styles/theme';
 
             <div style={{ height: '14px', backgroundColor: colors.lightGray, borderRadius: '7px', overflow: 'hidden', border: `1px solid ${colors.border}` }}>
 
-              <div style={{ width: '45%', height: '100%', backgroundColor: colors.primary, transition: 'width 0.3s' }}></div>
+              <div style={{ width: `${totalProgress}%`, height: '100%', backgroundColor: colors.primary, transition: 'width 0.3s' }}></div>
 
             </div>
 
@@ -79,7 +64,7 @@ import { colors, fontStack } from '../styles/theme';
 
             <div style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '12px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
 
-              <span>Last updated: November 25, 2025</span>
+              <span>Last updated: {lastUpdated}</span>
 
               <button
 
@@ -136,8 +121,15 @@ import { colors, fontStack } from '../styles/theme';
 
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {checklistItems.length === 0 && (
+                <div style={{ padding: '18px', borderRadius: '10px', border: `1px dashed ${colors.border}`, color: colors.mediumGray, fontWeight: '600', textAlign: 'center', backgroundColor: colors.lightGray }}>
+                  Select an ABET cycle to view its checklist sections.
+                </div>
+              )}
 
-              {checklistItems.map((item, index) => (
+              {checklistItems.map((item, index) => {
+                const status = item.progress === 100 ? 'completed' : item.progress > 0 ? 'in-progress' : 'not-started';
+                return (
 
                 <div 
 
@@ -163,6 +155,8 @@ import { colors, fontStack } from '../styles/theme';
 
                     else if (item.name.includes('Criterion 8')) setCurrentPage('criterion8');
 
+                    else if (item.name.includes('Appendix C')) setCurrentPage('appendixC');
+                    else if (item.name.includes('Appendix D')) setCurrentPage('appendixD');
                     else if (item.name.includes('Appendices')) setCurrentPage('appendices');
 
                   }}
@@ -193,11 +187,11 @@ import { colors, fontStack } from '../styles/theme';
 
                   <div style={{ marginRight: '20px' }}>
 
-                    {item.status === 'completed' && <Check size={28} color={colors.success} strokeWidth={3} />}
+                    {status === 'completed' && <Check size={28} color={colors.success} strokeWidth={3} />}
 
-                    {item.status === 'in-progress' && <Clock size={28} color={colors.warning} strokeWidth={2.5} />}
+                    {status === 'in-progress' && <Clock size={28} color={colors.warning} strokeWidth={2.5} />}
 
-                    {item.status === 'not-started' && <AlertCircle size={28} color={colors.mediumGray} strokeWidth={2} />}
+                    {status === 'not-started' && <AlertCircle size={28} color={colors.mediumGray} strokeWidth={2} />}
 
                   </div>
 
@@ -227,7 +221,7 @@ import { colors, fontStack } from '../styles/theme';
 
                         height: '100%', 
 
-                        backgroundColor: item.status === 'completed' ? colors.success : item.status === 'in-progress' ? colors.warning : colors.mediumGray,
+                        backgroundColor: status === 'completed' ? colors.success : status === 'in-progress' ? colors.warning : colors.mediumGray,
 
                         transition: 'width 0.3s'
 
@@ -265,13 +259,14 @@ import { colors, fontStack } from '../styles/theme';
 
                   }}>
 
-                    {item.status === 'not-started' ? 'Start' : 'View / Edit'}
+                    {status === 'not-started' ? 'Start' : 'View / Edit'}
 
                   </button>
 
                 </div>
 
-              ))}
+              );
+              })}
 
             </div>
 
