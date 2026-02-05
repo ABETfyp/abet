@@ -31,6 +31,27 @@ import { colors, fontStack } from '../styles/theme';
 
 
 
+    const resolvePage = (name) => {
+      if (name.includes('Background')) return 'background';
+      if (name.includes('Criterion 1')) return 'criterion1';
+      if (name.includes('Criterion 2')) return 'criterion2';
+      if (name.includes('Criterion 3')) return 'criterion3';
+      if (name.includes('Criterion 4')) return 'criterion4';
+      if (name.includes('Criterion 5')) return 'criterion5';
+      if (name.includes('Criterion 6')) return 'criterion6';
+      if (name.includes('Criterion 7')) return 'criterion7';
+      if (name.includes('Criterion 8')) return 'criterion8';
+      if (name.includes('Appendices')) return 'appendices';
+      return null;
+    };
+
+    const handleNavigate = (name) => {
+      const page = resolvePage(name);
+      if (page) {
+        setCurrentPage(page);
+      }
+    };
+
     return (
 
       <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
@@ -143,29 +164,7 @@ import { colors, fontStack } from '../styles/theme';
 
                   key={index}
 
-                  onClick={() => {
-
-                    if (item.name.includes('Background')) setCurrentPage('background');
-
-                    else if (item.name.includes('Criterion 1')) setCurrentPage('criterion1');
-
-                    else if (item.name.includes('Criterion 2')) setCurrentPage('criterion2');
-
-                    else if (item.name.includes('Criterion 3')) setCurrentPage('criterion3');
-
-                    else if (item.name.includes('Criterion 4')) setCurrentPage('criterion4');
-
-                    else if (item.name.includes('Criterion 5')) setCurrentPage('criterion5');
-
-                    else if (item.name.includes('Criterion 6')) setCurrentPage('criterion6');
-
-                    else if (item.name.includes('Criterion 7')) setCurrentPage('criterion7');
-
-                    else if (item.name.includes('Criterion 8')) setCurrentPage('criterion8');
-
-                    else if (item.name.includes('Appendices')) setCurrentPage('appendices');
-
-                  }}
+                  onClick={() => handleNavigate(item.name)}
 
                   style={{ 
 
@@ -241,7 +240,12 @@ import { colors, fontStack } from '../styles/theme';
 
                   {/* Action Button */}
 
-                  <button style={{ 
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleNavigate(item.name);
+                    }}
+                    style={{ 
 
                     marginLeft: '24px', 
 

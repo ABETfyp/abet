@@ -3,6 +3,18 @@ import { Upload, Download, Save, Check, ClipboardList, FileText, Plus, Edit, Eye
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 
+  const courses = [
+    { id: 'cce-210', code: 'EECE 210', name: 'Circuits I' },
+    { id: 'cce-320', code: 'EECE 320', name: 'Digital Systems' },
+    { id: 'math-201', code: 'MATH 201', name: 'Calculus I' }
+  ];
+
+  const facultyMembers = [
+    { id: 'f-1', name: 'Dr. Rami Khalil', rank: 'Associate Professor', department: 'Electrical Engineering' },
+    { id: 'f-2', name: 'Dr. Lina Saab', rank: 'Assistant Professor', department: 'Computer Engineering' },
+    { id: 'f-3', name: 'Dr. Omar Taha', rank: 'Professor', department: 'Mechanical Engineering' }
+  ];
+
   const Criterion1Page = ({ onToggleSidebar, onBack }) => (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>

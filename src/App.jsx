@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { colors, fontStack } from './styles/theme';
 import { useManropeFont } from './hooks/useManropeFont';
 import { apiRequest } from './utils/api';
@@ -12,10 +13,39 @@ import EvidencePage from './pages/EvidencePage';
 import Sidebar from './components/layout/Sidebar';
 import { SyllabusModal, FacultyProfileModal, CourseSummaryModal } from './components/modals/Modals';
 
+const pageToPath = {
+  login: '/login',
+  register: '/register',
+  selection: '/selection',
+  checklist: '/checklist',
+  fullReport: '/full-report',
+  background: '/background',
+  criterion1: '/criterion-1',
+  criterion2: '/criterion-2',
+  criterion3: '/criterion-3',
+  criterion4: '/criterion-4',
+  criterion5: '/criterion-5',
+  criterion6: '/criterion-6',
+  criterion7: '/criterion-7',
+  criterion8: '/criterion-8',
+  appendices: '/appendices',
+  appendixC: '/appendix-c',
+  appendixD: '/appendix-d',
+  evidence: '/evidence'
+};
+
+const pathToPage = Object.entries(pageToPath).reduce((acc, [key, value]) => {
+  acc[value] = key;
+  return acc;
+}, {});
+
 const AUBAccreditationSystem = () => {
   useManropeFont();
 
-  const [currentPage, setCurrentPage] = useState('login');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const initialPage = useMemo(() => pathToPage[location.pathname] || 'login', [location.pathname]);
+  const [currentPage, setCurrentPageState] = useState(initialPage);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [facultyExpanded, setFacultyExpanded] = useState(false);
   const [coursesExpanded, setCoursesExpanded] = useState(false);
@@ -28,6 +58,19 @@ const AUBAccreditationSystem = () => {
   const [authError, setAuthError] = useState('');
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [registerForm, setRegisterForm] = useState({ email: '', password: '', role: 'professor' });
+
+  const setCurrentPage = (page) => {
+    const target = pageToPath[page] || '/login';
+    setCurrentPageState(page);
+    navigate(target);
+  };
+
+  useEffect(() => {
+    const nextPage = pathToPage[location.pathname] || 'login';
+    if (nextPage !== currentPage) {
+      setCurrentPageState(nextPage);
+    }
+  }, [location.pathname, currentPage]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -171,7 +214,29 @@ const AUBAccreditationSystem = () => {
 
   return (
     <div style={{ fontFamily: fontStack }}>
-      {renderPage()}
+      <Routes>
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={renderPage()} />
+        <Route path="/register" element={renderPage()} />
+        <Route path="/selection" element={renderPage()} />
+        <Route path="/checklist" element={renderPage()} />
+        <Route path="/full-report" element={renderPage()} />
+        <Route path="/background" element={renderPage()} />
+        <Route path="/criterion-1" element={renderPage()} />
+        <Route path="/criterion-2" element={renderPage()} />
+        <Route path="/criterion-3" element={renderPage()} />
+        <Route path="/criterion-4" element={renderPage()} />
+        <Route path="/criterion-5" element={renderPage()} />
+        <Route path="/criterion-6" element={renderPage()} />
+        <Route path="/criterion-7" element={renderPage()} />
+        <Route path="/criterion-8" element={renderPage()} />
+        <Route path="/appendices" element={renderPage()} />
+        <Route path="/appendix-c" element={renderPage()} />
+        <Route path="/appendix-d" element={renderPage()} />
+        <Route path="/evidence" element={renderPage()} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+
       {currentPage !== 'login' && currentPage !== 'register' && (
         <Sidebar
           sidebarOpen={sidebarOpen}
