@@ -61,6 +61,10 @@ import { apiRequest } from '../utils/api';
       fetchPrograms(selectedFramework);
     }, [selectedFramework]);
 
+    const handleCycleSelect = (cycleId) => {
+      localStorage.setItem('currentCycleId', cycleId);
+       setCurrentPage('checklist');
+    };
     const handleCreateProgram = async () => {
       const name = window.prompt('Program name');
       if (!name) return;
