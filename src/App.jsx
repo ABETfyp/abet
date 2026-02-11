@@ -179,9 +179,9 @@ const AUBAccreditationSystem = () => {
       case 'criterion6':
         return <Criterion6Page onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
       case 'criterion7':
-        return <Criterion7Page onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
+        return <Criterion7Page onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} setCurrentPage={setCurrentPage} />;
       case 'criterion8':
-        return <Criterion8Page onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
+        return <Criterion8Page onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} setCurrentPage={setCurrentPage} />;
       case 'appendices':
         return (
           <AppendicesPage
