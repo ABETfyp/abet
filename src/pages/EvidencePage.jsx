@@ -12,6 +12,16 @@ import { colors, fontStack } from '../styles/theme';
 
 
       <div style={{ padding: '48px', maxWidth: '1200px', margin: '0 auto' }}>
+        <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Evidence Library</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>
+                Upload, organize, and review supporting documents for all ABET criteria.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Upload Area */}
 

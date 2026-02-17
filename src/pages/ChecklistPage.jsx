@@ -107,8 +107,8 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
       return 0;
     }
     
-    const criteriaItems = checklistData.items.filter(item => 
-      item.criterion_number !== null && item.criterion_number !== 999 && item.criterion_number !== 9
+    const criteriaItems = checklistData.items.filter(
+      (item) => [1, 2, 3, 4, 5, 6, 7, 8].includes(Number(item.criterion_number))
     );
     
     if (criteriaItems.length === 0) return 0;
@@ -147,7 +147,24 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
     );
   }
 
-  const overallProgress = calculateOverallProgress();
+  const overallProgress = Math.round(
+    Number(checklistData?.overall_progress_percentage ?? calculateOverallProgress())
+  );
+  const displayedItems = (checklistData?.items || []).filter((item, index, list) => {
+    const itemName = `${item.item_name || ''}`.trim().toLowerCase();
+    const isBackground = item.criterion_number === 0 || itemName === 'background information';
+
+    if (!isBackground) {
+      return true;
+    }
+
+    return (
+      list.findIndex((candidate) => {
+        const candidateName = `${candidate.item_name || ''}`.trim().toLowerCase();
+        return candidate.criterion_number === 0 || candidateName === 'background information';
+      }) === index
+    );
+  });
 
   return (
     <div style={{ 
@@ -324,7 +341,7 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
 
         {/* Checklist Items - Individual Cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {checklistData?.items?.map((item) => {
+          {displayedItems.map((item) => {
             const status = getCriterionStatus(item.completion_percentage);
             const statusColor = getStatusColor(status);
             const statusIcon = getStatusIcon(status);
@@ -448,7 +465,7 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
         </div>
 
         {/* No Items Message */}
-        {(!checklistData?.items || checklistData.items.length === 0) && (
+        {displayedItems.length === 0 && (
           <div style={{
             backgroundColor: 'white',
             border: '1px solid #e0e0e0',

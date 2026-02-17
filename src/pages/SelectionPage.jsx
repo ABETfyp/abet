@@ -71,8 +71,11 @@ import { apiRequest } from '../utils/api';
       const level = window.prompt('Program level (e.g., Undergraduate)', 'Undergraduate') || 'Undergraduate';
       const department = window.prompt('Department', 'Engineering') || 'Engineering';
       const icon = window.prompt('Icon key (e.g., cpu, cog, flask)', 'cpu') || 'cpu';
+      const currentYear = new Date().getFullYear();
+      const defaultCycleLabel = `ABET ${currentYear}-${currentYear + 2}`;
+      const initialCycleLabel = window.prompt('Initial cycle label', defaultCycleLabel) || defaultCycleLabel;
       try {
-        await apiRequest('/programs/', {
+        const createdProgram = await apiRequest('/programs/', {
           method: 'POST',
           headers: authHeader(),
           body: JSON.stringify({
@@ -83,17 +86,39 @@ import { apiRequest } from '../utils/api';
             framework_id: selectedFramework
           })
         });
+        await apiRequest(`/programs/${createdProgram.id}/cycles/`, {
+          method: 'POST',
+          headers: authHeader(),
+          body: JSON.stringify({
+            label: initialCycleLabel,
+            framework_id: selectedFramework
+          })
+        });
         await fetchPrograms(selectedFramework);
       } catch (err) {
         setError(err.message || 'Unable to create program');
       }
     };
 
-    const handleCreateCycle = async (programId) => {
-      const label = window.prompt('Cycle label (e.g., ABET 2026-2028)');
-      if (!label) return;
+    const getNextCycleLabel = (cycles = []) => {
+      const currentYear = new Date().getFullYear();
+      const parsedEnds = cycles
+        .map((cycle) => {
+          const label = `${cycle?.label || ''}`;
+          const match = label.match(/(\d{4})\D+(\d{4})/);
+          return match ? Number(match[2]) : null;
+        })
+        .filter((year) => Number.isFinite(year));
+
+      const startYear = parsedEnds.length > 0 ? Math.max(...parsedEnds) + 1 : currentYear;
+      const endYear = startYear + 2;
+      return `ABET ${startYear}-${endYear}`;
+    };
+
+    const handleCreateCycle = async (program) => {
+      const label = getNextCycleLabel(program?.cycles || []);
       try {
-        await apiRequest(`/programs/${programId}/cycles/`, {
+        await apiRequest(`/programs/${program?.id}/cycles/`, {
           method: 'POST',
           headers: authHeader(),
           body: JSON.stringify({
@@ -112,6 +137,7 @@ import { apiRequest } from '../utils/api';
         await apiRequest(`/cycles/${cycleId}/`, {
           headers: authHeader()
         });
+        localStorage.setItem('currentCycleId', cycleId);
         setCurrentPage('checklist');
       } catch (err) {
         setError(err.message || 'Unable to open cycle');
@@ -261,6 +287,9 @@ import { apiRequest } from '../utils/api';
                     onClick={() => {
                       if (!isAvailable) return;
                       setSelectedFramework(framework.id);
+                      if (framework.id === 'abet') {
+                        setCurrentPage('checklist');
+                      }
                     }}
                     style={{
                       backgroundColor: isAvailable ? colors.primary : colors.lightGray,
@@ -401,10 +430,11 @@ import { apiRequest } from '../utils/api';
 
                     <div style={{ marginBottom: '24px' }}>
                       <div style={{ color: colors.mediumGray, fontSize: '13px', marginBottom: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Available Cycles</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
                         {(program.cycles || []).map((cycle) => (
                           <div
                             key={cycle.id}
+                            onClick={() => handleOpenCycle(cycle.id)}
                             style={{
                               display: 'flex',
                               justifyContent: 'space-between',
@@ -412,7 +442,8 @@ import { apiRequest } from '../utils/api';
                               padding: '12px 16px',
                               backgroundColor: cycle.status === 'completed' ? colors.lightGray : '#FFF8E1',
                               borderRadius: '8px',
-                              border: cycle.status === 'completed' ? `1px solid ${colors.border}` : '1px solid #FFE082'
+                              border: cycle.status === 'completed' ? `1px solid ${colors.border}` : '1px solid #FFE082',
+                              cursor: 'pointer'
                             }}
                           >
                             <span style={{ fontSize: '14px', color: colors.darkGray, fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -442,33 +473,9 @@ import { apiRequest } from '../utils/api';
 
                     <div style={{ display: 'flex', gap: '12px' }}>
                       <button
-                        onClick={() => {
-                          const openTarget = (program.cycles || []).find((cycle) => cycle.status !== 'completed') || program.cycles?.[0];
-                          if (!openTarget) {
-                            setError('No cycles available to open.');
-                            return;
-                          }
-                          handleOpenCycle(openTarget.id);
-                        }}
+                        onClick={() => handleCreateCycle(program)}
                         style={{
-                          flex: 1,
-                          backgroundColor: colors.primary,
-                          color: 'white',
-                          padding: '12px',
-                          borderRadius: '10px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontWeight: '700',
-                          fontSize: '14px',
-                          boxShadow: '0 10px 20px rgba(139,21,56,0.2)'
-                        }}
-                      >
-                        Open
-                      </button>
-                      <button
-                        onClick={() => handleCreateCycle(program.id)}
-                        style={{
-                          flex: 1,
+                          width: '100%',
                           backgroundColor: 'white',
                           color: colors.primary,
                           padding: '12px',

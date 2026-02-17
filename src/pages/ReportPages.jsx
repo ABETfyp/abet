@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, CheckCircle2, FileText, Save, Upload } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
+import { apiRequest } from '../utils/api';
 
   const FullReportPage = ({ onToggleSidebar, onBack }) => {
 
@@ -231,8 +232,91 @@ import { colors, fontStack } from '../styles/theme';
 
   // Background Information Page
 
-  const BackgroundPage = ({ onToggleSidebar, onBack }) => (
+  const BackgroundPage = ({ onToggleSidebar, onBack }) => {
+    const cycleId = localStorage.getItem('currentCycleId') || 1;
+    const draftStorageKey = `backgroundInfoDraft_${cycleId}`;
+    const [loading, setLoading] = useState(false);
+    const [saveStatus, setSaveStatus] = useState('');
+    const [formData, setFormData] = useState({
+      contactName: '',
+      positionTitle: '',
+      officeLocation: '',
+      phoneNumber: '',
+      emailAddress: '',
+      yearImplemented: '',
+      lastReviewDate: '',
+      majorChanges: ''
+    });
 
+    useEffect(() => {
+      const raw = localStorage.getItem(draftStorageKey);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        setFormData((prev) => ({ ...prev, ...parsed }));
+      } catch (_error) {
+        // Ignore invalid local draft payloads.
+      }
+    }, [draftStorageKey]);
+
+    const updateBackgroundChecklist = async (completionPercentage) => {
+      const checklistResult = await apiRequest(`/cycles/${cycleId}/checklist/`, { method: 'GET' });
+      const backgroundItem = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 0);
+      if (!backgroundItem?.item_id) {
+        throw new Error('Background checklist item not found.');
+      }
+      const checklistItem = await apiRequest(`/checklist-items/${backgroundItem.item_id}/`, { method: 'GET' });
+      await apiRequest(`/checklist-items/${backgroundItem.item_id}/`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...checklistItem,
+          status: completionPercentage >= 100 ? 1 : 0,
+          completion_percentage: completionPercentage
+        })
+      });
+    };
+
+    const handleSaveDraft = async () => {
+      try {
+        setLoading(true);
+        localStorage.setItem(draftStorageKey, JSON.stringify(formData));
+
+        const trackedFields = Object.values(formData);
+        const completedCount = trackedFields.filter((value) => `${value}`.trim() !== '').length;
+        const completion = Math.round((completedCount / trackedFields.length) * 100);
+        await updateBackgroundChecklist(completion);
+
+        localStorage.setItem('checklistNeedsRefresh', 'true');
+        setSaveStatus('Draft saved successfully.');
+      } catch (error) {
+        setSaveStatus(error?.message || 'Error saving draft.');
+      } finally {
+        setLoading(false);
+        setTimeout(() => setSaveStatus(''), 3000);
+      }
+    };
+
+    const handleMarkComplete = async () => {
+      try {
+        setLoading(true);
+        localStorage.setItem(draftStorageKey, JSON.stringify(formData));
+        await updateBackgroundChecklist(100);
+        localStorage.setItem('checklistNeedsRefresh', 'true');
+        setSaveStatus('Background marked complete.');
+      } catch (error) {
+        setSaveStatus(error?.message || 'Error marking complete.');
+      } finally {
+        setLoading(false);
+        setTimeout(() => setSaveStatus(''), 3000);
+      }
+    };
+
+    const handleFieldChange = (field) => (event) => {
+      const { value } = event.target;
+      setFormData((prev) => ({ ...prev, [field]: value }));
+    };
+
+    return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
       <GlobalHeader title="Background Information" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
@@ -240,97 +324,28 @@ import { colors, fontStack } from '../styles/theme';
 
 
       <div style={{ padding: '48px', maxWidth: '1200px', margin: '0 auto' }}>
-
-        {/* Progress */}
-
-        <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '20px', marginBottom: '24px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', border: `1px solid ${colors.border}` }}>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-
-            <span style={{ color: colors.darkGray, fontSize: '14px', fontWeight: '600' }}>Section Progress</span>
-
-            <span style={{ color: colors.primary, fontSize: '14px', fontWeight: '700' }}>30%</span>
-
+        <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Background Information</div>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>
+                Program context, contacts, and history used across ABET criteria sections.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button onClick={handleSaveDraft} disabled={loading} style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', opacity: loading ? 0.7 : 1 }}>
+                <Save size={16} />
+                {loading ? 'Saving...' : 'Save Draft'}
+              </button>
+              <button onClick={handleMarkComplete} disabled={loading} style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', opacity: loading ? 0.7 : 1 }}>
+                <Check size={16} />
+                Mark Complete
+              </button>
+            </div>
           </div>
-
-          <div style={{ height: '10px', backgroundColor: colors.lightGray, borderRadius: '5px', overflow: 'hidden' }}>
-
-            <div style={{ width: '30%', height: '100%', backgroundColor: colors.primary }}></div>
-
-          </div>
-
-        </div>
-
-
-
-        {/* Save Buttons */}
-
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-
-          <button style={{ 
-
-            backgroundColor: colors.primary, 
-
-            color: 'white', 
-
-            padding: '12px 24px', 
-
-            borderRadius: '6px', 
-
-            border: 'none', 
-
-            cursor: 'pointer', 
-
-            fontWeight: '600',
-
-            fontSize: '14px',
-
-            display: 'flex',
-
-            alignItems: 'center',
-
-            gap: '8px'
-
-          }}>
-
-            <Save size={18} />
-
-            Save Draft
-
-          </button>
-
-          <button style={{ 
-
-            backgroundColor: colors.success, 
-
-            color: 'white', 
-
-            padding: '12px 24px', 
-
-            borderRadius: '6px', 
-
-            border: 'none', 
-
-            cursor: 'pointer', 
-
-            fontWeight: '600',
-
-            fontSize: '14px',
-
-            display: 'flex',
-
-            alignItems: 'center',
-
-            gap: '8px'
-
-          }}>
-
-            <Check size={18} />
-
-            Mark as Complete
-
-          </button>
-
+          {saveStatus ? (
+            <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700', marginTop: '10px' }}>{saveStatus}</div>
+          ) : null}
         </div>
 
 
@@ -391,7 +406,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Program Contact Name</label>
 
-              <input type="text" placeholder="e.g., Dr. John Smith" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" value={formData.contactName} onChange={handleFieldChange('contactName')} placeholder="e.g., Dr. John Smith" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -399,7 +414,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Position / Title</label>
 
-              <input type="text" placeholder="e.g., Program Coordinator" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" value={formData.positionTitle} onChange={handleFieldChange('positionTitle')} placeholder="e.g., Program Coordinator" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -407,7 +422,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Office Location</label>
 
-              <input type="text" placeholder="e.g., Engineering Building, Room 301" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" value={formData.officeLocation} onChange={handleFieldChange('officeLocation')} placeholder="e.g., Engineering Building, Room 301" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -415,7 +430,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Phone Number</label>
 
-              <input type="text" placeholder="e.g., +961 1 123456" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" value={formData.phoneNumber} onChange={handleFieldChange('phoneNumber')} placeholder="e.g., +961 1 123456" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -423,7 +438,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Email Address</label>
 
-              <input type="email" placeholder="e.g., coordinator@aub.edu.lb" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="email" value={formData.emailAddress} onChange={handleFieldChange('emailAddress')} placeholder="e.g., coordinator@aub.edu.lb" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -517,7 +532,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Year Implemented</label>
 
-              <input type="text" placeholder="e.g., 1995" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" value={formData.yearImplemented} onChange={handleFieldChange('yearImplemented')} placeholder="e.g., 1995" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -525,7 +540,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Date of Last General Review</label>
 
-              <input type="text" placeholder="e.g., 2022" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" value={formData.lastReviewDate} onChange={handleFieldChange('lastReviewDate')} placeholder="e.g., 2022" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -533,7 +548,7 @@ import { colors, fontStack } from '../styles/theme';
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Summary of Major Changes Since Last Review</label>
 
-              <textarea placeholder="Describe the major curriculum changes, faculty updates, facilities improvements, etc." style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit', minHeight: '120px' }} />
+              <textarea value={formData.majorChanges} onChange={handleFieldChange('majorChanges')} placeholder="Describe the major curriculum changes, faculty updates, facilities improvements, etc." style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit', minHeight: '120px' }} />
 
             </div>
 
@@ -584,6 +599,7 @@ import { colors, fontStack } from '../styles/theme';
     </div>
 
   );
+  };
 
 
 

@@ -1,10 +1,141 @@
-import React from 'react';
-import { Clock, Cog, Cpu, Database, Download, Eye, FileText, FlaskConical, Plus, Save, Sparkles, Upload } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Clock, Cog, Cpu, Database, Download, Eye, FileText, FlaskConical, Plus, Save, Sparkles, Trash2, Upload } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 import { courses, facultyMembers } from '../data/sampleData';
+import { apiRequest } from '../utils/api';
 
-  const AppendixCPage = ({ onToggleSidebar, onBack }) => (
+  const AppendixCPage = ({ onToggleSidebar, onBack, setCurrentPage }) => {
+    const [equipmentRows, setEquipmentRows] = useState([
+      { id: 1, name: 'Oscilloscope Tektronix MDO3', cat: 'Electronics', qty: '12', loc: 'Embedded Systems Lab', use: 'Circuits & Signals labs', service: '2025-09-01', evidence: 'Calibration Log.pdf' },
+      { id: 2, name: 'FPGA Development Kits', cat: 'Digital Systems', qty: '24', loc: 'Digital Systems Lab', use: 'EECE 320 projects', service: '2025-08-01', evidence: 'Inventory Sheet.xlsx' },
+      { id: 3, name: 'Cisco ISR Routers', cat: 'Networking', qty: '10', loc: 'Networks Lab', use: 'Routing & switching', service: '2025-05-01', evidence: 'Maintenance Record.pdf' },
+      { id: 4, name: '3D Printer (Ultimaker)', cat: 'Prototyping', qty: '2', loc: 'Design Studio', use: 'Capstone prototypes', service: '2025-10-01', evidence: 'Service Ticket #223' }
+    ]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+    const [success, setSuccess] = useState(false);
+    const [labsCoveredCount, setLabsCoveredCount] = useState(6);
+    const [highValueAssetsCount, setHighValueAssetsCount] = useState(12);
+    const [lastUpdatedLabel, setLastUpdatedLabel] = useState('Nov 2025');
+    const cycleId = localStorage.getItem('currentCycleId') || 1;
+
+    useEffect(() => {
+      fetchAppendixCData();
+    }, [cycleId]);
+
+    const fetchAppendixCData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await apiRequest(`/cycles/${cycleId}/appendixc/`);
+        const rows = Array.isArray(result?.equipment_rows) ? result.equipment_rows : [];
+        setEquipmentRows(rows.map((row) => ({
+          id: row.equipment_id || Date.now() + Math.random(),
+          name: row.equipment_name || '',
+          cat: row.category || '',
+          qty: String(row.quantity ?? ''),
+          loc: row.location_lab || '',
+          use: row.instructional_use || '',
+          service: row.last_service_date || '',
+          evidence: row.evidence_link || '',
+        })));
+
+        const appendix = result?.appendix || {};
+        setLabsCoveredCount(appendix.labs_covered_count ?? 0);
+        setHighValueAssetsCount(appendix.high_value_assets_count ?? 0);
+        if (appendix.last_updated_date) {
+          const date = new Date(appendix.last_updated_date);
+          setLastUpdatedLabel(date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
+        }
+      } catch (err) {
+        setError(err.message || 'Failed to load Appendix C data.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const handleSaveAppendixC = async () => {
+      setSaving(true);
+      setError(null);
+      setSuccess(false);
+      try {
+        const payload = {
+          labs_covered_count: labsCoveredCount,
+          high_value_assets_count: highValueAssetsCount,
+          equipment_rows: equipmentRows.map((row) => ({
+            equipment_name: row.name || '',
+            category: row.cat || '',
+            quantity: Number.parseInt(row.qty, 10) || 0,
+            location_lab: row.loc || '',
+            instructional_use: row.use || '',
+            last_service_date: row.service || null,
+            evidence_link: row.evidence || '',
+          })),
+        };
+
+        const result = await apiRequest(`/cycles/${cycleId}/appendixc/`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+
+        const rows = Array.isArray(result?.equipment_rows) ? result.equipment_rows : [];
+        setEquipmentRows(rows.map((row) => ({
+          id: row.equipment_id || Date.now() + Math.random(),
+          name: row.equipment_name || '',
+          cat: row.category || '',
+          qty: String(row.quantity ?? ''),
+          loc: row.location_lab || '',
+          use: row.instructional_use || '',
+          service: row.last_service_date || '',
+          evidence: row.evidence_link || '',
+        })));
+
+        const appendix = result?.appendix || {};
+        setLabsCoveredCount(appendix.labs_covered_count ?? 0);
+        setHighValueAssetsCount(appendix.high_value_assets_count ?? 0);
+        if (appendix.last_updated_date) {
+          const date = new Date(appendix.last_updated_date);
+          setLastUpdatedLabel(date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
+        }
+
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 2500);
+      } catch (err) {
+        setError(err.message || 'Failed to save Appendix C data.');
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const handleAddEquipment = () => {
+      setEquipmentRows((prevRows) => [
+        ...prevRows,
+        {
+          id: Date.now(),
+          name: '',
+          cat: '',
+          qty: '',
+          loc: '',
+          use: '',
+          service: '',
+          evidence: '',
+        }
+      ]);
+    };
+
+    const handleEquipmentChange = (id, field, value) => {
+      setEquipmentRows((prevRows) =>
+        prevRows.map((row) => (row.id === id ? { ...row, [field]: value } : row))
+      );
+    };
+
+    const handleRemoveEquipment = (id) => {
+      setEquipmentRows((prevRows) => prevRows.filter((row) => row.id !== id));
+    };
+
+  return (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
@@ -32,11 +163,15 @@ import { courses, facultyMembers } from '../data/sampleData';
 
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
 
-              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={handleSaveAppendixC}
+                disabled={saving}
+                style={{ backgroundColor: saving ? '#6c757d' : colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', cursor: saving ? 'not-allowed' : 'pointer' }}
+              >
 
-                <Download size={16} />
+                <Save size={16} />
 
-                Export Appendix C
+                {saving ? 'Saving...' : 'Save Draft'}
 
               </button>
 
@@ -58,16 +193,11 @@ import { courses, facultyMembers } from '../data/sampleData';
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '18px' }}>
 
-          {[
-
-            { label: 'Labs Covered', value: '6', icon: <FlaskConical size={18} color={colors.primary} /> },
-
-            { label: 'Equipment Items', value: '48', icon: <Cog size={18} color={colors.primary} /> },
-
-            { label: 'High-Value Assets', value: '12', icon: <Cpu size={18} color={colors.primary} /> },
-
-            { label: 'Last Updated', value: 'Nov 2025', icon: <Clock size={18} color={colors.primary} /> }
-
+            {[
+            { label: 'Labs Covered', value: String(labsCoveredCount), icon: <FlaskConical size={18} color={colors.primary} /> },
+            { label: 'Equipment Items', value: String(equipmentRows.length), icon: <Cog size={18} color={colors.primary} /> },
+            { label: 'High-Value Assets', value: String(highValueAssetsCount), icon: <Cpu size={18} color={colors.primary} /> },
+            { label: 'Last Updated', value: lastUpdatedLabel, icon: <Clock size={18} color={colors.primary} /> }
           ].map((stat) => (
 
             <div key={stat.label} style={{ backgroundColor: 'white', borderRadius: '10px', padding: '16px', border: `1px solid ${colors.border}`, boxShadow: '0 2px 6px rgba(0,0,0,0.05)' }}>
@@ -95,6 +225,19 @@ import { courses, facultyMembers } from '../data/sampleData';
 
 
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          {loading ? (
+            <div style={{ color: colors.mediumGray, fontSize: '14px', fontWeight: '600' }}>Loading equipment data...</div>
+          ) : null}
+          {error ? (
+            <div style={{ backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', color: '#721c24', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>
+              {error}
+            </div>
+          ) : null}
+          {success ? (
+            <div style={{ backgroundColor: '#d4edda', border: '1px solid #c3e6cb', color: '#155724', padding: '10px 12px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>
+              Appendix C saved successfully.
+            </div>
+          ) : null}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
 
@@ -142,7 +285,7 @@ import { courses, facultyMembers } from '../data/sampleData';
 
                 <tr style={{ backgroundColor: colors.primary, color: 'white' }}>
 
-                  {['Equipment', 'Category', 'Qty', 'Location / Lab', 'Instructional Use', 'Last Service', 'Evidence'].map((h) => (
+                  {['Equipment', 'Category', 'Qty', 'Location / Lab', 'Instructional Use', 'Last Service', 'Evidence', 'Actions'].map((h) => (
 
                     <th key={h} style={{ padding: '12px', textAlign: 'left', borderRight: '1px solid rgba(255,255,255,0.2)', fontWeight: '700' }}>{h}</th>
 
@@ -154,40 +297,75 @@ import { courses, facultyMembers } from '../data/sampleData';
 
               <tbody>
 
-                {[
-
-                  { name: 'Oscilloscope Tektronix MDO3', cat: 'Electronics', qty: '12', loc: 'Embedded Systems Lab', use: 'Circuits & Signals labs', service: 'Sep 2025', evidence: 'Calibration Log.pdf' },
-
-                  { name: 'FPGA Development Kits', cat: 'Digital Systems', qty: '24', loc: 'Digital Systems Lab', use: 'EECE 320 projects', service: 'Aug 2025', evidence: 'Inventory Sheet.xlsx' },
-
-                  { name: 'Cisco ISR Routers', cat: 'Networking', qty: '10', loc: 'Networks Lab', use: 'Routing & switching', service: 'May 2025', evidence: 'Maintenance Record.pdf' },
-
-                  { name: '3D Printer (Ultimaker)', cat: 'Prototyping', qty: '2', loc: 'Design Studio', use: 'Capstone prototypes', service: 'Oct 2025', evidence: 'Service Ticket #223' }
-
-                ].map((row) => (
-
-                  <tr key={row.name} style={{ borderBottom: `1px solid ${colors.border}` }}>
-
-                    <td style={{ padding: '12px', fontWeight: '700', color: colors.darkGray }}>{row.name}</td>
-
-                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.cat}</td>
-
-                    <td style={{ padding: '12px', textAlign: 'center' }}>{row.qty}</td>
-
-                    <td style={{ padding: '12px' }}>{row.loc}</td>
-
-                    <td style={{ padding: '12px', color: colors.mediumGray }}>{row.use}</td>
-
-                    <td style={{ padding: '12px' }}>{row.service}</td>
-
-                    <td style={{ padding: '12px' }}>
-
-                      <button style={{ color: colors.primary, background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>View</button>
-
+                {equipmentRows.map((row) => (
+                  <tr key={row.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '8px' }}>
+                      <input
+                        value={row.name}
+                        onChange={(e) => handleEquipmentChange(row.id, 'name', e.target.value)}
+                        placeholder="Equipment name"
+                        type="date"
+                        style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', fontSize: '13px' }}
+                      />
                     </td>
-
+                    <td style={{ padding: '8px' }}>
+                      <input
+                        value={row.cat}
+                        onChange={(e) => handleEquipmentChange(row.id, 'cat', e.target.value)}
+                        placeholder="Category"
+                        style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', fontSize: '13px' }}
+                      />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input
+                        value={row.qty}
+                        onChange={(e) => handleEquipmentChange(row.id, 'qty', e.target.value)}
+                        placeholder="Qty"
+                        style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', fontSize: '13px', textAlign: 'center' }}
+                      />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input
+                        value={row.loc}
+                        onChange={(e) => handleEquipmentChange(row.id, 'loc', e.target.value)}
+                        placeholder="Location / Lab"
+                        style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', fontSize: '13px' }}
+                      />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input
+                        value={row.use}
+                        onChange={(e) => handleEquipmentChange(row.id, 'use', e.target.value)}
+                        placeholder="Instructional use"
+                        style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', fontSize: '13px' }}
+                      />
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <input
+                        value={row.service}
+                        onChange={(e) => handleEquipmentChange(row.id, 'service', e.target.value)}
+                        placeholder="Last service"
+                        style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', fontSize: '13px' }}
+                      />
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      <button
+                        onClick={() => setCurrentPage && setCurrentPage('evidence')}
+                        style={{ color: colors.primary, background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}
+                      >
+                        View
+                      </button>
+                    </td>
+                    <td style={{ padding: '8px' }}>
+                      <button
+                        onClick={() => handleRemoveEquipment(row.id)}
+                        style={{ backgroundColor: '#fff1f1', color: '#b42318', border: '1px solid #fecaca', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                      >
+                        <Trash2 size={14} />
+                        Remove
+                      </button>
+                    </td>
                   </tr>
-
                 ))}
 
               </tbody>
@@ -200,7 +378,7 @@ import { courses, facultyMembers } from '../data/sampleData';
 
           <div style={{ marginTop: '12px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
 
-            <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={handleAddEquipment} style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
 
               <Plus size={14} />
 
@@ -225,6 +403,7 @@ import { courses, facultyMembers } from '../data/sampleData';
     </div>
 
   );
+};
 
 
 
