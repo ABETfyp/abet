@@ -3,7 +3,7 @@ export const API_BASE = rawApiBase.replace(/\/$/, '');
 
 export const apiRequest = async (path, options = {}) => {
   const token = localStorage.getItem('accessToken');
-  const { headers: customHeaders = {}, ...restOptions } = options;
+  const { headers: customHeaders = {}, skipAuthRedirect = false, ...restOptions } = options;
 
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
@@ -17,7 +17,8 @@ export const apiRequest = async (path, options = {}) => {
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    if (response.status === 401 && token) {
+    const isAuthEndpoint = path.startsWith('/auth/');
+    if (response.status === 401 && token && !skipAuthRedirect && !isAuthEndpoint) {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
       window.location.href = '/login';

@@ -4,8 +4,10 @@ import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 import { courses, facultyMembers } from '../data/sampleData';
 import { apiRequest } from '../utils/api';
+import { getActiveContext } from '../utils/activeContext';
 
   const AppendixCPage = ({ onToggleSidebar, onBack, setCurrentPage }) => {
+    const { subtitle } = getActiveContext();
     const [equipmentRows, setEquipmentRows] = useState([
       { id: 1, name: 'Oscilloscope Tektronix MDO3', cat: 'Electronics', qty: '12', loc: 'Embedded Systems Lab', use: 'Circuits & Signals labs', service: '2025-09-01', evidence: 'Calibration Log.pdf' },
       { id: 2, name: 'FPGA Development Kits', cat: 'Digital Systems', qty: '24', loc: 'Digital Systems Lab', use: 'EECE 320 projects', service: '2025-08-01', evidence: 'Inventory Sheet.xlsx' },
@@ -139,7 +141,7 @@ import { apiRequest } from '../utils/api';
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Appendix C - Equipment" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Appendix C - Equipment" subtitle={subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -409,11 +411,13 @@ import { apiRequest } from '../utils/api';
 
   // Appendix D Page
 
-  const AppendixDPage = ({ onToggleSidebar, onBack }) => (
+  const AppendixDPage = ({ onToggleSidebar, onBack }) => {
+  const { subtitle } = getActiveContext();
+  return (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Appendix D - Institutional Summary" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Appendix D - Institutional Summary" subtitle={subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -938,16 +942,19 @@ import { apiRequest } from '../utils/api';
     </div>
 
   );
+};
 
 
 
   // Appendices Page
 
-  const AppendicesPage = ({ setCurrentPage, onToggleSidebar, onBack }) => (
+  const AppendicesPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
+  const { subtitle } = getActiveContext();
+  return (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Appendices A & B" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Appendices A & B" subtitle={subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -1148,6 +1155,7 @@ import { apiRequest } from '../utils/api';
     </div>
 
   );
+};
 
 
 

@@ -235,7 +235,7 @@ import { colors, fontStack } from '../styles/theme';
               <LayoutGrid size={28} />
             </div>
             <h1 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '800', marginBottom: '10px', letterSpacing: '-0.5px' }}>Create University Account</h1>
-            <p style={{ color: colors.mediumGray, fontSize: '15px', fontWeight: '500', lineHeight: '1.6' }}>Use your .edu email to register</p>
+            <p style={{ color: colors.mediumGray, fontSize: '15px', fontWeight: '500', lineHeight: '1.6' }}>Use your .edu email to register a faculty admin account</p>
           </div>
 
           <form onSubmit={handleRegister}>
@@ -319,11 +319,7 @@ import { colors, fontStack } from '../styles/theme';
                   outline: 'none'
                 }}
               >
-                <option value="professor">Professor</option>
-                <option value="faculty">Faculty</option>
                 <option value="faculty_admin">Faculty Admin</option>
-                <option value="department_head">Department Head</option>
-                <option value="program_coordinator">Program Coordinator</option>
               </select>
             </div>
 

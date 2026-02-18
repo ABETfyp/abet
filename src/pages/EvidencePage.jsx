@@ -2,12 +2,15 @@ import React from 'react';
 import { Upload, Search, FileText, Download, Eye, Trash2 } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
+import { getActiveContext } from '../utils/activeContext';
 
-  const EvidencePage = ({ onToggleSidebar, onBack }) => (
+  const EvidencePage = ({ onToggleSidebar, onBack }) => {
+  const { subtitle } = getActiveContext();
+  return (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Evidence Library" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Evidence Library" subtitle={subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -196,6 +199,7 @@ import { colors, fontStack } from '../styles/theme';
     </div>
 
   );
+};
 
 
 

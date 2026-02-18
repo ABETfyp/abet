@@ -1,10 +1,94 @@
 import React, { useEffect, useState } from 'react';
-import { Check, CheckCircle2, FileText, Save, Upload } from 'lucide-react';
+import { CheckCircle2, FileText, Save, Upload } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
+import { getActiveContext } from '../utils/activeContext';
+
+const BG_DOCS_DB_NAME = 'abet-background-documents';
+const BG_DOCS_STORE = 'documents';
+
+const openBackgroundDocsDb = () => new Promise((resolve, reject) => {
+  const request = window.indexedDB.open(BG_DOCS_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    const db = request.result;
+    if (!db.objectStoreNames.contains(BG_DOCS_STORE)) {
+      const store = db.createObjectStore(BG_DOCS_STORE, { keyPath: 'id' });
+      store.createIndex('by_cycle_section', ['cycleId', 'sectionTitle'], { unique: false });
+    }
+  };
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error || new Error('Unable to open documents storage.'));
+});
+
+const listBackgroundSectionDocs = async (cycleId, sectionTitle) => {
+  const db = await openBackgroundDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BG_DOCS_STORE, 'readonly');
+    const store = tx.objectStore(BG_DOCS_STORE);
+    const index = store.index('by_cycle_section');
+    const query = index.getAll(IDBKeyRange.only([String(cycleId), sectionTitle]));
+    query.onsuccess = () => {
+      const rows = query.result || [];
+      rows.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      resolve(rows);
+    };
+    query.onerror = () => reject(query.error || new Error('Unable to read stored documents.'));
+  });
+};
+
+const appendBackgroundSectionDocs = async (cycleId, sectionTitle, files) => {
+  const db = await openBackgroundDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BG_DOCS_STORE, 'readwrite');
+    const store = tx.objectStore(BG_DOCS_STORE);
+    const index = store.index('by_cycle_section');
+    const existingReq = index.getAll(IDBKeyRange.only([String(cycleId), sectionTitle]));
+
+    existingReq.onsuccess = () => {
+      const existing = existingReq.result || [];
+      const existingKeySet = new Set(
+        existing.map((row) => `${row.name}::${row.lastModified}::${row.size}`)
+      );
+
+      files.forEach((file, idx) => {
+        const uniqueKey = `${file.name}::${file.lastModified}::${file.size}`;
+        if (existingKeySet.has(uniqueKey)) {
+          return;
+        }
+        store.put({
+          id: `${cycleId}-${sectionTitle}-${file.name}-${file.lastModified}-${idx}`,
+          cycleId: String(cycleId),
+          sectionTitle,
+          name: file.name,
+          type: file.type || 'Unknown',
+          size: file.size,
+          lastModified: file.lastModified,
+          fileBlob: file,
+          createdAt: new Date().toISOString(),
+        });
+      });
+    };
+
+    existingReq.onerror = () => reject(existingReq.error || new Error('Unable to store documents.'));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Unable to store documents.'));
+  });
+};
+
+const deleteBackgroundDocById = async (docId) => {
+  const db = await openBackgroundDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BG_DOCS_STORE, 'readwrite');
+    const store = tx.objectStore(BG_DOCS_STORE);
+    store.delete(docId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Unable to remove document.'));
+  });
+};
 
   const FullReportPage = ({ onToggleSidebar, onBack }) => {
+    const { programName, cycleLabel } = getActiveContext();
 
     const completedItems = [
 
@@ -50,9 +134,9 @@ import { apiRequest } from '../utils/api';
 
               <div>
 
-                <h2 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.4px' }}>Computer & Communication Engineering</h2>
+                <h2 style={{ color: colors.darkGray, fontSize: '28px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.4px' }}>{programName}</h2>
 
-                <p style={{ color: colors.mediumGray, fontSize: '15px', margin: 0, fontWeight: '500' }}>ABET Cycle 2025-2027</p>
+                <p style={{ color: colors.mediumGray, fontSize: '15px', margin: 0, fontWeight: '500' }}>{cycleLabel}</p>
 
               </div>
 
@@ -234,9 +318,14 @@ import { apiRequest } from '../utils/api';
 
   const BackgroundPage = ({ onToggleSidebar, onBack }) => {
     const cycleId = localStorage.getItem('currentCycleId') || 1;
+    const { programName, cycleLabel, subtitle } = getActiveContext();
     const draftStorageKey = `backgroundInfoDraft_${cycleId}`;
     const [loading, setLoading] = useState(false);
-    const [saveStatus, setSaveStatus] = useState('');
+    const [saveSuccess, setSaveSuccess] = useState(false);
+    const [saveError, setSaveError] = useState('');
+    const [aiImportModal, setAiImportModal] = useState({ open: false, sectionTitle: '' });
+    const [selectedDocuments, setSelectedDocuments] = useState([]);
+    const [aiImportStatus, setAiImportStatus] = useState('');
     const [formData, setFormData] = useState({
       contactName: '',
       positionTitle: '',
@@ -279,6 +368,8 @@ import { apiRequest } from '../utils/api';
     const handleSaveDraft = async () => {
       try {
         setLoading(true);
+        setSaveError('');
+        setSaveSuccess(false);
         localStorage.setItem(draftStorageKey, JSON.stringify(formData));
 
         const trackedFields = Object.values(formData);
@@ -287,27 +378,12 @@ import { apiRequest } from '../utils/api';
         await updateBackgroundChecklist(completion);
 
         localStorage.setItem('checklistNeedsRefresh', 'true');
-        setSaveStatus('Draft saved successfully.');
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
       } catch (error) {
-        setSaveStatus(error?.message || 'Error saving draft.');
+        setSaveError(`Save failed: ${error?.message || 'Unknown error'}`);
       } finally {
         setLoading(false);
-        setTimeout(() => setSaveStatus(''), 3000);
-      }
-    };
-
-    const handleMarkComplete = async () => {
-      try {
-        setLoading(true);
-        localStorage.setItem(draftStorageKey, JSON.stringify(formData));
-        await updateBackgroundChecklist(100);
-        localStorage.setItem('checklistNeedsRefresh', 'true');
-        setSaveStatus('Background marked complete.');
-      } catch (error) {
-        setSaveStatus(error?.message || 'Error marking complete.');
-      } finally {
-        setLoading(false);
-        setTimeout(() => setSaveStatus(''), 3000);
       }
     };
 
@@ -316,14 +392,96 @@ import { apiRequest } from '../utils/api';
       setFormData((prev) => ({ ...prev, [field]: value }));
     };
 
+    const openAiImportModal = async (sectionTitle) => {
+      setAiImportStatus('');
+      setAiImportModal({ open: true, sectionTitle });
+      try {
+        const storedDocs = await listBackgroundSectionDocs(cycleId, sectionTitle);
+        const mappedDocs = storedDocs.map((row) => ({
+          id: row.id,
+          name: row.name,
+          size: row.size,
+          type: row.type,
+        }));
+        setSelectedDocuments(mappedDocs);
+      } catch (error) {
+        setSelectedDocuments([]);
+        setAiImportStatus(error?.message || 'Unable to load saved documents.');
+      }
+    };
+
+    const closeAiImportModal = () => {
+      setAiImportModal({ open: false, sectionTitle: '' });
+      setSelectedDocuments([]);
+      setAiImportStatus('');
+    };
+
+    const handleDocumentSelection = (event) => {
+      if (!aiImportModal.sectionTitle) return;
+      const files = Array.from(event.target.files || []);
+      if (files.length === 0) return;
+
+      appendBackgroundSectionDocs(cycleId, aiImportModal.sectionTitle, files)
+        .then(() => {
+          return listBackgroundSectionDocs(cycleId, aiImportModal.sectionTitle);
+        })
+        .then((storedDocs) => {
+          const mappedDocs = storedDocs.map((row) => ({
+            id: row.id,
+            name: row.name,
+            size: row.size,
+            type: row.type,
+          }));
+          setSelectedDocuments(mappedDocs);
+          setAiImportStatus(`${mappedDocs.length} file(s) saved for ${aiImportModal.sectionTitle}.`);
+        })
+        .catch((error) => {
+          setAiImportStatus(error?.message || 'Unable to save selected documents.');
+        });
+    };
+
+    const handleRemoveDocument = (docId) => {
+      if (!docId || !aiImportModal.sectionTitle) return;
+      deleteBackgroundDocById(docId)
+        .then(() => listBackgroundSectionDocs(cycleId, aiImportModal.sectionTitle))
+        .then((storedDocs) => {
+          const mappedDocs = storedDocs.map((row) => ({
+            id: row.id,
+            name: row.name,
+            size: row.size,
+            type: row.type,
+          }));
+          setSelectedDocuments(mappedDocs);
+          setAiImportStatus('Document removed.');
+        })
+        .catch((error) => {
+          setAiImportStatus(error?.message || 'Unable to remove document.');
+        });
+    };
+
+    const sectionActionButtonStyle = {
+      backgroundColor: colors.primary,
+      color: 'white',
+      padding: '10px 20px',
+      borderRadius: '8px',
+      border: 'none',
+      cursor: 'pointer',
+      fontSize: '13px',
+      fontWeight: '600',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      boxShadow: '0 8px 20px rgba(139,21,56,0.24)'
+    };
+
     return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Background Information" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Background Information" subtitle={subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
-      <div style={{ padding: '48px', maxWidth: '1200px', margin: '0 auto' }}>
+      <div style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
         <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <div>
@@ -337,15 +495,34 @@ import { apiRequest } from '../utils/api';
                 <Save size={16} />
                 {loading ? 'Saving...' : 'Save Draft'}
               </button>
-              <button onClick={handleMarkComplete} disabled={loading} style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', opacity: loading ? 0.7 : 1 }}>
-                <Check size={16} />
-                Mark Complete
-              </button>
             </div>
           </div>
-          {saveStatus ? (
-            <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700', marginTop: '10px' }}>{saveStatus}</div>
-          ) : null}
+          {saveSuccess && (
+            <div style={{
+              marginTop: '12px',
+              padding: '12px 16px',
+              backgroundColor: '#d4edda',
+              border: '1px solid #c3e6cb',
+              borderRadius: '6px',
+              color: '#155724',
+              fontSize: '14px'
+            }}>
+              Saved successfully!
+            </div>
+          )}
+          {saveError && (
+            <div style={{
+              marginTop: '12px',
+              padding: '12px 16px',
+              backgroundColor: '#f8d7da',
+              border: '1px solid #f5c6cb',
+              borderRadius: '6px',
+              color: '#721c24',
+              fontSize: '14px'
+            }}>
+              {saveError}
+            </div>
+          )}
         </div>
 
 
@@ -364,37 +541,12 @@ import { apiRequest } from '../utils/api';
 
             </div>
 
-            <button style={{ 
-
-              backgroundColor: colors.primary, 
-
-              color: 'white', 
-
-              padding: '10px 20px', 
-
-              borderRadius: '6px', 
-
-              border: 'none', 
-
-              cursor: 'pointer', 
-
-              fontSize: '13px',
-
-              fontWeight: '600',
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              gap: '6px'
-
-            }}>
-
-              <Upload size={16} />
-
-              Upload Document
-
-            </button>
+            <div style={{ display: 'grid', gap: '8px', justifyItems: 'end', maxWidth: '360px' }}>
+              <button type="button" onClick={() => openAiImportModal('A. Contact Information')} style={sectionActionButtonStyle}>
+                <Upload size={16} />
+                Upload & AI Auto-fill
+              </button>
+            </div>
 
           </div>
 
@@ -444,34 +596,6 @@ import { apiRequest } from '../utils/api';
 
           </div>
 
-
-
-          <button style={{ 
-
-            marginTop: '16px', 
-
-            backgroundColor: colors.lightGray, 
-
-            color: colors.primary, 
-
-            padding: '10px 20px', 
-
-            borderRadius: '6px', 
-
-            border: 'none', 
-
-            cursor: 'pointer', 
-
-            fontSize: '13px', 
-
-            fontWeight: '600' 
-
-          }}>
-
-            AI Extract from Document
-
-          </button>
-
         </div>
 
 
@@ -490,37 +614,12 @@ import { apiRequest } from '../utils/api';
 
             </div>
 
-            <button style={{ 
-
-              backgroundColor: colors.primary, 
-
-              color: 'white', 
-
-              padding: '10px 20px', 
-
-              borderRadius: '6px', 
-
-              border: 'none', 
-
-              cursor: 'pointer', 
-
-              fontSize: '13px',
-
-              fontWeight: '600',
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              gap: '6px'
-
-            }}>
-
-              <Upload size={16} />
-
-              Upload Document
-
-            </button>
+            <div style={{ display: 'grid', gap: '8px', justifyItems: 'end', maxWidth: '360px' }}>
+              <button type="button" onClick={() => openAiImportModal('B. Program History')} style={sectionActionButtonStyle}>
+                <Upload size={16} />
+                Upload & AI Auto-fill
+              </button>
+            </div>
 
           </div>
 
@@ -554,45 +653,104 @@ import { apiRequest } from '../utils/api';
 
           </div>
 
-
-
-          <button style={{ 
-
-            marginTop: '16px', 
-
-            backgroundColor: colors.lightGray, 
-
-            color: colors.primary, 
-
-            padding: '10px 20px', 
-
-            borderRadius: '6px', 
-
-            border: 'none', 
-
-            cursor: 'pointer', 
-
-            fontSize: '13px', 
-
-            fontWeight: '600' 
-
-          }}>
-
-            AI Extract from Document
-
-          </button>
-
         </div>
 
+        {aiImportModal.open && (
+          <div
+            onClick={closeAiImportModal}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(20, 25, 35, 0.52)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+              zIndex: 1700
+            }}
+          >
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '620px',
+                backgroundColor: 'white',
+                borderRadius: '14px',
+                border: `1px solid ${colors.border}`,
+                boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
+                overflow: 'hidden'
+              }}
+            >
+              <div style={{ padding: '18px 22px', background: `linear-gradient(120deg, ${colors.primaryDark} 0%, ${colors.primary} 100%)`, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '17px', fontWeight: '800' }}>AI Document Import</div>
+                  <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>{aiImportModal.sectionTitle}</div>
+                </div>
+                <button onClick={closeAiImportModal} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }} aria-label="Close">
+                  x
+                </button>
+              </div>
 
+              <div style={{ padding: '22px', display: 'grid', gap: '16px' }}>
+                <label style={{ display: 'grid', gap: '8px', color: colors.darkGray, fontSize: '13px', fontWeight: '700' }}>
+                  Select Documents
+                  <input type="file" multiple onChange={handleDocumentSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                </label>
 
-        {/* Additional sections would follow same pattern */}
+                <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
+                  <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    Selected Files
+                  </div>
+                  {selectedDocuments.length === 0 ? (
+                    <div style={{ fontSize: '13px', color: colors.mediumGray }}>No files selected.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      {selectedDocuments.map((file) => (
+                        <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {file.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDocument(file.id)}
+                            style={{
+                              backgroundColor: 'white',
+                              border: `1px solid ${colors.border}`,
+                              color: colors.danger,
+                              borderRadius: '6px',
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              flexShrink: 0
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-        <div style={{ textAlign: 'center', padding: '32px', color: colors.mediumGray, fontSize: '14px', fontWeight: '500' }}>
+                {aiImportStatus ? (
+                  <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>
+                    {aiImportStatus}
+                  </div>
+                ) : null}
+              </div>
 
-          Sections C-G follow the same layout pattern...
-
-        </div>
+              <div style={{ padding: '16px 22px 22px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: `1px solid ${colors.border}` }}>
+                <button type="button" onClick={closeAiImportModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
+                  Extract with AI
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
 

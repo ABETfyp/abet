@@ -3,6 +3,236 @@ import { Upload, Download, Save, Check, ClipboardList, FileText, Plus, Edit, Eye
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
+import { getActiveContext } from '../utils/activeContext';
+
+const C1_DOCS_DB_NAME = 'abet-criterion1-documents';
+const C1_DOCS_STORE = 'documents';
+const C1_TRACKED_FIELDS = [
+  'admission_requirements',
+  'admission_process_summary',
+  'transfer_pathways',
+  'pperformance_evaluation_process',
+  'prerequisite_verification_method',
+  'prerequisite_not_met_action',
+  'transfer_policy_summary',
+  'transfer_credit_evaluation_process',
+  'articulation_agreements',
+  'advising_providers',
+  'advising_frequency',
+  'career_guidance_description',
+  'work_in_lieu_policies',
+  'work_in_lieu_approval_process',
+  'minimum_required_credits',
+  'required_gpa_or_standing',
+  'essential_courses_categories',
+  'degree_name',
+  'transcript_format_explanation',
+  'program_name_on_transcript',
+];
+
+const openCriterion1DocsDb = () => new Promise((resolve, reject) => {
+  const request = window.indexedDB.open(C1_DOCS_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    const db = request.result;
+    if (!db.objectStoreNames.contains(C1_DOCS_STORE)) {
+      const store = db.createObjectStore(C1_DOCS_STORE, { keyPath: 'id' });
+      store.createIndex('by_cycle_section', ['cycleId', 'sectionTitle'], { unique: false });
+    }
+  };
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error || new Error('Unable to open document storage.'));
+});
+
+const listCriterion1SectionDocs = async (cycleId, sectionTitle) => {
+  const db = await openCriterion1DocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(C1_DOCS_STORE, 'readonly');
+    const store = tx.objectStore(C1_DOCS_STORE);
+    const index = store.index('by_cycle_section');
+    const query = index.getAll(IDBKeyRange.only([String(cycleId), sectionTitle]));
+    query.onsuccess = () => resolve(query.result || []);
+    query.onerror = () => reject(query.error || new Error('Unable to read stored documents.'));
+  });
+};
+
+const appendCriterion1SectionDocs = async (cycleId, sectionTitle, files) => {
+  const db = await openCriterion1DocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(C1_DOCS_STORE, 'readwrite');
+    const store = tx.objectStore(C1_DOCS_STORE);
+    const index = store.index('by_cycle_section');
+    const existingReq = index.getAll(IDBKeyRange.only([String(cycleId), sectionTitle]));
+
+    existingReq.onsuccess = () => {
+      const existing = existingReq.result || [];
+      const existingKeySet = new Set(existing.map((row) => `${row.name}::${row.lastModified}::${row.size}`));
+      files.forEach((file, idx) => {
+        const uniqueKey = `${file.name}::${file.lastModified}::${file.size}`;
+        if (existingKeySet.has(uniqueKey)) return;
+        store.put({
+          id: `${cycleId}-${sectionTitle}-${file.name}-${file.lastModified}-${idx}`,
+          cycleId: String(cycleId),
+          sectionTitle,
+          name: file.name,
+          type: file.type || 'Unknown',
+          size: file.size,
+          lastModified: file.lastModified,
+          fileBlob: file,
+          createdAt: new Date().toISOString(),
+        });
+      });
+    };
+    existingReq.onerror = () => reject(existingReq.error || new Error('Unable to store documents.'));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Unable to store documents.'));
+  });
+};
+
+const deleteCriterion1DocById = async (docId) => {
+  const db = await openCriterion1DocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(C1_DOCS_STORE, 'readwrite');
+    tx.objectStore(C1_DOCS_STORE).delete(docId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Unable to remove document.'));
+  });
+};
+
+const calculateCriterion1Completion = (payload) => {
+  if (!payload) return 0;
+  const completed = C1_TRACKED_FIELDS.filter((field) => {
+    const value = payload[field];
+    if (field === 'minimum_required_credits') {
+      return Number(value) > 0;
+    }
+    return `${value ?? ''}`.trim() !== '';
+  }).length;
+  return Math.round((completed / C1_TRACKED_FIELDS.length) * 100);
+};
+
+const C2_TRACKED_FIELDS = [
+  'institutional_mission_statement',
+  'program_mission_statement',
+  'mission_source_link',
+  'peos_list',
+  'peos_short_descriptions',
+  'peos_publication_location',
+  'peos_mission_alignment_explanation',
+  'constituencies_list',
+  'constituencies_contribution_description',
+  'peo_review_frequency',
+  'peo_review_participants',
+  'feedback_collection_and_decision_process',
+  'changes_since_last_peo_review'
+];
+
+const calculateCriterion2Completion = (payload) => {
+  const completed = C2_TRACKED_FIELDS.filter((field) => `${payload?.[field] ?? ''}`.trim() !== '').length;
+  return Math.round((completed / C2_TRACKED_FIELDS.length) * 100);
+};
+
+const C7_TRACKED_FIELDS = [
+  'total_number_of_offices',
+  'average_workspace_size',
+  'student_availability_details',
+  'guidance_description',
+  'responsible_faculty_name',
+  'maintenance_policy_description',
+  'technical_collections_and_journals',
+  'electronic_databases_and_eresources',
+  'faculty_book_request_process',
+  'library_access_hours_and_systems',
+  'facilities_support_student_outcomes',
+  'safety_and_inspection_processes',
+  'compliance_with_university_policy',
+];
+
+const hasPopulatedRow = (rows, requiredFields) => rows.some((row) => requiredFields.every((field) => `${row?.[field] ?? ''}`.trim() !== ''));
+
+const calculateCriterion7Completion = (payload, { classrooms, laboratories, computingResources, upgradingFacilities }) => {
+  const scalarCompleted = C7_TRACKED_FIELDS.filter((field) => `${payload?.[field] ?? ''}`.trim() !== '').length;
+  const rowChecks = [
+    hasPopulatedRow(classrooms, [
+      'classroom_room',
+      'classroom_capacity',
+      'classroom_multimedia',
+      'classroom_internet_access',
+      'classroom_typical_use',
+      'classroom_adequacy_comments'
+    ]),
+    hasPopulatedRow(laboratories, [
+      'lab_name',
+      'lab_room',
+      'lab_category',
+      'lab_hardware_list',
+      'lab_software_list',
+      'lab_open_hours',
+      'lab_courses_using_lab'
+    ]),
+    hasPopulatedRow(computingResources, [
+      'computing_resource_name',
+      'computing_resource_location',
+      'computing_access_type',
+      'computing_hours_available',
+      'computing_adequacy_notes'
+    ]),
+    hasPopulatedRow(upgradingFacilities, [
+      'facility_name',
+      'last_upgrade_date',
+      'next_scheduled_upgrade',
+      'responsible_staff',
+      'maintenance_notes'
+    ])
+  ];
+  const rowsCompleted = rowChecks.filter(Boolean).length;
+  const totalRequired = C7_TRACKED_FIELDS.length + rowChecks.length;
+  return Math.round(((scalarCompleted + rowsCompleted) / totalRequired) * 100);
+};
+
+const C8_TRACKED_FIELDS = [
+  'leadership_structure_description',
+  'leadership_adequacy_description',
+  'leadership_participation_description',
+  'budget_process_continuity',
+  'teaching_support_description',
+  'infrastructure_funding_description',
+  'resource_adequacy_description',
+  'hiring_process_description',
+  'retention_strategies_description',
+  'professional_development_support_types',
+  'professional_development_request_process',
+  'professional_development_funding_details',
+  'additional_narrative_on_staffing',
+];
+
+  const calculateCriterion8Completion = (payload) => {
+  const completed = C8_TRACKED_FIELDS.filter((field) => `${payload?.[field] ?? ''}`.trim() !== '').length;
+  return Math.round((completed / C8_TRACKED_FIELDS.length) * 100);
+};
+
+const DEFAULT_CRITERION8_STAFFING_ROWS = [
+  {
+    staffing_row_id: null,
+    category: 'Administrative',
+    number_of_staff: '',
+    primary_role: '',
+    training_retention_practices: ''
+  },
+  {
+    staffing_row_id: null,
+    category: 'Technical',
+    number_of_staff: '',
+    primary_role: '',
+    training_retention_practices: ''
+  },
+  {
+    staffing_row_id: null,
+    category: 'Instructional Assistants',
+    number_of_staff: '',
+    primary_role: '',
+    training_retention_practices: ''
+  }
+];
 
 
   const courses = [
@@ -18,11 +248,15 @@ import { apiRequest } from '../utils/api';
   ];
 
   const Criterion1Page = ({ onToggleSidebar, onBack }) => {
+  const { subtitle } = getActiveContext();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [docModal, setDocModal] = useState({ open: false, sectionTitle: '' });
+  const [selectedDocs, setSelectedDocs] = useState([]);
+  const [docStatus, setDocStatus] = useState('');
   
   // Get cycle ID from localStorage or default to 1
   const cycleId = localStorage.getItem('currentCycleId') || 1;
@@ -46,7 +280,7 @@ import { apiRequest } from '../utils/api';
     }
   };
 
-  const handleSave = async ({ markComplete = false } = {}) => {
+  const handleSave = async () => {
     setSaving(true);
     setError(null);
     setSuccess(false);
@@ -57,14 +291,22 @@ import { apiRequest } from '../utils/api';
         body: JSON.stringify(data)
       });
 
-      if (markComplete && result?.item) {
-        const checklistItem = await apiRequest(`/checklist-items/${result.item}/`, { method: 'GET' });
-        await apiRequest(`/checklist-items/${result.item}/`, {
+      const completionPercentage = calculateCriterion1Completion(result);
+      let checklistItemId = result?.item;
+      if (!checklistItemId) {
+        const checklistResult = await apiRequest(`/cycles/${cycleId}/checklist/`);
+        const criterion1Item = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 1);
+        checklistItemId = criterion1Item?.item_id;
+      }
+
+      if (checklistItemId) {
+        const checklistItem = await apiRequest(`/checklist-items/${checklistItemId}/`, { method: 'GET' });
+        await apiRequest(`/checklist-items/${checklistItemId}/`, {
           method: 'PUT',
           body: JSON.stringify({
             ...checklistItem,
-            status: 1,
-            completion_percentage: 100
+            status: completionPercentage >= 100 ? 1 : 0,
+            completion_percentage: completionPercentage
           })
         });
       }
@@ -83,13 +325,53 @@ import { apiRequest } from '../utils/api';
     }
   };
 
-  const handleMarkComplete = () => handleSave({ markComplete: true });
-
   const handleChange = (field, value) => {
     setData(prev => ({
       ...prev,
       [field]: value
     }));
+  };
+
+  const openDocModal = async (sectionTitle) => {
+    setDocStatus('');
+    setDocModal({ open: true, sectionTitle });
+    try {
+      const docs = await listCriterion1SectionDocs(cycleId, sectionTitle);
+      setSelectedDocs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+    } catch (err) {
+      setSelectedDocs([]);
+      setDocStatus(err?.message || 'Unable to load documents.');
+    }
+  };
+
+  const closeDocModal = () => {
+    setDocModal({ open: false, sectionTitle: '' });
+    setSelectedDocs([]);
+    setDocStatus('');
+  };
+
+  const handleDocSelection = (event) => {
+    if (!docModal.sectionTitle) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    appendCriterion1SectionDocs(cycleId, docModal.sectionTitle, files)
+      .then(() => listCriterion1SectionDocs(cycleId, docModal.sectionTitle))
+      .then((docs) => {
+        setSelectedDocs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setDocStatus(`${docs.length} file(s) saved for ${docModal.sectionTitle}.`);
+      })
+      .catch((err) => setDocStatus(err?.message || 'Unable to save documents.'));
+  };
+
+  const handleRemoveDoc = (docId) => {
+    deleteCriterion1DocById(docId)
+      .then(() => listCriterion1SectionDocs(cycleId, docModal.sectionTitle))
+      .then((docs) => {
+        setSelectedDocs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setDocStatus('Document removed.');
+      })
+      .catch((err) => setDocStatus(err?.message || 'Unable to remove document.'));
   };
 
   if (loading) {
@@ -127,7 +409,7 @@ import { apiRequest } from '../utils/api';
   }}>
     <GlobalHeader
       title="Criterion 1 - Students"
-      subtitle="CCE - ABET 2025-2027"
+      subtitle={subtitle}
       showBackButton={true}
       onToggleSidebar={onToggleSidebar}
       onBack={onBack}
@@ -144,9 +426,6 @@ import { apiRequest } from '../utils/api';
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: '1px solid #dee2e6', color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
-              Program: <span style={{ color: colors.primary }}>Computer & Communication Engineering</span> - Cycle: <span style={{ color: colors.primary }}>ABET 2025-2026</span>
-            </div>
             <button
               onClick={() => handleSave()}
               disabled={saving}
@@ -165,26 +444,6 @@ import { apiRequest } from '../utils/api';
             >
               <Save size={16} />
               {saving ? 'Saving...' : 'Save Draft'}
-            </button>
-            <button
-              onClick={() => handleMarkComplete()}
-              disabled={saving}
-              style={{
-                backgroundColor: colors.success,
-                color: 'white',
-                padding: '10px 16px',
-                borderRadius: '8px',
-                border: 'none',
-                fontWeight: '700',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                opacity: saving ? 0.7 : 1
-              }}
-            >
-              <Check size={16} />
-              {saving ? 'Saving...' : 'Mark Complete'}
             </button>
           </div>
         </div>
@@ -212,12 +471,12 @@ import { apiRequest } from '../utils/api';
       )}
 
       {/* Section A: Student Admissions */}
-      <Section
+      <Criterion1Section
         letter="A"
         title="Student Admissions"
         purpose="describe how new students are accepted into the program."
-        uploadText="Upload admission policy / catalog / handbook"
-        aiText="AI Extract admissions summary"
+        sectionTitle="A. Student Admissions"
+        onOpenUpload={openDocModal}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
           <FormField
@@ -245,15 +504,15 @@ import { apiRequest } from '../utils/api';
             rows={6}
           />
         </div>
-      </Section>
+      </Criterion1Section>
 
       {/* Section B: Evaluating Student Performance */}
-      <Section
+      <Criterion1Section
         letter="B"
         title="Evaluating Student Performance"
         purpose="explain how the program tracks and evaluates student progress."
-        uploadText="Upload assessment procedures / advising guidelines"
-        aiText="AI Extract performance rules"
+        sectionTitle="B. Evaluating Student Performance"
+        onOpenUpload={openDocModal}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
           <FormField
@@ -281,15 +540,15 @@ import { apiRequest } from '../utils/api';
             rows={6}
           />
         </div>
-      </Section>
+      </Criterion1Section>
 
       {/* Section C: Transfer Students and Transfer Courses */}
-      <Section
+      <Criterion1Section
         letter="C"
         title="Transfer Students and Transfer Courses"
         purpose="describe how transfer students and courses are handled."
-        uploadText="Upload transfer policy / articulation agreements"
-        aiText="AI Extract transfer process"
+        sectionTitle="C. Transfer Students and Transfer Courses"
+        onOpenUpload={openDocModal}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
           <FormField
@@ -317,15 +576,15 @@ import { apiRequest } from '../utils/api';
             rows={6}
           />
         </div>
-      </Section>
+      </Criterion1Section>
 
       {/* Section D: Advising and Career Guidance */}
-      <Section
+      <Criterion1Section
         letter="D"
         title="Advising and Career Guidance"
         purpose="summarize how students are advised academically and professionally."
-        uploadText="Upload advising policy / career center overview"
-        aiText="AI Extract advising details"
+        sectionTitle="D. Advising and Career Guidance"
+        onOpenUpload={openDocModal}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
           <FormField
@@ -353,23 +612,15 @@ import { apiRequest } from '../utils/api';
             rows={6}
           />
         </div>
-        <p style={{ 
-          fontSize: '13px', 
-          color: '#6c757d', 
-          marginTop: '16px',
-          fontStyle: 'italic'
-        }}>
-          Connected Feature: aligns with advising resources and evidence already uploaded; can reuse data from faculty and career center materials.
-        </p>
-      </Section>
+      </Criterion1Section>
 
       {/* Section E: Work in Lieu of Courses */}
-      <Section
+      <Criterion1Section
         letter="E"
         title="Work in Lieu of Courses"
         purpose="explain how students can get credit for prior learning or experiences."
-        uploadText="Upload institutional credit policy / regulations"
-        aiText="AI Extract substitutions"
+        sectionTitle="E. Work in Lieu of Courses"
+        onOpenUpload={openDocModal}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
           <FormField
@@ -389,30 +640,26 @@ import { apiRequest } from '../utils/api';
             rows={6}
           />
         </div>
-        <p style={{ 
-          fontSize: '13px', 
-          color: '#6c757d', 
-          marginTop: '16px',
-          fontStyle: 'italic'
-        }}>
-          Connected Feature: aligns with advising resources and evidence already uploaded; can reuse data from faculty and career center materials.
-        </p>
-      </Section>
+      </Criterion1Section>
 
       {/* Section F: Graduation Requirements */}
-      <Section
+      <Criterion1Section
         letter="F"
         title="Graduation Requirements"
         purpose="explain what students must complete to graduate."
-        uploadText="Upload graduation requirements / catalog"
-        aiText="AI Extract graduation rules"
+        sectionTitle="F. Graduation Requirements"
+        onOpenUpload={openDocModal}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '20px' }}>
           <FormField
             label="Minimum required credits"
             value={data?.minimum_required_credits || 0}
-            onChange={(value) => handleChange('minimum_required_credits', parseInt(value) || 0)}
-            type="number"
+            onChange={(value) => {
+              const digitsOnly = `${value ?? ''}`.replace(/\D/g, '');
+              handleChange('minimum_required_credits', digitsOnly === '' ? 0 : Number(digitsOnly));
+            }}
+            type="text"
+            inputMode="numeric"
             placeholder="Minimum required credits"
           />
           <FormField
@@ -436,23 +683,15 @@ import { apiRequest } from '../utils/api';
             placeholder="Degree name (e.g., Bachelor of Engineering in CCE)"
           />
         </div>
-        <p style={{ 
-          fontSize: '13px', 
-          color: '#6c757d', 
-          marginTop: '16px',
-          fontStyle: 'italic'
-        }}>
-          Connected Feature: pulls total credits and curriculum details directly from Curriculum Overview in Background Info and Courses section (Table 5-1).
-        </p>
-      </Section>
+      </Criterion1Section>
 
       {/* Section G: Transcripts of Recent Graduates */}
-      <Section
+      <Criterion1Section
         letter="G"
         title="Transcripts of Recent Graduates"
         purpose="mention how graduate transcripts are provided and how program options appear on them."
-        uploadText="Upload anonymized sample transcripts"
-        aiText="AI Extract transcript details"
+        sectionTitle="G. Transcripts of Recent Graduates"
+        onOpenUpload={openDocModal}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
           <FormField
@@ -472,14 +711,141 @@ import { apiRequest } from '../utils/api';
             rows={6}
           />
         </div>
-      </Section>
+      </Criterion1Section>
+
+      {docModal.open && (
+        <div
+          onClick={closeDocModal}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(20, 25, 35, 0.52)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            zIndex: 1700
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '620px',
+              backgroundColor: 'white',
+              borderRadius: '14px',
+              border: `1px solid ${colors.border}`,
+              boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
+              overflow: 'hidden'
+            }}
+          >
+            <div style={{ padding: '18px 22px', background: `linear-gradient(120deg, ${colors.primaryDark || colors.primary} 0%, ${colors.primary} 100%)`, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '17px', fontWeight: '800' }}>AI Document Import</div>
+                <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>{docModal.sectionTitle}</div>
+              </div>
+              <button onClick={closeDocModal} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }} aria-label="Close">
+                x
+              </button>
+            </div>
+
+            <div style={{ padding: '22px', display: 'grid', gap: '16px' }}>
+              <label style={{ display: 'grid', gap: '8px', color: colors.darkGray, fontSize: '13px', fontWeight: '700' }}>
+                Select Documents
+                <input type="file" multiple onChange={handleDocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+              </label>
+
+              <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
+                <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Selected Files
+                </div>
+                {selectedDocs.length === 0 ? (
+                  <div style={{ fontSize: '13px', color: colors.mediumGray }}>No files selected.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                    {selectedDocs.map((file) => (
+                      <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDoc(file.id)}
+                          style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {docStatus ? <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>{docStatus}</div> : null}
+            </div>
+
+            <div style={{ padding: '16px 22px 22px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: `1px solid ${colors.border}` }}>
+              <button type="button" onClick={closeDocModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
+                Extract with AI
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   </div>
 );
 };
 
 // Section Component
-const Section = ({ letter, title, purpose, uploadText, aiText, children }) => {
+const Criterion1Section = ({ letter, title, purpose, sectionTitle, onOpenUpload, children }) => {
+  return (
+    <div style={{
+      backgroundColor: 'white',
+      border: '1px solid #dee2e6',
+      borderRadius: '8px',
+      padding: '32px',
+      marginBottom: '24px'
+    }}>
+      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <h2 style={{ fontSize: '22px', fontWeight: '600', color: '#2c3e50', margin: '0 0 8px 0' }}>
+            {letter}. {title}
+          </h2>
+          <p style={{ fontSize: '14px', color: '#6c757d', margin: 0 }}>
+            Purpose: {purpose}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenUpload(sectionTitle)}
+          style={{
+            backgroundColor: colors.primary,
+            color: 'white',
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '13px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 8px 20px rgba(139,21,56,0.24)'
+          }}
+        >
+          <Upload size={16} />
+          Upload & AI Auto-fill
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+};
+
+// Section Component
+const Section = ({ letter, title, purpose, sectionTitle, onOpenUpload, children }) => {
   return (
     <div style={{
       backgroundColor: 'white',
@@ -506,41 +872,28 @@ const Section = ({ letter, title, purpose, uploadText, aiText, children }) => {
           Purpose: {purpose}
         </p>
 
-        {/* Action Buttons - NO EMOJIS */}
+        {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button style={{
-            padding: '8px 16px',
-            backgroundColor: 'white',
-            border: '2px dashed #8b1538',
+          <button
+            type="button"
+            onClick={() => onOpenUpload?.(sectionTitle)}
+            style={{
+            padding: '8px 12px',
+            backgroundColor: colors.primary,
+            border: 'none',
             borderRadius: '6px',
-            color: '#8b1538',
+            color: 'white',
             fontSize: '13px',
-            fontWeight: '600',
+            fontWeight: '700',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             gap: '6px'
           }}>
             <Upload size={14} />
-            {uploadText}
+            Upload Documents
           </button>
           
-          <button style={{
-            padding: '8px 16px',
-            backgroundColor: 'white',
-            border: '2px dashed #8b1538',
-            borderRadius: '6px',
-            color: '#8b1538',
-            fontSize: '13px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px'
-          }}>
-            <Sparkles size={14} />
-            {aiText}
-          </button>
         </div>
       </div>
 
@@ -551,7 +904,7 @@ const Section = ({ letter, title, purpose, uploadText, aiText, children }) => {
 };
 
 // Keep your existing FormField component (with placeholder support)
-const FormField = ({ label, value, onChange, multiline = false, type = 'text', rows = 4, placeholder = '' }) => {
+const FormField = ({ label, value, onChange, multiline = false, type = 'text', rows = 4, placeholder = '', inputMode = undefined }) => {
   return (
     <div style={{ marginBottom: '0' }}>
       <label style={{
@@ -577,6 +930,7 @@ const FormField = ({ label, value, onChange, multiline = false, type = 'text', r
       ) : (
         <input
           type={type}
+          inputMode={inputMode}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
@@ -599,11 +953,15 @@ const FormField = ({ label, value, onChange, multiline = false, type = 'text', r
 // CRITERION 2-8 PAGES (PLACEHOLDERS)
 // ========================================
 const Criterion2Page = ({ onToggleSidebar, onBack }) => {
+  const { subtitle, programName, cycleLabel } = getActiveContext();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [docModal, setDocModal] = useState({ open: false, sectionTitle: '' });
+  const [criterion2Docs, setCriterion2Docs] = useState([]);
+  const [criterion2DocStatus, setCriterion2DocStatus] = useState('');
   
   const cycleId = localStorage.getItem('currentCycleId') || 1;
 
@@ -626,7 +984,49 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
     }
   };
 
-  const handleSave = async ({ markComplete = false } = {}) => {
+  const openCriterion2UploadModal = async (sectionTitle) => {
+    setCriterion2DocStatus('');
+    setDocModal({ open: true, sectionTitle });
+    try {
+      const docs = await listCriterion1SectionDocs(cycleId, `Criterion2:${sectionTitle}`);
+      setCriterion2Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+    } catch (err) {
+      setCriterion2Docs([]);
+      setCriterion2DocStatus(err?.message || 'Unable to load documents.');
+    }
+  };
+
+  const closeCriterion2UploadModal = () => {
+    setDocModal({ open: false, sectionTitle: '' });
+    setCriterion2Docs([]);
+    setCriterion2DocStatus('');
+  };
+
+  const handleCriterion2DocSelection = (event) => {
+    if (!docModal.sectionTitle) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    appendCriterion1SectionDocs(cycleId, `Criterion2:${docModal.sectionTitle}`, files)
+      .then(() => listCriterion1SectionDocs(cycleId, `Criterion2:${docModal.sectionTitle}`))
+      .then((docs) => {
+        setCriterion2Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setCriterion2DocStatus(`${docs.length} file(s) saved for ${docModal.sectionTitle}.`);
+      })
+      .catch((err) => setCriterion2DocStatus(err?.message || 'Unable to save documents.'));
+  };
+
+  const handleCriterion2RemoveDoc = (docId) => {
+    deleteCriterion1DocById(docId)
+      .then(() => listCriterion1SectionDocs(cycleId, `Criterion2:${docModal.sectionTitle}`))
+      .then((docs) => {
+        setCriterion2Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setCriterion2DocStatus('Document removed.');
+      })
+      .catch((err) => setCriterion2DocStatus(err?.message || 'Unable to remove document.'));
+  };
+
+  const handleSave = async () => {
     setSaving(true);
     setError(null);
     setSuccess(false);
@@ -637,21 +1037,19 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
         body: JSON.stringify(data)
       });
 
-      if (markComplete) {
-        const checklistResult = await apiRequest(`/cycles/${cycleId}/checklist/`);
-        const criterion2Item = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 2);
-
-        if (criterion2Item?.item_id) {
-          const checklistItem = await apiRequest(`/checklist-items/${criterion2Item.item_id}/`, { method: 'GET' });
-          await apiRequest(`/checklist-items/${criterion2Item.item_id}/`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              ...checklistItem,
-              status: 1,
-              completion_percentage: 100
-            })
-          });
-        }
+      const checklistResult = await apiRequest(`/cycles/${cycleId}/checklist/`);
+      const criterion2Item = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 2);
+      const completionPercentage = calculateCriterion2Completion(result);
+      if (criterion2Item?.item_id) {
+        const checklistItem = await apiRequest(`/checklist-items/${criterion2Item.item_id}/`, { method: 'GET' });
+        await apiRequest(`/checklist-items/${criterion2Item.item_id}/`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            ...checklistItem,
+            status: completionPercentage >= 100 ? 1 : 0,
+            completion_percentage: completionPercentage
+          })
+        });
       }
 
       setData(result);
@@ -667,8 +1065,6 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
       setSaving(false);
     }
   };
-
-  const handleMarkComplete = () => handleSave({ markComplete: true });
   const handleChange = (field, value) => {
     setData(prev => ({
       ...prev,
@@ -711,7 +1107,7 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
     }}>
       <GlobalHeader
         title="Criterion 2 - Program Educational Objectives"
-        subtitle="CCE - ABET 2025-2027"
+        subtitle={subtitle}
         showBackButton={true}
         onToggleSidebar={onToggleSidebar}
         onBack={onBack}
@@ -746,17 +1142,10 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
 
           <div style={{
             display: 'flex',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             alignItems: 'center',
-            paddingTop: '16px',
-            borderTop: '1px solid #dee2e6'
+            paddingTop: '4px'
           }}>
-            <div style={{ fontSize: '14px', color: '#2c3e50' }}>
-              <strong>Program:</strong> <span style={{ color: '#8b1538' }}>Computer & Communication Engineering</span>
-              {' - '}
-              <strong>Cycle:</strong> <span style={{ color: '#8b1538' }}>ABET 2025-2026</span>
-            </div>
-
             <div style={{ display: 'flex', gap: '12px' }}>
               <button
                 onClick={() => handleSave()}
@@ -777,27 +1166,6 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
               >
                 <Save size={16} />
                 {saving ? 'Saving...' : 'Save Draft'}
-              </button>
-
-              <button
-                onClick={() => handleMarkComplete()}
-                disabled={saving}
-                style={{
-                  padding: '10px 24px',
-                  backgroundColor: '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  opacity: saving ? 0.7 : 1
-                }}
-              >
-                <Check size={16} /> {saving ? 'Saving...' : 'Mark Complete'}
               </button>
             </div>
           </div>
@@ -829,8 +1197,8 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
           letter="A"
           title="Mission Statement"
           purpose="show the university or program mission statement with source or link."
-          uploadText="Upload Strategic Plan / Mission Doc"
-          aiText="AI Extract mission"
+          sectionTitle="A. Mission Statement"
+          onOpenUpload={openCriterion2UploadModal}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
             <FormField
@@ -858,14 +1226,6 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
               rows={6}
             />
           </div>
-          <p style={{ 
-            fontSize: '13px', 
-            color: '#6c757d', 
-            marginTop: '16px',
-            fontStyle: 'italic'
-          }}>
-            Connected Feature: auto-fills from Background Information if already captured.
-          </p>
         </Section>
 
         {/* Section B: Program Educational Objectives (PEOs) */}
@@ -873,8 +1233,8 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
           letter="B"
           title="Program Educational Objectives (PEOs)"
           purpose="list long-term objectives and where they are published."
-          uploadText="Upload PEO Review Report / Brochure"
-          aiText="AI Extract PEOs"
+          sectionTitle="B. Program Educational Objectives (PEOs)"
+          onOpenUpload={openCriterion2UploadModal}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
             <FormField
@@ -902,14 +1262,6 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
               rows={6}
             />
           </div>
-          <p style={{ 
-            fontSize: '13px', 
-            color: '#6c757d', 
-            marginTop: '16px',
-            fontStyle: 'italic'
-          }}>
-            Connected Feature: links later to Criterion 3 mapping (Student Outcomes ? PEOs).
-          </p>
         </Section>
 
         {/* Section C: Consistency of PEOs with Institutional Mission */}
@@ -917,8 +1269,8 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
           letter="C"
           title="Consistency of PEOs with Institutional Mission"
           purpose="explain how objectives support the university mission."
-          uploadText="Upload Strategic Alignment Docs"
-          aiText="AI Summarize alignment"
+          sectionTitle="C. Consistency of PEOs with Institutional Mission"
+          onOpenUpload={openCriterion2UploadModal}
         >
           <FormField
             label="How our program's objectives align with the institutional mission"
@@ -935,8 +1287,8 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
           letter="D"
           title="Program Constituencies"
           purpose="identify constituencies and describe how each contributes to PEOs."
-          uploadText="Upload Advisory Minutes / Stakeholder Reports"
-          aiText="AI Identify constituencies"
+          sectionTitle="D. Program Constituencies"
+          onOpenUpload={openCriterion2UploadModal}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <FormField
@@ -956,14 +1308,6 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
               rows={6}
             />
           </div>
-          <p style={{ 
-            fontSize: '13px', 
-            color: '#6c757d', 
-            marginTop: '16px',
-            fontStyle: 'italic'
-          }}>
-            Connected Feature: can pull stakeholder names from Evidence Uploads and sidebar lists.
-          </p>
         </Section>
 
         {/* Section E: Process for Review of PEOs */}
@@ -971,8 +1315,8 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
           letter="E"
           title="Process for Review of PEOs"
           purpose="describe review cadence, participants, feedback collection, and changes."
-          uploadText="Upload review process documents"
-          aiText="AI Extract timeline & actions"
+          sectionTitle="E. Process for Review of PEOs"
+          onOpenUpload={openCriterion2UploadModal}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '20px' }}>
             <FormField
@@ -1008,15 +1352,92 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
               rows={6}
             />
           </div>
-          <p style={{ 
-            fontSize: '13px', 
-            color: '#6c757d', 
-            marginTop: '16px',
-            fontStyle: 'italic'
-          }}>
-            Connected Feature: links to stakeholder evidence and previous PEO versions.
-          </p>
         </Section>
+
+        {docModal.open && (
+          <div
+            onClick={closeCriterion2UploadModal}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(20, 25, 35, 0.52)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+              zIndex: 1700
+            }}
+          >
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '760px',
+                borderRadius: '14px',
+                backgroundColor: 'white',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.3)',
+                overflow: 'hidden'
+              }}
+            >
+              <div style={{ padding: '18px 22px', background: `linear-gradient(120deg, ${colors.primaryDark} 0%, ${colors.primary} 100%)`, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '17px', fontWeight: '800' }}>Document Upload</div>
+                  <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>{docModal.sectionTitle}</div>
+                </div>
+                <button onClick={closeCriterion2UploadModal} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }} aria-label="Close">
+                  x
+                </button>
+              </div>
+
+              <div style={{ padding: '16px 20px', display: 'grid', gap: '12px' }}>
+                <input type="file" multiple onChange={handleCriterion2DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+
+                <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
+                  {criterion2Docs.length === 0 ? (
+                    <div style={{ color: colors.mediumGray, fontSize: '13px' }}>No documents uploaded yet.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      {criterion2Docs.map((file) => (
+                        <div key={file.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: colors.darkGray, fontWeight: '700', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                            <div style={{ color: colors.mediumGray, fontSize: '12px' }}>{file.type || 'Unknown'} - {Math.max(1, Math.round((Number(file.size || 0) / 1024)))} KB</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleCriterion2RemoveDoc(file.id)}
+                            style={{
+                              border: `1px solid ${colors.border}`,
+                              backgroundColor: 'white',
+                              color: colors.mediumGray,
+                              borderRadius: '6px',
+                              padding: '6px 10px',
+                              cursor: 'pointer',
+                              fontWeight: '700'
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {criterion2DocStatus ? <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>{criterion2DocStatus}</div> : null}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button type="button" onClick={closeCriterion2UploadModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
+                    Close
+                  </button>
+                  <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
+                    Extract with AI
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1028,7 +1449,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Criterion 4 - Continuous Improvement" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Criterion 4 - Continuous Improvement" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -1054,7 +1475,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
               <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${colors.border}`, color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
 
-                Program: <span style={{ color: colors.primary }}>Computer & Communication Engineering</span> - Cycle: <span style={{ color: colors.primary }}>ABET 2025-2026</span>
+                Program: <span style={{ color: colors.primary }}>{getActiveContext().programName}</span> - Cycle: <span style={{ color: colors.primary }}>{getActiveContext().cycleLabel}</span>
 
               </div>
 
@@ -1404,7 +1825,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Criterion 4 - Continuous Improvement" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Criterion 4 - Continuous Improvement" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -1430,7 +1851,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
               <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${colors.border}`, color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
 
-                Program: <span style={{ color: colors.primary }}>Computer & Communication Engineering</span> - Cycle: <span style={{ color: colors.primary }}>ABET 2025-2026</span>
+                Program: <span style={{ color: colors.primary }}>{getActiveContext().programName}</span> - Cycle: <span style={{ color: colors.primary }}>{getActiveContext().cycleLabel}</span>
 
               </div>
 
@@ -1836,7 +2257,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Criterion 5 - Curriculum" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Criterion 5 - Curriculum" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -1862,7 +2283,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
               <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${colors.border}`, color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
 
-                Program: <span style={{ color: colors.primary }}>Computer & Communication Engineering</span> - Cycle: <span style={{ color: colors.primary }}>ABET 2025-2026</span>
+                Program: <span style={{ color: colors.primary }}>{getActiveContext().programName}</span> - Cycle: <span style={{ color: colors.primary }}>{getActiveContext().cycleLabel}</span>
 
               </div>
 
@@ -2382,7 +2803,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Criterion 6 - Faculty" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Criterion 6 - Faculty" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -2408,7 +2829,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
               <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${colors.border}`, color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
 
-                Program: <span style={{ color: colors.primary }}>Computer & Communication Engineering</span> - Cycle: <span style={{ color: colors.primary }}>ABET 2025-2026</span>
+                Program: <span style={{ color: colors.primary }}>{getActiveContext().programName}</span> - Cycle: <span style={{ color: colors.primary }}>{getActiveContext().cycleLabel}</span>
 
               </div>
 
@@ -2950,9 +3371,12 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
   ]);
 
   const [loading, setLoading] = useState(false);
-  const [saveStatus, setSaveStatus] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [isCriterion7Complete, setIsCriterion7Complete] = useState(false);
-  const safetyAuditInputRef = useRef(null);
+  const [criterion7DocModal, setCriterion7DocModal] = useState({ open: false, sectionTitle: '' });
+  const [criterion7Docs, setCriterion7Docs] = useState([]);
+  const [criterion7DocStatus, setCriterion7DocStatus] = useState('');
 
   useEffect(() => {
     const loadCriterion7 = async () => {
@@ -3165,7 +3589,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
   const saveCriterion7 = async ({ markComplete = false } = {}) => {
     try {
       setLoading(true);
-      setSaveStatus(markComplete ? 'Saving and marking complete...' : 'Saving...');
+      setSaveError('');
+      setSaveSuccess(false);
 
       let resolvedCycleId = Number(cycleId);
       if (!Number.isInteger(resolvedCycleId) || resolvedCycleId < 1) {
@@ -3177,7 +3602,6 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
       const payload = {
         cycle: resolvedCycleId,
-        is_complete: markComplete ? true : criterion7Data.is_complete,
         total_number_of_offices:
           criterion7Data.total_number_of_offices === ''
             ? null
@@ -3217,7 +3641,6 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
           ...prev,
           criterion7_id: criterion7Id,
           cycle: resolvedCycleId,
-          is_complete: !!criterion7Result?.is_complete
         }));
       } catch (criterion7SaveError) {
         if (!markComplete) {
@@ -3443,38 +3866,39 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
         }
       }
 
-      if (markComplete) {
-        let criterion7ItemId = null;
-        const checklistResult = await apiRequest(`/cycles/${resolvedCycleId}/checklist/`, { method: 'GET' });
-        const criterion7Item = checklistResult?.items?.find(
-          (row) => Number(row?.criterion_number) === 7
-        );
-        criterion7ItemId = criterion7Item?.item_id ?? null;
+      const checklistResult = await apiRequest(`/cycles/${resolvedCycleId}/checklist/`, { method: 'GET' });
+      const criterion7Item = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 7);
+      const criterion7ItemId = criterion7Item?.item_id ?? null;
 
-        if (criterion7ItemId) {
-          const checklistItem = await apiRequest(`/checklist-items/${criterion7ItemId}/`, { method: 'GET' });
-          await apiRequest(`/checklist-items/${criterion7ItemId}/`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              ...checklistItem,
-              status: 1,
-              completion_percentage: 100
-            })
+      const completionPercentage = markComplete
+        ? 100
+        : calculateCriterion7Completion(criterion7Data, {
+            classrooms: classroomRows,
+            laboratories: laboratoryRows,
+            computingResources: computingResourceRows,
+            upgradingFacilities: upgradingFacilityRows
           });
-        }
 
-        setIsCriterion7Complete(true);
-        setSaveStatus('Marked complete successfully.');
-        localStorage.setItem('checklistNeedsRefresh', 'true');
-      } else {
-        setIsCriterion7Complete(!!criterion7Result?.is_complete);
-        setSaveStatus('Saved successfully!');
+      if (criterion7ItemId) {
+        const checklistItem = await apiRequest(`/checklist-items/${criterion7ItemId}/`, { method: 'GET' });
+        await apiRequest(`/checklist-items/${criterion7ItemId}/`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            ...checklistItem,
+            status: completionPercentage >= 100 ? 1 : 0,
+            completion_percentage: completionPercentage
+          })
+        });
       }
 
-      setTimeout(() => setSaveStatus(''), 3000);
+      setIsCriterion7Complete(completionPercentage >= 100);
+      setSaveSuccess(true);
+      localStorage.setItem('checklistNeedsRefresh', 'true');
+
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
       console.error('Error:', error);
-      setSaveStatus(error?.message || 'Error saving. Please try again.');
+      setSaveError(`Save failed: ${error?.message || 'Please try again.'}`);
     } finally {
       setLoading(false);
     }
@@ -3484,54 +3908,52 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
     saveCriterion7();
   };
 
-  const handleMarkComplete = () => {
-    saveCriterion7({ markComplete: true });
-  };
-
-  const handleSafetyAuditUploadClick = () => {
-    safetyAuditInputRef.current?.click();
-  };
-
-  const handleSafetyAuditUploadChange = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
+  const openCriterion7UploadModal = async (sectionTitle) => {
+    setCriterion7DocStatus('');
+    setCriterion7DocModal({ open: true, sectionTitle });
+    try {
+      const docs = await listCriterion1SectionDocs(cycleId, `Criterion7:${sectionTitle}`);
+      setCriterion7Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+    } catch (err) {
+      setCriterion7Docs([]);
+      setCriterion7DocStatus(err?.message || 'Unable to load documents.');
     }
-    setSaveStatus(`Selected safety audit file: ${file.name}`);
-    setTimeout(() => setSaveStatus(''), 3000);
-    event.target.value = '';
   };
 
-  const handleCreateAdequacyParagraph = () => {
-    const details = [
-      criterion7Data.facilities_support_student_outcomes,
-      criterion7Data.safety_and_inspection_processes,
-      criterion7Data.compliance_with_university_policy
-    ]
-      .map((value) => `${value || ''}`.trim())
-      .filter((value) => value.length > 0);
+  const closeCriterion7UploadModal = () => {
+    setCriterion7DocModal({ open: false, sectionTitle: '' });
+    setCriterion7Docs([]);
+    setCriterion7DocStatus('');
+  };
 
-    if (details.length === 0) {
-      setSaveStatus('Add facilities details first, then run AI Create adequacy paragraph.');
-      setTimeout(() => setSaveStatus(''), 3000);
-      return;
-    }
+  const handleCriterion7DocSelection = (event) => {
+    if (!criterion7DocModal.sectionTitle) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
 
-    const generatedParagraph = `Facilities adequacy summary: ${details.join(' ')}`;
-    setCriterion7Data((prev) => ({
-      ...prev,
-      facilities_support_student_outcomes: prev.facilities_support_student_outcomes
-        ? `${prev.facilities_support_student_outcomes}\n\n${generatedParagraph}`
-        : generatedParagraph
-    }));
-    setSaveStatus('Generated adequacy paragraph and added it to "Facilities support student outcomes".');
-    setTimeout(() => setSaveStatus(''), 3000);
+    appendCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`, files)
+      .then(() => listCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`))
+      .then((docs) => {
+        setCriterion7Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setCriterion7DocStatus(`${docs.length} file(s) saved for ${criterion7DocModal.sectionTitle}.`);
+      })
+      .catch((err) => setCriterion7DocStatus(err?.message || 'Unable to save documents.'));
+  };
+
+  const handleCriterion7RemoveDoc = (docId) => {
+    deleteCriterion1DocById(docId)
+      .then(() => listCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`))
+      .then((docs) => {
+        setCriterion7Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setCriterion7DocStatus('Document removed.');
+      })
+      .catch((err) => setCriterion7DocStatus(err?.message || 'Unable to remove document.'));
   };
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Criterion 7 - Facilities" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Criterion 7 - Facilities" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -3546,8 +3968,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
               <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Criterion 7 - Facilities</div>
 
               <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>
-
-                Full-page layout with six parts: Offices/Classrooms/Laboratories - Computing Resources - Guidance - Maintenance & Upgrading - Library Services - Overall Comments.
+                Summarize facilities adequacy, computing resources, guidance, maintenance, library support, and overall compliance.
 
               </p>
 
@@ -3563,124 +3984,59 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
               </button>
 
-              <button onClick={() => handleMarkComplete()} disabled={loading} style={{ backgroundColor: isCriterion7Complete ? '#2E8B57' : colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', opacity: loading ? 0.7 : 1 }}>
-
-                <Check size={16} />
-
-                {loading ? 'Saving...' : isCriterion7Complete ? 'Completed' : 'Mark Complete'}
-
-              </button>
-
             </div>
 
-            {saveStatus ? <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>{saveStatus}</div> : null}
-
           </div>
+
+          {saveSuccess && (
+            <div style={{ marginTop: '12px', padding: '12px 16px', backgroundColor: '#d4edda', border: '1px solid #c3e6cb', borderRadius: '6px', color: '#155724', fontSize: '14px' }}>
+              Saved successfully!
+            </div>
+          )}
+          {saveError && (
+            <div style={{ marginTop: '12px', padding: '12px 16px', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '6px', color: '#721c24', fontSize: '14px' }}>
+              {saveError}
+            </div>
+          )}
 
         </div>
-
-
-
         {/* A. Offices, Classrooms & Laboratories */}
-
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
-
           <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800', marginBottom: '8px' }}>A. Offices, Classrooms & Laboratories</h3>
-
-          <p style={{ color: colors.mediumGray, margin: '0 0 14px 0', fontSize: '14px' }}>Text-based subsections with upload boxes and AI extraction for inventory data.</p>
-
-
+          <p style={{ color: colors.mediumGray, margin: '0 0 14px 0', fontSize: '14px' }}>Document offices, classrooms, and laboratories used by the program.</p>
 
           <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', marginBottom: '14px', backgroundColor: colors.lightGray }}>
-
             <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Offices</div>
-
             <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Describe faculty, administrative, and TA offices; include size and distribution.</p>
-
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', marginTop: '10px' }}>
-
-              <input type="number" placeholder="Total number of offices" value={criterion7Data.total_number_of_offices} onChange={handleCriterion7Change('total_number_of_offices')} style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
-
-              <input type="number" step="0.01" placeholder="Average workspace size" value={criterion7Data.average_workspace_size} onChange={handleCriterion7Change('average_workspace_size')} style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
-
-              <input placeholder="Student availability details" value={criterion7Data.student_availability_details} onChange={handleCriterion7Change('student_availability_details')} style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
-
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '700', color: colors.darkGray, fontSize: '12px' }}>Total Number of Offices</label>
+                <input type="number" placeholder="e.g., 24" value={criterion7Data.total_number_of_offices} onChange={handleCriterion7Change('total_number_of_offices')} style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '700', color: colors.darkGray, fontSize: '12px' }}>Average Workspace Size</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input type="number" step="0.01" placeholder="e.g., 14.5" value={criterion7Data.average_workspace_size} onChange={handleCriterion7Change('average_workspace_size')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+                  <span style={{ color: colors.mediumGray, fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap' }}>m²</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label style={{ fontWeight: '700', color: colors.darkGray, fontSize: '12px' }}>Student Availability Details</label>
+                <input placeholder="e.g., Faculty office hours posted weekly" value={criterion7Data.student_availability_details} onChange={handleCriterion7Change('student_availability_details')} style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
+              </div>
             </div>
-
             <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-
-              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                <Upload size={14} /> Upload: Facilities Report.pdf
-
+              <button type="button" onClick={() => openCriterion7UploadModal('A. Offices')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload Documents
               </button>
-
-              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                <Sparkles size={14} /> AI Extract counts & adequacy
-
-              </button>
-
             </div>
-
           </div>
 
-
-
           <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', marginBottom: '14px', backgroundColor: colors.lightGray }}>
-
             <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Classrooms</div>
-
-            <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Table for quick data entry. Upload Classroom Equipment List.xlsx  or  Timetable Summary.pdf.- AI fills capacities, network access, and equipment automatically.</p>
-
-            <div style={{ marginTop: '10px', overflowX: 'auto' }}>
-
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-
-                <thead>
-
-                  <tr style={{ backgroundColor: 'white', color: colors.darkGray }}>
-
-                    {['Room', 'Capacity', 'Multimedia', 'Internet Access', 'Typical Use', 'Adequacy Comments'].map((h) => (
-
-                      <th key={h} style={{ padding: '10px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
-
-                    ))}
-
-                  </tr>
-
-                </thead>
-
-                <tbody>
-
-                  {[{ room: 'ENG 203', capacity: '45', multimedia: 'Projector + Audio', internet: 'Wi-Fi + LAN', use: 'Core lectures', adequacy: 'Ready' }, { room: 'ENG 305', capacity: '60', multimedia: 'Smart board', internet: 'Wi-Fi', use: 'Large lectures', adequacy: 'Upgrade AV planned' }].map((row) => (
-
-                    <tr key={row.room} style={{ borderBottom: `1px solid ${colors.border}` }}>
-
-                      <td style={{ padding: '10px' }}>{row.room}</td>
-
-                      <td style={{ padding: '10px' }}>{row.capacity}</td>
-
-                      <td style={{ padding: '10px' }}>{row.multimedia}</td>
-
-                      <td style={{ padding: '10px' }}>{row.internet}</td>
-
-                      <td style={{ padding: '10px' }}>{row.use}</td>
-
-                      <td style={{ padding: '10px', color: colors.mediumGray }}>{row.adequacy}</td>
-
-                    </tr>
-
-                  ))}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
+            <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Add classroom rows and save them as part of this draft.</p>
             <div style={{ marginTop: '12px', overflowX: 'auto', backgroundColor: 'white', border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '10px' }}>
-              <div style={{ fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>Editable Classroom Rows</div>
+              <div style={{ fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>Classroom Rows</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ color: colors.darkGray }}>
@@ -3693,22 +4049,22 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                   {classroomRows.map((row) => (
                     <tr key={row.local_id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.classroom_room} onChange={handleClassroomChange(row.local_id, 'classroom_room')} style={{ width: '120px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., ENG 203" value={row.classroom_room} onChange={handleClassroomChange(row.local_id, 'classroom_room')} style={{ width: '120px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="number" min="0" value={row.classroom_capacity} onChange={handleClassroomChange(row.local_id, 'classroom_capacity')} style={{ width: '80px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input type="number" min="0" placeholder="e.g., 45" value={row.classroom_capacity} onChange={handleClassroomChange(row.local_id, 'classroom_capacity')} style={{ width: '80px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.classroom_multimedia} onChange={handleClassroomChange(row.local_id, 'classroom_multimedia')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., Projector + audio" value={row.classroom_multimedia} onChange={handleClassroomChange(row.local_id, 'classroom_multimedia')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.classroom_internet_access} onChange={handleClassroomChange(row.local_id, 'classroom_internet_access')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., Wi-Fi + LAN" value={row.classroom_internet_access} onChange={handleClassroomChange(row.local_id, 'classroom_internet_access')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.classroom_typical_use} onChange={handleClassroomChange(row.local_id, 'classroom_typical_use')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., Core lectures" value={row.classroom_typical_use} onChange={handleClassroomChange(row.local_id, 'classroom_typical_use')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.classroom_adequacy_comments} onChange={handleClassroomChange(row.local_id, 'classroom_adequacy_comments')} style={{ width: '170px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., AV upgrade planned" value={row.classroom_adequacy_comments} onChange={handleClassroomChange(row.local_id, 'classroom_adequacy_comments')} style={{ width: '170px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <button onClick={() => removeClassroomRow(row.local_id)} disabled={classroomRows.length === 1} style={{ backgroundColor: 'white', color: colors.primary, border: `1px solid ${colors.border}`, padding: '5px 8px', borderRadius: '6px', fontWeight: '700', opacity: classroomRows.length === 1 ? 0.5 : 1 }}>
@@ -3720,89 +4076,21 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 </tbody>
               </table>
             </div>
-
             <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-
               <button onClick={addClassroomRow} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
                 <Plus size={14} /> Add classroom row
-
               </button>
-
-              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                <Upload size={14} /> Upload equipment/timetable
-
+              <button type="button" onClick={() => openCriterion7UploadModal('A. Classrooms')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload Documents
               </button>
-
-              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                <Sparkles size={14} /> AI Extract classroom details
-
-              </button>
-
             </div>
-
           </div>
 
-
-
           <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
-
-            <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Laboratories (+ Appendix C Generator)</div>
-
-            <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Each lab row shows linked courses from ? Courses. Upload inventories and AI fills hardware/software lists. Generate Appendix C automatically.</p>
-
-            <div style={{ marginTop: '10px', overflowX: 'auto' }}>
-
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-
-                <thead>
-
-                  <tr style={{ backgroundColor: 'white', color: colors.darkGray }}>
-
-                    {['Lab Name', 'Room', 'Category', 'Hardware List', 'Software List', 'Open Hours', 'Courses Using Lab'].map((h) => (
-
-                      <th key={h} style={{ padding: '10px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
-
-                    ))}
-
-                  </tr>
-
-                </thead>
-
-                <tbody>
-
-                  {[{ lab: 'Embedded Systems Lab', room: 'ENG B12', cat: 'Electrical/Computer', hardware: 'Oscilloscopes, FPGA kits, logic analyzers', software: 'Keil, Vivado, MATLAB', hours: 'Mon�Fri 8:00�18:00', courses: 'EECE 320, EECE 401' }, { lab: 'Networks Lab', room: 'ENG C08', cat: 'Comm/Networking', hardware: 'Routers, switches, Wi-Fi controllers', software: 'Packet Tracer, GNS3', hours: 'Mon�Fri 9:00�19:00', courses: 'EECE 311, EECE 350' }].map((row) => (
-
-                    <tr key={row.lab} style={{ borderBottom: `1px solid ${colors.border}` }}>
-
-                      <td style={{ padding: '10px' }}>{row.lab}</td>
-
-                      <td style={{ padding: '10px' }}>{row.room}</td>
-
-                      <td style={{ padding: '10px' }}>{row.cat}</td>
-
-                      <td style={{ padding: '10px', color: colors.mediumGray }}>{row.hardware}</td>
-
-                      <td style={{ padding: '10px', color: colors.mediumGray }}>{row.software}</td>
-
-                      <td style={{ padding: '10px' }}>{row.hours}</td>
-
-                      <td style={{ padding: '10px' }}>{row.courses}</td>
-
-                    </tr>
-
-                  ))}
-
-                </tbody>
-
-              </table>
-
-            </div>
-
+            <div style={{ fontWeight: '800', color: colors.darkGray, marginBottom: '6px' }}>Laboratories</div>
+            <p style={{ margin: 0, color: colors.mediumGray, fontSize: '13px' }}>Add laboratory rows and save them as part of this draft.</p>
             <div style={{ marginTop: '12px', overflowX: 'auto', backgroundColor: 'white', border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '10px' }}>
-              <div style={{ fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>Editable Laboratory Rows</div>
+              <div style={{ fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>Laboratory Rows</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
                   <tr style={{ color: colors.darkGray }}>
@@ -3815,25 +4103,25 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                   {laboratoryRows.map((row) => (
                     <tr key={row.local_id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.lab_name} onChange={handleLaboratoryChange(row.local_id, 'lab_name')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., Embedded Systems Lab" value={row.lab_name} onChange={handleLaboratoryChange(row.local_id, 'lab_name')} style={{ width: '150px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.lab_room} onChange={handleLaboratoryChange(row.local_id, 'lab_room')} style={{ width: '100px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., ENG B12" value={row.lab_room} onChange={handleLaboratoryChange(row.local_id, 'lab_room')} style={{ width: '100px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.lab_category} onChange={handleLaboratoryChange(row.local_id, 'lab_category')} style={{ width: '130px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., Computer Engineering" value={row.lab_category} onChange={handleLaboratoryChange(row.local_id, 'lab_category')} style={{ width: '130px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.lab_hardware_list} onChange={handleLaboratoryChange(row.local_id, 'lab_hardware_list')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., Oscilloscopes, FPGA kits" value={row.lab_hardware_list} onChange={handleLaboratoryChange(row.local_id, 'lab_hardware_list')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.lab_software_list} onChange={handleLaboratoryChange(row.local_id, 'lab_software_list')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., MATLAB, Vivado" value={row.lab_software_list} onChange={handleLaboratoryChange(row.local_id, 'lab_software_list')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.lab_open_hours} onChange={handleLaboratoryChange(row.local_id, 'lab_open_hours')} style={{ width: '130px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., Mon-Fri 08:00-18:00" value={row.lab_open_hours} onChange={handleLaboratoryChange(row.local_id, 'lab_open_hours')} style={{ width: '130px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input value={row.lab_courses_using_lab} onChange={handleLaboratoryChange(row.local_id, 'lab_courses_using_lab')} style={{ width: '170px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                        <input placeholder="e.g., EECE 320, EECE 401" value={row.lab_courses_using_lab} onChange={handleLaboratoryChange(row.local_id, 'lab_courses_using_lab')} style={{ width: '170px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
                         <button onClick={() => removeLaboratoryRow(row.local_id)} disabled={laboratoryRows.length === 1} style={{ backgroundColor: 'white', color: colors.primary, border: `1px solid ${colors.border}`, padding: '5px 8px', borderRadius: '6px', fontWeight: '700', opacity: laboratoryRows.length === 1 ? 0.5 : 1 }}>
@@ -3845,100 +4133,53 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 </tbody>
               </table>
             </div>
-
             <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-
               <button onClick={addLaboratoryRow} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
                 <Plus size={14} /> Add laboratory row
-
               </button>
-
-              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                <Upload size={14} /> Upload inventory spreadsheets
-
+              <button type="button" onClick={() => openCriterion7UploadModal('A. Laboratories')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload Documents
               </button>
-
-              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                <Sparkles size={14} /> AI Extract hardware/software
-
-              </button>
-
-              <button style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                <FileText size={14} /> Generate Appendix C - Equipment List
-
-              </button>
-
             </div>
-
           </div>
-
         </div>
-
-
-
         {/* B. Computing Resources */}
-
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-
             <div>
-
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>B. Computing Resources</h3>
-
-              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe computing infrastructure beyond specific labs. Labs defined in part A appear here automatically.</p>
-
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe shared computing infrastructure available to students.</p>
             </div>
-
-            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-              <Upload size={16} /> Upload IT Infrastructure Summary
-
+            <button type="button" onClick={() => openCriterion7UploadModal('B. Computing Resources')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload Documents
             </button>
-
           </div>
-
-
-
           <div style={{ marginTop: '12px', overflowX: 'auto' }}>
-
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-
               <thead>
-
                 <tr style={{ backgroundColor: colors.lightGray, color: colors.darkGray }}>
-
                   {['Resource', 'Location', 'Access Type (on-campus/VPN)', 'Hours Available', 'Adequacy Notes', 'Actions'].map((h) => (
-
                     <th key={h} style={{ padding: '12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
-
                   ))}
-
                 </tr>
-
               </thead>
-
               <tbody>
                 {computingResourceRows.map((row) => (
                   <tr key={row.local_id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.computing_resource_name} onChange={handleComputingResourceChange(row.local_id, 'computing_resource_name')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., Virtual Lab Cluster" value={row.computing_resource_name} onChange={handleComputingResourceChange(row.local_id, 'computing_resource_name')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.computing_resource_location} onChange={handleComputingResourceChange(row.local_id, 'computing_resource_location')} style={{ width: '160px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., Engineering Building, Floor 2" value={row.computing_resource_location} onChange={handleComputingResourceChange(row.local_id, 'computing_resource_location')} style={{ width: '160px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.computing_access_type} onChange={handleComputingResourceChange(row.local_id, 'computing_access_type')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., On-campus + VPN" value={row.computing_access_type} onChange={handleComputingResourceChange(row.local_id, 'computing_access_type')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.computing_hours_available} onChange={handleComputingResourceChange(row.local_id, 'computing_hours_available')} style={{ width: '120px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., 24/7" value={row.computing_hours_available} onChange={handleComputingResourceChange(row.local_id, 'computing_hours_available')} style={{ width: '120px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.computing_adequacy_notes} onChange={handleComputingResourceChange(row.local_id, 'computing_adequacy_notes')} style={{ width: '220px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., Capacity adequate for capstone teams" value={row.computing_adequacy_notes} onChange={handleComputingResourceChange(row.local_id, 'computing_adequacy_notes')} style={{ width: '220px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <button onClick={() => removeComputingResourceRow(row.local_id)} disabled={computingResourceRows.length === 1} style={{ backgroundColor: 'white', color: colors.primary, border: `1px solid ${colors.border}`, padding: '5px 8px', borderRadius: '6px', fontWeight: '700', opacity: computingResourceRows.length === 1 ? 0.5 : 1 }}>
@@ -3947,119 +4188,60 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                     </td>
                   </tr>
                 ))}
-
               </tbody>
-
             </table>
-
           </div>
-
           <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
             <button onClick={addComputingResourceRow} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Plus size={14} /> Add computing resource row
             </button>
           </div>
-
         </div>
-
-
-
         {/* C. Guidance */}
-
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-
             <div>
-
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>C. Guidance</h3>
-
-              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Multi-line box for orientations/tutorials/safety training. Responsible faculty pulled from ? Faculty Members.</p>
-
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe student guidance, orientation, and support for using facilities.</p>
             </div>
-
-            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-              <Upload size={16} /> Upload Lab Manual.pdf
-
+            <button type="button" onClick={() => openCriterion7UploadModal('C. Guidance')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload Documents
             </button>
-
           </div>
-
-          <textarea placeholder="Describe orientations / tutorials / safety training" value={criterion7Data.guidance_description} onChange={handleCriterion7Change('guidance_description')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
-
+          <textarea placeholder="e.g., New students attend a lab safety orientation in week 1; tutorials are available every Tuesday." value={criterion7Data.guidance_description} onChange={handleCriterion7Change('guidance_description')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
           <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
-
-            <select value={criterion7Data.responsible_faculty_name} onChange={handleCriterion7Change('responsible_faculty_name')} style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }}>
-              <option value="">Select responsible faculty</option>
-
-              {facultyMembers.map((f) => (
-
-                <option key={f.id} value={`${f.name} � safety lead`}>{f.name} � safety lead</option>
-
-              ))}
-
-            </select>
-
-            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-              <Sparkles size={14} /> AI Extract training schedule
-
-            </button>
-
-          </div>
-
-        </div>
-
-
-
-        {/* D. Maintenance and Upgrading */}
-
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-
-            <div>
-
-              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Maintenance and Upgrading of Facilities</h3>
-
-              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe how the program keeps tools and resources current. Labs in part A automatically appear here.</p>
-
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontWeight: '700', color: colors.darkGray, fontSize: '12px' }}>Responsible Faculty Name</label>
+              <input placeholder="e.g., Dr. Lina Saab" value={criterion7Data.responsible_faculty_name} onChange={handleCriterion7Change('responsible_faculty_name')} style={{ padding: '10px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '13px' }} />
             </div>
-
-            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-              <Upload size={16} /> Upload Maintenance Plan.xlsx
-
-            </button>
-
           </div>
-
-          <textarea placeholder="Describe maintenance policy and upgrade cadence" value={criterion7Data.maintenance_policy_description} onChange={handleCriterion7Change('maintenance_policy_description')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
-
+        </div>
+        {/* D. Maintenance and Upgrading */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div>
+              <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Maintenance and Upgrading of Facilities</h3>
+              <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe how maintenance and upgrades are planned and tracked.</p>
+            </div>
+            <button type="button" onClick={() => openCriterion7UploadModal('D. Maintenance and Upgrading')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload Documents
+            </button>
+          </div>
+          <textarea placeholder="e.g., Facilities are reviewed each semester and high-use equipment is replaced every 3 years." value={criterion7Data.maintenance_policy_description} onChange={handleCriterion7Change('maintenance_policy_description')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '12px' }} />
           <div style={{ marginTop: '10px', overflowX: 'auto' }}>
-
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-
               <thead>
-
                 <tr style={{ backgroundColor: colors.lightGray, color: colors.darkGray }}>
-
                   {['Facility / Lab', 'Last Upgrade', 'Next Scheduled', 'Responsible Staff', 'Notes', 'Actions'].map((h) => (
-
                     <th key={h} style={{ padding: '12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}` }}>{h}</th>
-
                   ))}
-
                 </tr>
-
               </thead>
-
               <tbody>
                 {upgradingFacilityRows.map((row) => (
                   <tr key={row.local_id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.facility_name} onChange={handleUpgradingFacilityChange(row.local_id, 'facility_name')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., Networks Lab" value={row.facility_name} onChange={handleUpgradingFacilityChange(row.local_id, 'facility_name')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="date" value={row.last_upgrade_date} onChange={handleUpgradingFacilityChange(row.local_id, 'last_upgrade_date')} style={{ width: '140px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
@@ -4068,10 +4250,10 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                       <input type="date" value={row.next_scheduled_upgrade} onChange={handleUpgradingFacilityChange(row.local_id, 'next_scheduled_upgrade')} style={{ width: '140px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.responsible_staff} onChange={handleUpgradingFacilityChange(row.local_id, 'responsible_staff')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., Eng. Support Team" value={row.responsible_staff} onChange={handleUpgradingFacilityChange(row.local_id, 'responsible_staff')} style={{ width: '180px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <input value={row.maintenance_notes} onChange={handleUpgradingFacilityChange(row.local_id, 'maintenance_notes')} style={{ width: '220px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
+                      <input placeholder="e.g., Switches replaced; calibration completed" value={row.maintenance_notes} onChange={handleUpgradingFacilityChange(row.local_id, 'maintenance_notes')} style={{ width: '220px', padding: '6px', borderRadius: '6px', border: `1px solid ${colors.border}`, fontSize: '12px' }} />
                     </td>
                     <td style={{ padding: '8px' }}>
                       <button onClick={() => removeUpgradingFacilityRow(row.local_id)} disabled={upgradingFacilityRows.length === 1} style={{ backgroundColor: 'white', color: colors.primary, border: `1px solid ${colors.border}`, padding: '5px 8px', borderRadius: '6px', fontWeight: '700', opacity: upgradingFacilityRows.length === 1 ? 0.5 : 1 }}>
@@ -4080,156 +4262,151 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                     </td>
                   </tr>
                 ))}
-
               </tbody>
-
             </table>
-
           </div>
-
           <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-
             <button onClick={addUpgradingFacilityRow} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
               <Plus size={14} /> Add maintenance row
-
             </button>
-
-            <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-              <Sparkles size={14} /> AI Detect upgrade cycles
-
+            <button type="button" onClick={() => openCriterion7UploadModal('D. Maintenance and Upgrading')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={14} /> Upload Documents
             </button>
-
-            <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-              <Upload size={14} /> Attach Procurement Policy.pdf
-
-            </button>
-
           </div>
-
         </div>
-
-
-
         {/* E. Library Services */}
-
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', marginBottom: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-
             <div>
-
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>E. Library Services</h3>
-
               <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Summarize technical collections, e-resources, request process, and access hours/systems.</p>
-
             </div>
-
-            <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-              <Upload size={16} /> Upload Library Summary.pdf
-
+            <button type="button" onClick={() => openCriterion7UploadModal('E. Library Services')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Upload size={16} /> Upload Documents
             </button>
-
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginTop: '12px' }}>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>Technical collections and journals</label>
-              <textarea placeholder="Technical collections and journals" value={criterion7Data.technical_collections_and_journals} onChange={handleCriterion7Change('technical_collections_and_journals')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              <textarea placeholder="e.g., IEEE Xplore journals and print references for core EE courses" value={criterion7Data.technical_collections_and_journals} onChange={handleCriterion7Change('technical_collections_and_journals')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>Electronic databases and e-resources</label>
-              <textarea placeholder="Electronic databases and e-resources" value={criterion7Data.electronic_databases_and_eresources} onChange={handleCriterion7Change('electronic_databases_and_eresources')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              <textarea placeholder="e.g., Scopus, ScienceDirect, ACM Digital Library with campus VPN access" value={criterion7Data.electronic_databases_and_eresources} onChange={handleCriterion7Change('electronic_databases_and_eresources')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>Process for faculty book requests</label>
-              <textarea placeholder="Process for faculty book requests" value={criterion7Data.faculty_book_request_process} onChange={handleCriterion7Change('faculty_book_request_process')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              <textarea placeholder="e.g., Faculty submit requests to the department committee each semester." value={criterion7Data.faculty_book_request_process} onChange={handleCriterion7Change('faculty_book_request_process')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>Access hours and systems (e-catalog, VPN)</label>
-              <textarea placeholder="Access hours and systems (e-catalog, VPN)" value={criterion7Data.library_access_hours_and_systems} onChange={handleCriterion7Change('library_access_hours_and_systems')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              <textarea placeholder="e.g., Library open Mon-Sat 8:00-20:00, e-catalog and VPN available 24/7." value={criterion7Data.library_access_hours_and_systems} onChange={handleCriterion7Change('library_access_hours_and_systems')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             </div>
-
           </div>
-
-          <button style={{ marginTop: '12px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-            <Sparkles size={14} /> AI Extract titles & services
-
-          </button>
-
         </div>
-
-
-
         {/* F. Overall Comments */}
-
         <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '26px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-
             <div>
-
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>F. Overall Comments on Facilities</h3>
-
               <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Optional fields: how facilities support student outcomes, safety/inspection, and university policy compliance.</p>
-
             </div>
-
-            <button onClick={handleSafetyAuditUploadClick} style={{ backgroundColor: colors.lightGray, color: colors.primary, padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-
-              <Upload size={16} /> Upload Safety Audit Report.pdf
-
+            <button type="button" onClick={() => openCriterion7UploadModal('F. Overall Comments')} style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <Upload size={16} /> Upload Documents
             </button>
-            <input
-              ref={safetyAuditInputRef}
-              type="file"
-              accept=".pdf,.doc,.docx,.xlsx,.xls"
-              onChange={handleSafetyAuditUploadChange}
-              style={{ display: 'none' }}
-            />
-
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '10px', marginTop: '12px' }}>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>Facilities support student outcomes</label>
-              <textarea placeholder="Facilities support student outcomes" value={criterion7Data.facilities_support_student_outcomes} onChange={handleCriterion7Change('facilities_support_student_outcomes')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              <textarea placeholder="e.g., Facilities enable hands-on design, testing, and team-based projects." value={criterion7Data.facilities_support_student_outcomes} onChange={handleCriterion7Change('facilities_support_student_outcomes')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>Safety and inspection processes</label>
-              <textarea placeholder="Safety and inspection processes" value={criterion7Data.safety_and_inspection_processes} onChange={handleCriterion7Change('safety_and_inspection_processes')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              <textarea placeholder="e.g., Annual safety audits and monthly equipment inspections are documented." value={criterion7Data.safety_and_inspection_processes} onChange={handleCriterion7Change('safety_and_inspection_processes')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <label style={{ fontWeight: '800', color: colors.darkGray, fontSize: '13px' }}>Compliance with university policy</label>
-              <textarea placeholder="Compliance with university policy" value={criterion7Data.compliance_with_university_policy} onChange={handleCriterion7Change('compliance_with_university_policy')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
+              <textarea placeholder="e.g., All spaces comply with university safety, procurement, and accessibility policies." value={criterion7Data.compliance_with_university_policy} onChange={handleCriterion7Change('compliance_with_university_policy')} style={{ width: '100%', minHeight: '120px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
             </div>
-
           </div>
-
-          <div style={{ display: 'flex', gap: '10px', marginTop: '12px', justifyContent: 'flex-end' }}>
-
-            <button onClick={handleCreateAdequacyParagraph} style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-
-              <Sparkles size={14} /> AI Create adequacy paragraph
-
-            </button>
-
-
-
-          </div>
-
         </div>
+
+        {criterion7DocModal.open && (
+          <div
+            onClick={closeCriterion7UploadModal}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(20, 25, 35, 0.52)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+              zIndex: 1700
+            }}
+          >
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '620px',
+                backgroundColor: 'white',
+                borderRadius: '14px',
+                border: `1px solid ${colors.border}`,
+                boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
+                overflow: 'hidden'
+              }}
+            >
+              <div style={{ padding: '18px 22px', background: `linear-gradient(120deg, ${colors.primaryDark || colors.primary} 0%, ${colors.primary} 100%)`, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '17px', fontWeight: '800' }}>Document Upload</div>
+                  <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>{criterion7DocModal.sectionTitle}</div>
+                </div>
+                <button onClick={closeCriterion7UploadModal} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }} aria-label="Close">
+                  x
+                </button>
+              </div>
+              <div style={{ padding: '22px', display: 'grid', gap: '16px' }}>
+                <label style={{ display: 'grid', gap: '8px', color: colors.darkGray, fontSize: '13px', fontWeight: '700' }}>
+                  Select Documents
+                  <input type="file" multiple onChange={handleCriterion7DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                </label>
+                <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
+                  <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    Selected Files
+                  </div>
+                  {criterion7Docs.length === 0 ? (
+                    <div style={{ fontSize: '13px', color: colors.mediumGray }}>No files selected.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      {criterion7Docs.map((file) => (
+                        <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCriterion7RemoveDoc(file.id)}
+                            style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {criterion7DocStatus ? <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>{criterion7DocStatus}</div> : null}
+              </div>
+              <div style={{ padding: '16px 22px 22px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: `1px solid ${colors.border}` }}>
+                <button type="button" onClick={closeCriterion7UploadModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
+                  Extract with AI
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
 
@@ -4242,6 +4419,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
   // Criterion 8 Page
 
   const Criterion8Page = ({ onToggleSidebar, onBack }) => {
+    const cycleId = localStorage.getItem('currentCycleId') || 1;
     const [criterion8Data, setCriterion8Data] = useState({
       criterion8_id: null,
       leadership_structure_description: '',
@@ -4261,11 +4439,15 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
       item: null
     });
     const [criterion8Loading, setCriterion8Loading] = useState(false);
-    const [criterion8SaveStatus, setCriterion8SaveStatus] = useState('');
+    const [criterion8SaveSuccess, setCriterion8SaveSuccess] = useState(false);
+    const [criterion8SaveError, setCriterion8SaveError] = useState('');
     const [isCriterion8Complete, setIsCriterion8Complete] = useState(false);
     const [criterion8Dirty, setCriterion8Dirty] = useState(false);
     const criterion8ReadyRef = useRef(false);
-    const professionalDevelopmentPolicyInputRef = useRef(null);
+    const [criterion8DocModal, setCriterion8DocModal] = useState({ open: false, sectionTitle: '' });
+    const [criterion8Docs, setCriterion8Docs] = useState([]);
+    const [criterion8DocStatus, setCriterion8DocStatus] = useState('');
+    const [staffingRows, setStaffingRows] = useState(DEFAULT_CRITERION8_STAFFING_ROWS);
 
     useEffect(() => {
       const loadCriterion8 = async () => {
@@ -4274,7 +4456,11 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
           if (!Array.isArray(records) || records.length === 0) {
             return;
           }
-          const latest = records[records.length - 1];
+          const matchingForCycle = records.filter((row) => Number(row?.cycle) === Number(cycleId));
+          if (matchingForCycle.length === 0) {
+            return;
+          }
+          const latest = matchingForCycle[matchingForCycle.length - 1];
           setCriterion8Data((prev) => ({
             ...prev,
             ...latest,
@@ -4303,6 +4489,25 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
             const status = Number(checklistItem?.status ?? 0);
             setIsCriterion8Complete(status === 1 || completion >= 100);
           }
+
+          if (latest?.criterion8_id) {
+            try {
+              const staffing = await apiRequest(`/criterion8/${latest.criterion8_id}/staffing/`, { method: 'GET' });
+              if (Array.isArray(staffing) && staffing.length > 0) {
+                setStaffingRows(staffing.map((row) => ({
+                  staffing_row_id: row?.staffing_row_id ?? null,
+                  category: row?.category ?? '',
+                  number_of_staff: row?.number_of_staff ?? '',
+                  primary_role: row?.primary_role ?? '',
+                  training_retention_practices: row?.training_retention_practices ?? ''
+                })));
+              } else {
+                setStaffingRows(DEFAULT_CRITERION8_STAFFING_ROWS);
+              }
+            } catch (_staffingError) {
+              setStaffingRows(DEFAULT_CRITERION8_STAFFING_ROWS);
+            }
+          }
         } catch (_error) {
           // Keep empty form if load fails.
         } finally {
@@ -4312,7 +4517,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
       };
 
       loadCriterion8();
-    }, []);
+    }, [cycleId]);
 
     const handleCriterion8Change = (field) => (event) => {
       const { value } = event.target;
@@ -4320,72 +4525,79 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
       setCriterion8Dirty(true);
     };
 
-    const handleProfessionalDevelopmentPolicyUploadClick = () => {
-      professionalDevelopmentPolicyInputRef.current?.click();
-    };
-
-    const handleProfessionalDevelopmentPolicyUploadChange = (event) => {
-      const file = event.target.files?.[0];
-      if (!file) {
-        return;
-      }
-      setCriterion8SaveStatus(`Selected policy file: ${file.name}`);
-      setTimeout(() => setCriterion8SaveStatus(''), 3000);
-      event.target.value = '';
-    };
-
-    const handleExtractActivitiesAndFunding = () => {
-      const sections = [
-        criterion8Data.professional_development_support_types,
-        criterion8Data.professional_development_request_process,
-        criterion8Data.professional_development_funding_details
-      ]
-        .map((value) => `${value || ''}`.trim())
-        .filter((value) => value.length > 0);
-
-      if (sections.length === 0) {
-        setCriterion8SaveStatus('Add professional development details first, then run AI Extract.');
-        setTimeout(() => setCriterion8SaveStatus(''), 3000);
-        return;
-      }
-
-      const generatedSummary = `Activities and funding summary: ${sections.join(' ')}`;
-      setCriterion8Data((prev) => ({
-        ...prev,
-        professional_development_funding_details: prev.professional_development_funding_details
-          ? `${prev.professional_development_funding_details}\n\n${generatedSummary}`
-          : generatedSummary
-      }));
+    const handleStaffingRowChange = (index, field) => (event) => {
+      const { value } = event.target;
+      setStaffingRows((prev) => prev.map((row, rowIndex) => (
+        rowIndex === index ? { ...row, [field]: value } : row
+      )));
       setCriterion8Dirty(true);
-      setCriterion8SaveStatus('Generated activities/funding summary and appended it to funding details.');
-      setTimeout(() => setCriterion8SaveStatus(''), 3000);
+    };
+
+    const handleRemoveStaffingRow = (index) => {
+      setStaffingRows((prev) => {
+        if (prev.length <= 1) return prev;
+        return prev.filter((_, rowIndex) => rowIndex !== index);
+      });
+      setCriterion8Dirty(true);
+    };
+
+    const openCriterion8UploadModal = async (sectionTitle) => {
+      setCriterion8DocStatus('');
+      setCriterion8DocModal({ open: true, sectionTitle });
+      try {
+        const docs = await listCriterion1SectionDocs(cycleId, `Criterion8:${sectionTitle}`);
+        setCriterion8Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+      } catch (err) {
+        setCriterion8Docs([]);
+        setCriterion8DocStatus(err?.message || 'Unable to load documents.');
+      }
+    };
+
+    const closeCriterion8UploadModal = () => {
+      setCriterion8DocModal({ open: false, sectionTitle: '' });
+      setCriterion8Docs([]);
+      setCriterion8DocStatus('');
+    };
+
+    const handleCriterion8DocSelection = (event) => {
+      if (!criterion8DocModal.sectionTitle) return;
+      const files = Array.from(event.target.files || []);
+      if (files.length === 0) return;
+
+      appendCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`, files)
+        .then(() => listCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`))
+        .then((docs) => {
+          setCriterion8Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+          setCriterion8DocStatus(`${docs.length} file(s) saved for ${criterion8DocModal.sectionTitle}.`);
+        })
+        .catch((err) => setCriterion8DocStatus(err?.message || 'Unable to save documents.'));
+    };
+
+    const handleCriterion8RemoveDoc = (docId) => {
+      deleteCriterion1DocById(docId)
+        .then(() => listCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`))
+        .then((docs) => {
+          setCriterion8Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+          setCriterion8DocStatus('Document removed.');
+        })
+        .catch((err) => setCriterion8DocStatus(err?.message || 'Unable to remove document.'));
     };
 
     const saveCriterion8 = async ({ markComplete = false, silent = false } = {}) => {
       try {
         setCriterion8Loading(true);
         if (!silent) {
-          setCriterion8SaveStatus(markComplete ? 'Saving and marking complete...' : 'Saving...');
+          setCriterion8SaveError('');
+          setCriterion8SaveSuccess(false);
         }
 
-        let cycleId = criterion8Data.cycle;
-        if (!cycleId) {
-          const cycles = await apiRequest('/accreditation-cycles/', { method: 'GET' });
-          if (Array.isArray(cycles) && cycles.length > 0) {
-            cycleId = cycles[cycles.length - 1].cycle_id ?? cycles[cycles.length - 1].id ?? null;
-          }
-        }
+        const resolvedCycleId = Number(cycleId);
 
         let checklistItemId = criterion8Data.item;
         if (!checklistItemId) {
-          const checklistItems = await apiRequest('/checklist-items/', { method: 'GET' });
-          if (Array.isArray(checklistItems) && checklistItems.length > 0) {
-            const criterion8Item =
-              checklistItems.find((row) =>
-                `${row.item_name || ''}`.toLowerCase().includes('criterion 8')
-              ) || checklistItems[0];
-            checklistItemId = criterion8Item.item_id ?? criterion8Item.id ?? null;
-          }
+          const checklistResult = await apiRequest(`/cycles/${resolvedCycleId}/checklist/`, { method: 'GET' });
+          const criterion8Item = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 8);
+          checklistItemId = criterion8Item?.item_id ?? null;
         }
 
         const payload = {
@@ -4402,7 +4614,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
           professional_development_request_process: criterion8Data.professional_development_request_process,
           professional_development_funding_details: criterion8Data.professional_development_funding_details,
           additional_narrative_on_staffing: criterion8Data.additional_narrative_on_staffing,
-          ...(cycleId ? { cycle: cycleId } : {}),
+          ...(resolvedCycleId ? { cycle: resolvedCycleId } : {}),
           ...(checklistItemId ? { item: checklistItemId } : {})
         };
 
@@ -4417,15 +4629,84 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
             });
 
         const resolvedItemId = result?.item ?? checklistItemId;
+        const resolvedCriterion8Id = result?.criterion8_id ?? criterion8Data.criterion8_id;
 
-        if (markComplete && resolvedItemId) {
+        if (resolvedCriterion8Id) {
+          const existingRows = await apiRequest(`/criterion8/${resolvedCriterion8Id}/staffing/`, { method: 'GET' });
+          const existingById = new Map(
+            (Array.isArray(existingRows) ? existingRows : [])
+              .filter((row) => row?.staffing_row_id)
+              .map((row) => [Number(row.staffing_row_id), row])
+          );
+
+          const rowsToSave = staffingRows.filter((row) => (
+            `${row?.category ?? ''}`.trim() !== '' ||
+            `${row?.number_of_staff ?? ''}`.trim() !== '' ||
+            `${row?.primary_role ?? ''}`.trim() !== '' ||
+            `${row?.training_retention_practices ?? ''}`.trim() !== ''
+          ));
+
+          const keptRowIds = new Set();
+          for (const row of rowsToSave) {
+            const payloadRow = {
+              category: `${row?.category ?? ''}`.trim(),
+              number_of_staff: Number.parseInt(`${row?.number_of_staff ?? ''}`, 10) || 0,
+              primary_role: `${row?.primary_role ?? ''}`.trim(),
+              training_retention_practices: `${row?.training_retention_practices ?? ''}`.trim(),
+              criterion8: resolvedCriterion8Id
+            };
+
+            if (row?.staffing_row_id) {
+              const rowId = Number(row.staffing_row_id);
+              keptRowIds.add(rowId);
+              await apiRequest(`/staffing-rows/${rowId}/`, {
+                method: 'PUT',
+                body: JSON.stringify({
+                  staffing_row_id: rowId,
+                  ...payloadRow
+                })
+              });
+            } else {
+              const created = await apiRequest('/staffing-rows/', {
+                method: 'POST',
+                body: JSON.stringify(payloadRow)
+              });
+              if (created?.staffing_row_id) {
+                keptRowIds.add(Number(created.staffing_row_id));
+              }
+            }
+          }
+
+          const rowsToDelete = (Array.isArray(existingRows) ? existingRows : []).filter((row) => !keptRowIds.has(Number(row?.staffing_row_id)));
+          for (const row of rowsToDelete) {
+            if (row?.staffing_row_id) {
+              await apiRequest(`/staffing-rows/${row.staffing_row_id}/`, { method: 'DELETE' });
+            }
+          }
+
+          const refreshedRows = await apiRequest(`/criterion8/${resolvedCriterion8Id}/staffing/`, { method: 'GET' });
+          if (Array.isArray(refreshedRows) && refreshedRows.length > 0) {
+            setStaffingRows(refreshedRows.map((row) => ({
+              staffing_row_id: row?.staffing_row_id ?? null,
+              category: row?.category ?? '',
+              number_of_staff: row?.number_of_staff ?? '',
+              primary_role: row?.primary_role ?? '',
+              training_retention_practices: row?.training_retention_practices ?? ''
+            })));
+          } else {
+            setStaffingRows(DEFAULT_CRITERION8_STAFFING_ROWS);
+          }
+        }
+
+        const completionPercentage = markComplete ? 100 : calculateCriterion8Completion(payload);
+        if (resolvedItemId) {
           const checklistItem = await apiRequest(`/checklist-items/${resolvedItemId}/`, { method: 'GET' });
           await apiRequest(`/checklist-items/${resolvedItemId}/`, {
             method: 'PUT',
             body: JSON.stringify({
               ...checklistItem,
-              status: 1,
-              completion_percentage: 100
+              status: completionPercentage >= 100 ? 1 : 0,
+              completion_percentage: completionPercentage
             })
           });
         }
@@ -4433,22 +4714,21 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
         setCriterion8Data((prev) => ({
           ...prev,
           criterion8_id: result?.criterion8_id ?? prev.criterion8_id,
-          cycle: result?.cycle ?? cycleId,
+          cycle: result?.cycle ?? resolvedCycleId,
           item: resolvedItemId
         }));
 
-        if (markComplete) {
-          setIsCriterion8Complete(true);
-          setCriterion8SaveStatus('Saved and marked complete.');
-        } else if (silent) {
-          setCriterion8SaveStatus('Draft auto-saved.');
-        } else {
-          setCriterion8SaveStatus('Saved successfully!');
+        if (!silent) {
+          setCriterion8SaveSuccess(true);
+          setTimeout(() => setCriterion8SaveSuccess(false), 3000);
         }
+        setIsCriterion8Complete(completionPercentage >= 100);
         setCriterion8Dirty(false);
-        setTimeout(() => setCriterion8SaveStatus(''), 3000);
+        localStorage.setItem('checklistNeedsRefresh', 'true');
       } catch (error) {
-        setCriterion8SaveStatus(error?.message || 'Error saving Criterion 8.');
+        if (!silent) {
+          setCriterion8SaveError(error?.message || 'Error saving Criterion 8.');
+        }
       } finally {
         setCriterion8Loading(false);
       }
@@ -4467,18 +4747,17 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
     }, [criterion8Data, criterion8Dirty, criterion8Loading]);
 
     const handleSaveDraft8 = () => saveCriterion8();
-    const handleMarkComplete8 = () => saveCriterion8({ markComplete: true });
 
     return (
       <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
-        <GlobalHeader title="Criterion 8 - Institutional Support" subtitle="CCE - ABET 2025-2027" showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+        <GlobalHeader title="Criterion 8 - Institutional Support" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
         <div style={{ padding: '48px', maxWidth: '1400px', margin: '0 auto' }}>
           <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '24px', marginBottom: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ color: colors.darkGray, fontSize: '22px', fontWeight: '800', letterSpacing: '-0.3px' }}>Institutional Support Workspace</div>
-                <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Five-part layout (A-E) with uploads and AI Extract matching the dedicated page flow.</p>
+                <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px', fontWeight: '500' }}>Five-part layout (A-E) for leadership, budget, staffing, hiring/retention, and professional development.</p>
               </div>
 
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -4486,14 +4765,18 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                   <Save size={16} />
                   {criterion8Loading ? 'Saving...' : 'Save Draft'}
                 </button>
-
-                <button onClick={handleMarkComplete8} disabled={criterion8Loading} style={{ backgroundColor: isCriterion8Complete ? '#2E8B57' : colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', opacity: criterion8Loading ? 0.7 : 1 }}>
-                  <Check size={16} />
-                  {criterion8Loading ? 'Saving...' : isCriterion8Complete ? 'Completed' : 'Mark as Complete'}
-                </button>
               </div>
-              {criterion8SaveStatus ? <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>{criterion8SaveStatus}</div> : null}
             </div>
+            {criterion8SaveSuccess && (
+              <div style={{ marginTop: '12px', padding: '12px 16px', backgroundColor: '#d4edda', border: '1px solid #c3e6cb', borderRadius: '6px', color: '#155724', fontSize: '14px' }}>
+                Saved successfully!
+              </div>
+            )}
+            {criterion8SaveError && (
+              <div style={{ marginTop: '12px', padding: '12px 16px', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '6px', color: '#721c24', fontSize: '14px' }}>
+                {criterion8SaveError}
+              </div>
+            )}
           </div>
 
           {/* A. Leadership */}
@@ -4503,14 +4786,9 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>A. Leadership</h3>
                 <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe leadership structure, adequacy, and participation in decisions. Upload org charts or policies.</p>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Upload size={16} /> Organizational Chart
-                </button>
-                <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Sparkles size={14} /> AI Extract hierarchy
-                </button>
-              </div>
+              <button type="button" onClick={() => openCriterion8UploadModal('A. Leadership')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} /> Upload Documents
+              </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px', marginTop: '12px' }}>
@@ -4538,8 +4816,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>B. Program Budget and Financial Support</h3>
                 <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Four sub-parts (B1-B4) displayed as collapsible-style cards with uploads and AI summaries.</p>
               </div>
-              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Sparkles size={14} /> AI Scan financial reports
+              <button type="button" onClick={() => openCriterion8UploadModal('B. Program Budget and Financial Support')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload Documents
               </button>
             </div>
 
@@ -4575,15 +4853,9 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                       <div style={{ fontWeight: '800', color: colors.darkGray }}>{card.title}</div>
                       <p style={{ color: colors.mediumGray, margin: '6px 0 10px 0', fontSize: '13px' }}>{card.desc}</p>
                     </div>
-                    <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Upload size={14} /> {card.upload}
-                    </button>
                   </div>
 
                   <textarea placeholder="Enter details or paste summary" value={criterion8Data[card.field]} onChange={handleCriterion8Change(card.field)} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px' }} />
-                  <button style={{ marginTop: '10px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Sparkles size={14} /> {card.ai}
-                  </button>
                 </div>
               ))}
             </div>
@@ -4596,8 +4868,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>C. Staffing</h3>
                 <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Summarize administrative and technical staff counts with roles and retention practices.</p>
               </div>
-              <button style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Upload size={16} /> HR Staff List.xlsx
+              <button type="button" onClick={() => openCriterion8UploadModal('C. Staffing')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} /> Upload Documents
               </button>
             </div>
 
@@ -4611,12 +4883,53 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                   </tr>
                 </thead>
                 <tbody>
-                  {[{ category: 'Administrative', number: '4', role: 'Program coordinator, scheduling, student records', training: 'Annual HR workshops; cross-training plan' }, { category: 'Technical', number: '6', role: 'Lab engineers, equipment upkeep', training: 'Vendor certifications; safety refreshers' }, { category: 'Instructional Assistants', number: '10', role: 'Grading, lab supervision, tutorial sessions', training: 'TA orientation; mentorship with faculty' }].map((row) => (
-                    <tr key={row.category} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                      <td style={{ padding: '12px', fontWeight: '700', color: colors.darkGray }}>{row.category}</td>
-                      <td style={{ padding: '12px' }}>{row.number}</td>
-                      <td style={{ padding: '12px', color: colors.mediumGray }}>{row.role}</td>
-                      <td style={{ padding: '12px', color: colors.mediumGray }}>{row.training}</td>
+                  {staffingRows.map((row, index) => (
+                    <tr key={row.staffing_row_id || `staffing-row-${index}`} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '12px' }}>
+                        <input
+                          value={row.category}
+                          onChange={handleStaffingRowChange(index, 'category')}
+                          placeholder="e.g., Technical"
+                          style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontFamily: 'inherit', fontSize: '13px' }}
+                        />
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={row.number_of_staff}
+                          onChange={handleStaffingRowChange(index, 'number_of_staff')}
+                          placeholder="0"
+                          style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontFamily: 'inherit', fontSize: '13px' }}
+                        />
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <input
+                          value={row.primary_role}
+                          onChange={handleStaffingRowChange(index, 'primary_role')}
+                          placeholder="e.g., Lab engineers, equipment upkeep"
+                          style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontFamily: 'inherit', fontSize: '13px' }}
+                        />
+                      </td>
+                      <td style={{ padding: '12px' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            value={row.training_retention_practices}
+                            onChange={handleStaffingRowChange(index, 'training_retention_practices')}
+                            placeholder="e.g., Safety training and mentoring"
+                            style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontFamily: 'inherit', fontSize: '13px' }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveStaffingRow(index)}
+                            disabled={staffingRows.length <= 1}
+                            style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '8px 10px', cursor: staffingRows.length <= 1 ? 'not-allowed' : 'pointer', opacity: staffingRows.length <= 1 ? 0.6 : 1 }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -4625,14 +4938,6 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
             <textarea placeholder="Additional narrative on staffing adequacy and linkage to Faculty Members" value={criterion8Data.additional_narrative_on_staffing} onChange={handleCriterion8Change('additional_narrative_on_staffing')} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '10px' }} />
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Sparkles size={14} /> AI Extract counts from HR list
-              </button>
-              <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Upload size={14} /> Attach Training Policy.pdf
-              </button>
-            </div>
           </div>
 
           {/* D. Faculty Hiring and Retention */}
@@ -4642,8 +4947,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Faculty Hiring and Retention</h3>
                 <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Sub-sections D1 (hiring process) and D2 (retention strategies) with uploads and AI extraction.</p>
               </div>
-              <button style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Sparkles size={14} /> AI summarize policy
+              <button type="button" onClick={() => openCriterion8UploadModal('D. Faculty Hiring and Retention')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={14} /> Upload Documents
               </button>
             </div>
 
@@ -4664,15 +4969,9 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 <div key={card.title} style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '14px', backgroundColor: colors.lightGray }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontWeight: '800', color: colors.darkGray }}>{card.title}</div>
-                    <button style={{ backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Upload size={14} /> {card.upload}
-                    </button>
                   </div>
 
                   <textarea placeholder={card.placeholder} value={criterion8Data[card.field]} onChange={handleCriterion8Change(card.field)} style={{ width: '100%', minHeight: '110px', padding: '12px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, fontFamily: 'inherit', fontSize: '14px', marginTop: '10px' }} />
-                  <button style={{ marginTop: '10px', backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Sparkles size={14} /> {card.ai}
-                  </button>
                 </div>
               ))}
             </div>
@@ -4686,16 +4985,9 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                 <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Document support types, request/approval process, and funding activities.</p>
               </div>
 
-              <button onClick={handleProfessionalDevelopmentPolicyUploadClick} style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                <Upload size={16} /> Professional Development Policy.pdf
+              <button type="button" onClick={() => openCriterion8UploadModal('E. Support of Faculty Professional Development')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Upload size={16} /> Upload Documents
               </button>
-              <input
-                ref={professionalDevelopmentPolicyInputRef}
-                type="file"
-                accept=".pdf,.doc,.docx,.xlsx,.xls"
-                onChange={handleProfessionalDevelopmentPolicyUploadChange}
-                style={{ display: 'none' }}
-              />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '12px', marginTop: '12px' }}>
@@ -4715,14 +5007,88 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={handleExtractActivitiesAndFunding} style={{ backgroundColor: colors.softHighlight, color: colors.primary, border: 'none', padding: '10px 12px', borderRadius: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                <Sparkles size={14} /> AI Extract activities & funding
-              </button>
-
-
-            </div>
           </div>
+
+          {criterion8DocModal.open && (
+            <div
+              onClick={closeCriterion8UploadModal}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundColor: 'rgba(20, 25, 35, 0.52)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px',
+                zIndex: 1700
+              }}
+            >
+              <div
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                  width: '100%',
+                  maxWidth: '620px',
+                  backgroundColor: 'white',
+                  borderRadius: '14px',
+                  border: `1px solid ${colors.border}`,
+                  boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
+                  overflow: 'hidden'
+                }}
+              >
+                <div style={{ padding: '18px 22px', background: `linear-gradient(120deg, ${colors.primaryDark || colors.primary} 0%, ${colors.primary} 100%)`, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '17px', fontWeight: '800' }}>Document Upload</div>
+                    <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>{criterion8DocModal.sectionTitle}</div>
+                  </div>
+                  <button onClick={closeCriterion8UploadModal} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }} aria-label="Close">
+                    x
+                  </button>
+                </div>
+
+                <div style={{ padding: '22px', display: 'grid', gap: '16px' }}>
+                  <label style={{ display: 'grid', gap: '8px', color: colors.darkGray, fontSize: '13px', fontWeight: '700' }}>
+                    Select Documents
+                    <input type="file" multiple onChange={handleCriterion8DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                  </label>
+
+                  <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
+                    <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      Selected Files
+                    </div>
+                    {criterion8Docs.length === 0 ? (
+                      <div style={{ fontSize: '13px', color: colors.mediumGray }}>No files selected.</div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        {criterion8Docs.map((file) => (
+                          <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCriterion8RemoveDoc(file.id)}
+                              style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {criterion8DocStatus ? <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>{criterion8DocStatus}</div> : null}
+                </div>
+
+                <div style={{ padding: '16px 22px 22px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: `1px solid ${colors.border}` }}>
+                  <button type="button" onClick={closeCriterion8UploadModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
+                    Extract with AI
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -4731,6 +5097,14 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
 
 export { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criterion5Page, Criterion6Page, Criterion7Page, Criterion8Page };
+
+
+
+
+
+
+
+
 
 
 

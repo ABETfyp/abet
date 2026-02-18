@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronDown, X, Users, BookOpen, Database, Plus } from 'lucide-react';
 import { colors, fontStack } from '../../styles/theme';
-import { facultyMembers, courses } from '../../data/sampleData';
+import { courses } from '../../data/sampleData';
+import { getActiveContext } from '../../utils/activeContext';
+import { apiRequest } from '../../utils/api';
 
 const Sidebar = ({
   sidebarOpen,
@@ -17,7 +19,66 @@ const Sidebar = ({
   setSelectedInstructor,
   setSyllabusMode,
   setCurrentPage
-}) => (
+}) => {
+  const cycleId = localStorage.getItem('currentCycleId') || 1;
+  const [facultyMembers, setFacultyMembers] = useState([]);
+  const [facultyLoading, setFacultyLoading] = useState(false);
+  const [facultyError, setFacultyError] = useState('');
+
+  const facultySubtitle = useMemo(() => {
+    if (facultyLoading) return 'Loading...';
+    if (facultyError) return facultyError;
+    if (facultyMembers.length === 0) return 'No faculty members yet';
+    return `${facultyMembers.length} member(s)`;
+  }, [facultyLoading, facultyError, facultyMembers.length]);
+
+  const loadFacultyMembers = async () => {
+    try {
+      setFacultyLoading(true);
+      setFacultyError('');
+      const list = await apiRequest('/faculty-members/', { method: 'GET' });
+      if (Array.isArray(list)) {
+        setFacultyMembers(list);
+      } else {
+        setFacultyMembers([]);
+      }
+    } catch (_error) {
+      setFacultyMembers([]);
+      setFacultyError('Unable to load');
+    } finally {
+      setFacultyLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (sidebarOpen && facultyExpanded) {
+      loadFacultyMembers();
+    }
+  }, [sidebarOpen, facultyExpanded]);
+
+  useEffect(() => {
+    const handleFacultyUpdated = () => {
+      loadFacultyMembers();
+      localStorage.removeItem('facultyNeedsRefresh');
+    };
+
+    window.addEventListener('faculty-updated', handleFacultyUpdated);
+    return () => window.removeEventListener('faculty-updated', handleFacultyUpdated);
+  }, []);
+
+  const handleAddFaculty = () => {
+    setSelectedFaculty({
+      isNew: true,
+      faculty_id: null,
+      full_name: '',
+      academic_rank: '',
+      appointment_type: '',
+      email: '',
+      office_hours: ''
+    });
+  };
+
+  return (
   <div style={{
     position: 'fixed',
     left: sidebarOpen ? 0 : '-420px',
@@ -35,7 +96,7 @@ const Sidebar = ({
     <div style={{ backgroundColor: colors.primary, padding: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
       <div>
         <div style={{ color: 'white', fontSize: '18px', fontWeight: '700', letterSpacing: '0.3px' }}>Quick Access</div>
-        <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: '12px', marginTop: '4px', fontWeight: '400' }}>CCE - ABET 2025-2027</div>
+        <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: '12px', marginTop: '4px', fontWeight: '400' }}>{getActiveContext().subtitle}</div>
       </div>
       <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '4px' }}>
         <X size={24} />
@@ -71,9 +132,10 @@ const Sidebar = ({
         
         {facultyExpanded && (
           <div style={{ marginTop: '16px', paddingLeft: '32px' }}>
+            <div style={{ fontSize: '12px', color: colors.mediumGray, marginBottom: '8px' }}>{facultySubtitle}</div>
             {facultyMembers.map((faculty) => (
               <div
-                key={faculty.id}
+                key={faculty.faculty_id}
                 onClick={() => setSelectedFaculty(faculty)}
                 style={{
                   padding: '12px 16px',
@@ -85,11 +147,11 @@ const Sidebar = ({
                   border: `1px solid ${colors.border}`
                 }}
               >
-                <div style={{ fontSize: '14px', fontWeight: '600', color: colors.darkGray, marginBottom: '4px' }}>{faculty.name}</div>
-                <div style={{ fontSize: '12px', color: colors.mediumGray }}>{faculty.rank}</div>
+                <div style={{ fontSize: '14px', fontWeight: '600', color: colors.darkGray, marginBottom: '4px' }}>{faculty.full_name}</div>
+                <div style={{ fontSize: '12px', color: colors.mediumGray }}>{faculty.academic_rank || 'No rank yet'}</div>
               </div>
             ))}
-            <button style={{
+            <button onClick={handleAddFaculty} style={{
               width: '100%',
               padding: '10px',
               marginTop: '12px',
@@ -322,5 +384,6 @@ const Sidebar = ({
     </div>
   </div>
 );
+};
 
 export default Sidebar;

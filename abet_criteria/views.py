@@ -1,10 +1,15 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
+from django.db import IntegrityError
 from django.db.models import Max
 from django.utils import timezone
+from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from datetime import datetime
 import re
+import jwt
+from datetime import timedelta
 from .models import (
     Criterion1Students,
     AppendixCEquipment,
@@ -24,6 +29,8 @@ from .models import (
     CycleChecklist,
     Criterion2Peos,
     Criterion3SoPeo,
+    Role,
+    User,
 )
 from .serializers import (
     Criterion1StudentsSerializer,
@@ -68,11 +75,106 @@ FRAMEWORK_ITEMS = [
 ]
 
 
+def _normalize_role(role_name):
+    return (role_name or '').strip().lower().replace(' ', '_').replace('-', '_')
+
+
+def _issue_tokens(user):
+    now = timezone.now()
+    role_name = getattr(user.role, 'role_name', '') if user.role_id else ''
+    base_payload = {
+        'sub': user.user_id,
+        'email': user.email,
+        'role': _normalize_role(role_name),
+    }
+    access_payload = {
+        **base_payload,
+        'type': 'access',
+        'iat': int(now.timestamp()),
+        'exp': int((now + timedelta(hours=8)).timestamp()),
+    }
+    refresh_payload = {
+        **base_payload,
+        'type': 'refresh',
+        'iat': int(now.timestamp()),
+        'exp': int((now + timedelta(days=7)).timestamp()),
+    }
+    return {
+        'access': jwt.encode(access_payload, settings.SECRET_KEY, algorithm='HS256'),
+        'refresh': jwt.encode(refresh_payload, settings.SECRET_KEY, algorithm='HS256'),
+    }
+
+
+@api_view(['POST'])
+def auth_register(request):
+    email = (request.data.get('email') or '').strip().lower()
+    password = (request.data.get('password') or '').strip()
+    requested_role = _normalize_role(request.data.get('role') or 'professor')
+
+    if not email:
+        return Response({'detail': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not password:
+        return Response({'detail': 'Password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    if User.objects.filter(email__iexact=email).exists():
+        return Response({'detail': 'An account with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    role = None
+    for candidate in Role.objects.all():
+        if _normalize_role(candidate.role_name) == requested_role:
+            role = candidate
+            break
+    if role is None:
+        role = Role.objects.create(role_name=requested_role.replace('_', ' ').title())
+
+    user = User.objects.create(
+        email=email,
+        password_hash=make_password(password),
+        role=role,
+    )
+    return Response(
+        {
+            'id': user.user_id,
+            'email': user.email,
+            'role': _normalize_role(user.role.role_name),
+            'message': 'Account created successfully.',
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(['POST'])
+def auth_login(request):
+    email = (request.data.get('email') or '').strip().lower()
+    password = (request.data.get('password') or '').strip()
+
+    if not email or not password:
+        return Response({'detail': 'Email and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.objects.filter(email__iexact=email).select_related('role').first()
+    if not user:
+        return Response({'detail': 'Invalid email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    stored_password = user.password_hash or ''
+    password_ok = check_password(password, stored_password) or stored_password == password
+    if not password_ok:
+        return Response({'detail': 'Invalid email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Migrate legacy plaintext passwords to hashed format on successful login.
+    if stored_password == password:
+        user.password_hash = make_password(password)
+        user.save(update_fields=['password_hash'])
+
+    if _normalize_role(user.role.role_name) != 'faculty_admin':
+        return Response({'detail': 'Only faculty_admin accounts are allowed to log in.'}, status=status.HTTP_403_FORBIDDEN)
+
+    return Response(_issue_tokens(user), status=status.HTTP_200_OK)
+
+
 def _ensure_cycle(cycle_id):
     try:
         return AccreditationCycle.objects.get(pk=cycle_id)
     except AccreditationCycle.DoesNotExist:
-        return AccreditationCycle.objects.order_by('-cycle_id').first()
+        return None
 
 
 def _ensure_checklist_items(cycle):
@@ -148,18 +250,24 @@ def _calculate_cycle_progress(cycle):
         return float(cycle.overall_progress_percentage or 0) if cycle else 0.0
 
     items = ChecklistItem.objects.filter(checklist=cycle.checklist).order_by('item_id')
+    target_criteria = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
     criterion_progress = {}
     for item in items:
         criterion_number = _criterion_number_from_name(item.item_name)
-        if criterion_number not in (1, 2, 3, 4, 5, 6, 7, 8):
+        if criterion_number not in target_criteria:
             continue
-        criterion_progress[criterion_number] = float(item.completion_percentage or 0)
+        current_value = float(item.completion_percentage or 0)
+        previous_value = criterion_progress.get(criterion_number, -1)
+        if current_value > previous_value:
+            criterion_progress[criterion_number] = current_value
 
-    if not criterion_progress:
-        return float(cycle.overall_progress_percentage or 0)
+    completed_count = 0
+    for criterion_number in target_criteria:
+        completion_value = criterion_progress.get(criterion_number, 0)
+        if completion_value >= 100:
+            completed_count += 1
 
-    total = sum(criterion_progress.values())
-    return round(total / len(criterion_progress))
+    return round((completed_count / len(target_criteria)) * 100)
 
 
 def _program_icon(program):
@@ -175,7 +283,7 @@ def _program_icon(program):
 def cycle_checklist(request, cycle_id):
     cycle = _ensure_cycle(cycle_id)
     if not cycle:
-        return Response({'detail': 'No accreditation cycles found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     _ensure_checklist_items(cycle)
 
@@ -192,6 +300,8 @@ def cycle_checklist(request, cycle_id):
 
     return Response({
         'cycle_id': cycle.cycle_id,
+        'program_name': cycle.program.program_name if cycle.program_id else '',
+        'cycle_label': _cycle_label(cycle),
         'start_year': cycle.start_year,
         'end_year': cycle.end_year,
         'overall_progress_percentage': float(_calculate_cycle_progress(cycle)),
@@ -233,8 +343,13 @@ def programs_list(request):
     level = (request.data.get('level') or 'Undergraduate').strip()
     if not name:
         return Response({'detail': 'Program name is required.'}, status=status.HTTP_400_BAD_REQUEST)
+    if Program.objects.filter(program_name__iexact=name).exists():
+        return Response({'detail': 'Program already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    program = Program.objects.create(program_name=name, program_level=level)
+    try:
+        program = Program.objects.create(program_name=name, program_level=level)
+    except IntegrityError:
+        return Response({'detail': 'Program already exists.'}, status=status.HTTP_400_BAD_REQUEST)
     return Response({
         'id': program.program_id,
         'name': program.program_name,
@@ -252,11 +367,37 @@ def program_cycles_create(request, program_id):
     except Program.DoesNotExist:
         return Response({'detail': 'Program not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-    label = (request.data.get('label') or '').strip()
-    years = re.findall(r'\d{4}', label)
-    current_year = timezone.now().year
-    start_year = int(years[0]) if len(years) >= 1 else current_year
-    end_year = int(years[1]) if len(years) >= 2 else (start_year + 2)
+    start_year_raw = request.data.get('start_year')
+    end_year_raw = request.data.get('end_year')
+
+    if start_year_raw is not None and end_year_raw is not None:
+        try:
+            start_year = int(start_year_raw)
+            end_year = int(end_year_raw)
+        except (TypeError, ValueError):
+            return Response({'detail': 'start_year and end_year must be valid years.'}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        label = (request.data.get('label') or '').strip()
+        years = re.findall(r'\d{4}', label)
+        current_year = timezone.now().year
+        start_year = int(years[0]) if len(years) >= 1 else current_year
+        end_year = int(years[1]) if len(years) >= 2 else (start_year + 2)
+
+    if not (1000 <= start_year <= 9999 and 1000 <= end_year <= 9999):
+        return Response({'detail': 'start_year and end_year must be 4-digit years.'}, status=status.HTTP_400_BAD_REQUEST)
+    if end_year <= start_year:
+        return Response({'detail': 'End year must be greater than start year.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    existing_cycles = AccreditationCycle.objects.filter(program=program)
+    if existing_cycles.filter(start_year=start_year, end_year=end_year).exists():
+        return Response({'detail': 'This cycle already exists for the selected program.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    max_existing_end = existing_cycles.aggregate(max_end=Max('end_year')).get('max_end')
+    if max_existing_end is not None and start_year < int(max_existing_end):
+        return Response(
+            {'detail': f'Start year must be {int(max_existing_end)} or greater for this program.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     checklist, criterion2, criterion3 = _default_cycle_dependencies()
     cycle = AccreditationCycle.objects.create(
@@ -276,14 +417,39 @@ def program_cycles_create(request, program_id):
     }, status=status.HTTP_201_CREATED)
 
 
+@api_view(['DELETE'])
+def program_cycles_delete(request, program_id, cycle_id):
+    try:
+        cycle = AccreditationCycle.objects.get(pk=cycle_id, program_id=program_id)
+    except AccreditationCycle.DoesNotExist:
+        return Response({'detail': 'Cycle not found for this program.'}, status=status.HTTP_404_NOT_FOUND)
+
+    checklist = cycle.checklist
+    criterion2 = cycle.criterion2
+    criterion3 = cycle.criterion3
+
+    cycle.delete()
+
+    if checklist and not AccreditationCycle.objects.filter(checklist=checklist).exists():
+        checklist.delete()
+    if criterion2 and not AccreditationCycle.objects.filter(criterion2=criterion2).exists():
+        criterion2.delete()
+    if criterion3 and not AccreditationCycle.objects.filter(criterion3=criterion3).exists():
+        criterion3.delete()
+
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 @api_view(['GET'])
 def cycle_detail(request, cycle_id):
     cycle = _ensure_cycle(cycle_id)
     if not cycle:
-        return Response({'detail': 'No accreditation cycles found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     return Response({
         'id': cycle.cycle_id,
+        'program_name': cycle.program.program_name if cycle.program_id else '',
+        'cycle_label': _cycle_label(cycle),
         'start_year': cycle.start_year,
         'end_year': cycle.end_year,
         'progress': float(cycle.overall_progress_percentage or 0),
@@ -341,7 +507,7 @@ def _get_or_create_criterion1(cycle):
 def cycle_criterion1(request, cycle_id):
     cycle = _ensure_cycle(cycle_id)
     if not cycle:
-        return Response({'detail': 'No accreditation cycles found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     criterion1, item = _get_or_create_criterion1(cycle)
 
@@ -358,7 +524,7 @@ def cycle_criterion1(request, cycle_id):
 def cycle_criterion2(request, cycle_id):
     cycle = _ensure_cycle(cycle_id)
     if not cycle:
-        return Response({'detail': 'No accreditation cycles found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     criterion2 = cycle.criterion2
 
@@ -413,7 +579,7 @@ def _to_int(value, default=0):
 def cycle_appendixc(request, cycle_id):
     cycle = _ensure_cycle(cycle_id)
     if not cycle:
-        return Response({'detail': 'No accreditation cycles found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
 
     appendix = _get_or_create_appendixc(cycle)
 

@@ -2,9 +2,12 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    auth_login,
+    auth_register,
     frameworks_list,
     programs_list,
     program_cycles_create,
+    program_cycles_delete,
     cycle_detail,
     cycle_checklist,
     cycle_criterion1,
@@ -37,9 +40,12 @@ router.register(r'checklist-items', ChecklistItemViewSet, basename='checklist-it
 router.register(r'faculty-members', FacultyMemberViewSet, basename='faculty-members')
 
 urlpatterns = [
+    path('auth/login/', auth_login),
+    path('auth/register/', auth_register),
     path('frameworks/', frameworks_list),
     path('programs/', programs_list),
     path('programs/<int:program_id>/cycles/', program_cycles_create),
+    path('programs/<int:program_id>/cycles/<int:cycle_id>/', program_cycles_delete),
     path('cycles/<int:cycle_id>/', cycle_detail),
     path('cycles/<int:cycle_id>/checklist/', cycle_checklist),
     path('cycles/<int:cycle_id>/criterion1/', cycle_criterion1),

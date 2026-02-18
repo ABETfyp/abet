@@ -1,6 +1,78 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronDown, Menu, X, Upload, Search, Check, Clock, AlertCircle, FileText, Users, BookOpen, Database, Plus, Edit, Trash2, Download, Eye, Save, ShieldCheck, Mail, Lock, Award, Globe2, Cpu, Cog, FlaskConical, CheckCircle2, Sparkles, LayoutGrid, ClipboardList } from 'lucide-react';
 import { colors, fontStack } from '../../styles/theme';
+import { apiRequest } from '../../utils/api';
+
+const FACULTY_DOCS_DB_NAME = 'abet-faculty-documents';
+const FACULTY_DOCS_STORE = 'documents';
+
+const openFacultyDocsDb = () => new Promise((resolve, reject) => {
+  const request = window.indexedDB.open(FACULTY_DOCS_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    const db = request.result;
+    if (!db.objectStoreNames.contains(FACULTY_DOCS_STORE)) {
+      const store = db.createObjectStore(FACULTY_DOCS_STORE, { keyPath: 'id' });
+      store.createIndex('by_cycle_faculty', ['cycleId', 'facultyKey'], { unique: false });
+    }
+  };
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error || new Error('Unable to open CV storage.'));
+});
+
+const listFacultyDocs = async (cycleId, facultyKey) => {
+  const db = await openFacultyDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(FACULTY_DOCS_STORE, 'readonly');
+    const store = tx.objectStore(FACULTY_DOCS_STORE);
+    const index = store.index('by_cycle_faculty');
+    const req = index.getAll(IDBKeyRange.only([String(cycleId), String(facultyKey)]));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error || new Error('Unable to read CV documents.'));
+  });
+};
+
+const appendFacultyDocs = async (cycleId, facultyKey, files) => {
+  const db = await openFacultyDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(FACULTY_DOCS_STORE, 'readwrite');
+    const store = tx.objectStore(FACULTY_DOCS_STORE);
+    const index = store.index('by_cycle_faculty');
+    const existingReq = index.getAll(IDBKeyRange.only([String(cycleId), String(facultyKey)]));
+
+    existingReq.onsuccess = () => {
+      const existing = existingReq.result || [];
+      const existingKeySet = new Set(existing.map((row) => `${row.name}::${row.lastModified}::${row.size}`));
+      files.forEach((file, idx) => {
+        const uniqueKey = `${file.name}::${file.lastModified}::${file.size}`;
+        if (existingKeySet.has(uniqueKey)) return;
+        store.put({
+          id: `${cycleId}-${facultyKey}-${file.name}-${file.lastModified}-${idx}`,
+          cycleId: String(cycleId),
+          facultyKey: String(facultyKey),
+          name: file.name,
+          type: file.type || 'Unknown',
+          size: file.size,
+          lastModified: file.lastModified,
+          fileBlob: file,
+          createdAt: new Date().toISOString()
+        });
+      });
+    };
+    existingReq.onerror = () => reject(existingReq.error || new Error('Unable to store CV documents.'));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Unable to store CV documents.'));
+  });
+};
+
+const deleteFacultyDocById = async (docId) => {
+  const db = await openFacultyDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(FACULTY_DOCS_STORE, 'readwrite');
+    tx.objectStore(FACULTY_DOCS_STORE).delete(docId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error('Unable to remove CV document.'));
+  });
+};
 
   const SyllabusModal = ({ selectedInstructor, selectedCourse, syllabusMode, setSelectedInstructor, setSyllabusMode }) => {
 
@@ -1670,1385 +1742,353 @@ import { colors, fontStack } from '../../styles/theme';
 
 
 
-  // Faculty Profile Modal (keeping existing implementation)
-
-
+  // Faculty Profile Modal
   const FacultyProfileModal = ({ selectedFaculty, setSelectedFaculty }) => {
-
     if (!selectedFaculty) return null;
 
+    const cycleId = localStorage.getItem('currentCycleId') || 1;
+    const facultyKey = selectedFaculty?.faculty_id || selectedFaculty?.email || 'new';
+    const extrasStorageKey = `faculty-profile-extras:${cycleId}:${facultyKey}`;
 
+    const [profile, setProfile] = useState({
+      faculty_id: selectedFaculty?.faculty_id ?? null,
+      full_name: selectedFaculty?.full_name ?? selectedFaculty?.name ?? '',
+      academic_rank: selectedFaculty?.academic_rank ?? selectedFaculty?.rank ?? '',
+      appointment_type: selectedFaculty?.appointment_type ?? '',
+      email: selectedFaculty?.email ?? '',
+      office_hours: selectedFaculty?.office_hours ?? ''
+    });
+    const [qualification, setQualification] = useState({
+      degree_field: '',
+      degree_institution: '',
+      degree_year: '',
+      years_industry_government: '',
+      years_at_institution: ''
+    });
+    const [certifications, setCertifications] = useState(['']);
+    const [memberships, setMemberships] = useState(['']);
+    const [developmentActivities, setDevelopmentActivities] = useState(['']);
+    const [industryExperience, setIndustryExperience] = useState(['']);
+    const [workload, setWorkload] = useState({
+      teaching_percentage: '',
+      research_percentage: '',
+      other_percentage: '',
+      program_time_percentage: ''
+    });
+    const [honors, setHonors] = useState(['']);
+    const [services, setServices] = useState(['']);
+    const [publications, setPublications] = useState(['']);
+    const [cvModalOpen, setCvModalOpen] = useState(false);
+    const [cvFiles, setCvFiles] = useState([]);
+    const [cvStatus, setCvStatus] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [saveSuccess, setSaveSuccess] = useState(false);
+    const [saveError, setSaveError] = useState('');
+
+    useEffect(() => {
+      try {
+        const raw = localStorage.getItem(extrasStorageKey);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed?.qualification) setQualification(parsed.qualification);
+        if (Array.isArray(parsed?.certifications)) setCertifications(parsed.certifications.length ? parsed.certifications : ['']);
+        if (Array.isArray(parsed?.memberships)) setMemberships(parsed.memberships.length ? parsed.memberships : ['']);
+        if (Array.isArray(parsed?.developmentActivities)) setDevelopmentActivities(parsed.developmentActivities.length ? parsed.developmentActivities : ['']);
+        if (Array.isArray(parsed?.industryExperience)) setIndustryExperience(parsed.industryExperience.length ? parsed.industryExperience : ['']);
+        if (parsed?.workload) setWorkload(parsed.workload);
+        if (Array.isArray(parsed?.honors)) setHonors(parsed.honors.length ? parsed.honors : ['']);
+        if (Array.isArray(parsed?.services)) setServices(parsed.services.length ? parsed.services : ['']);
+        if (Array.isArray(parsed?.publications)) setPublications(parsed.publications.length ? parsed.publications : ['']);
+      } catch (_error) {
+      }
+    }, [extrasStorageKey]);
+
+    useEffect(() => {
+      const payload = {
+        qualification,
+        certifications,
+        memberships,
+        developmentActivities,
+        industryExperience,
+        workload,
+        honors,
+        services,
+        publications
+      };
+      localStorage.setItem(extrasStorageKey, JSON.stringify(payload));
+    }, [extrasStorageKey, qualification, certifications, memberships, developmentActivities, industryExperience, workload, honors, services, publications]);
+
+    const updateListItem = (setter, index, value) => setter((prev) => prev.map((row, i) => (i === index ? value : row)));
+    const addListItem = (setter) => setter((prev) => [...prev, '']);
+    const removeListItem = (setter, index) => setter((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
+
+    const openCvModal = async () => {
+      setCvStatus('');
+      setCvModalOpen(true);
+      try {
+        const docs = await listFacultyDocs(cycleId, facultyKey);
+        setCvFiles(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+      } catch (error) {
+        setCvFiles([]);
+        setCvStatus(error?.message || 'Unable to load CV documents.');
+      }
+    };
+
+    const handleCvSelection = async (event) => {
+      const files = Array.from(event.target.files || []);
+      if (files.length === 0) return;
+      try {
+        await appendFacultyDocs(cycleId, facultyKey, files);
+        const docs = await listFacultyDocs(cycleId, facultyKey);
+        setCvFiles(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setCvStatus(`${docs.length} file(s) saved.`);
+      } catch (error) {
+        setCvStatus(error?.message || 'Unable to save CV documents.');
+      }
+    };
+
+    const handleCvRemove = async (docId) => {
+      try {
+        await deleteFacultyDocById(docId);
+        const docs = await listFacultyDocs(cycleId, facultyKey);
+        setCvFiles(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setCvStatus('Document removed.');
+      } catch (error) {
+        setCvStatus(error?.message || 'Unable to remove document.');
+      }
+    };
+
+    const handleSaveProfile = async () => {
+      const name = `${profile.full_name ?? ''}`.trim();
+      const email = `${profile.email ?? ''}`.trim();
+      if (!name || !email) {
+        setSaveError('Full name and email are required.');
+        return;
+      }
+
+      try {
+        setSaving(true);
+        setSaveError('');
+        setSaveSuccess(false);
+
+        let facultyId = profile.faculty_id;
+        if (!facultyId) {
+          const allFaculty = await apiRequest('/faculty-members/', { method: 'GET' });
+          const maxId = (Array.isArray(allFaculty) ? allFaculty : []).reduce((max, row) => {
+            const id = Number(row?.faculty_id || 0);
+            return Number.isFinite(id) && id > max ? id : max;
+          }, 0);
+          facultyId = maxId + 1;
+        }
+
+        const payload = {
+          faculty_id: facultyId,
+          full_name: name,
+          academic_rank: `${profile.academic_rank ?? ''}`.trim(),
+          appointment_type: `${profile.appointment_type ?? ''}`.trim(),
+          email,
+          office_hours: `${profile.office_hours ?? ''}`.trim()
+        };
+
+        try {
+          await apiRequest(`/faculty-members/${facultyId}/`, { method: 'GET' });
+          await apiRequest(`/faculty-members/${facultyId}/`, { method: 'PUT', body: JSON.stringify(payload) });
+        } catch (_notFound) {
+          await apiRequest('/faculty-members/', { method: 'POST', body: JSON.stringify(payload) });
+        }
+
+        setProfile((prev) => ({ ...prev, faculty_id: facultyId }));
+        localStorage.setItem(`faculty-profile-extras:${cycleId}:${facultyId}`, JSON.stringify({
+          qualification,
+          certifications,
+          memberships,
+          developmentActivities,
+          industryExperience,
+          workload,
+          honors,
+          services,
+          publications
+        }));
+        setSelectedFaculty((prev) => ({ ...(prev || {}), ...payload, name: payload.full_name, rank: payload.academic_rank }));
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2500);
+        localStorage.setItem('facultyNeedsRefresh', 'true');
+        window.dispatchEvent(new Event('faculty-updated'));
+        setTimeout(() => setSelectedFaculty(null), 350);
+      } catch (error) {
+        setSaveError(error?.message || 'Unable to save faculty profile.');
+      } finally {
+        setSaving(false);
+      }
+    };
+
+    const renderSimpleList = (title, items, setter, placeholder) => (
+      <div style={{ marginBottom: '22px' }}>
+        <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>{title}</label>
+        {items.map((row, index) => (
+          <div key={`${title}-${index}`} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            <input
+              type="text"
+              value={row}
+              onChange={(event) => updateListItem(setter, index, event.target.value)}
+              placeholder={placeholder}
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }}
+            />
+            <button type="button" onClick={() => removeListItem(setter, index)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '10px 12px', cursor: 'pointer' }}>
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+        <button type="button" onClick={() => addListItem(setter)} style={{ padding: '6px 12px', backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <Plus size={14} />
+          Add
+        </button>
+      </div>
+    );
+
+    const profileTitle = useMemo(() => `${profile.full_name || 'Faculty Profile'}`, [profile.full_name]);
 
     return (
-
-      <div style={{
-
-        position: 'fixed',
-
-        top: 0,
-
-        left: 0,
-
-        right: 0,
-
-        bottom: 0,
-
-        backgroundColor: 'rgba(0,0,0,0.6)',
-
-        display: 'flex',
-
-        alignItems: 'center',
-
-        justifyContent: 'center',
-
-        zIndex: 2000,
-
-        padding: '20px'
-
-      }}
-
-      onClick={() => setSelectedFaculty(null)}>
-
-        <div 
-
-          onClick={(e) => e.stopPropagation()}
-
-          style={{
-
-            backgroundColor: 'white',
-
-            borderRadius: '12px',
-
-            width: '100%',
-
-            maxWidth: '900px',
-
-            maxHeight: '90vh',
-
-            overflow: 'auto',
-
-            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-
-            fontFamily: fontStack
-
-          }}>
-
-          {/* Modal Header */}
-
-          <div style={{ 
-
-            padding: '32px', 
-
-            borderBottom: `1px solid ${colors.border}`,
-
-            display: 'flex',
-
-            justifyContent: 'space-between',
-
-            alignItems: 'flex-start',
-
-            position: 'sticky',
-
-            top: 0,
-
-            backgroundColor: 'white',
-
-            zIndex: 10
-
-          }}>
-
+      <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }} onClick={() => setSelectedFaculty(null)}>
+        <div onClick={(event) => event.stopPropagation()} style={{ backgroundColor: 'white', borderRadius: '12px', width: '100%', maxWidth: '960px', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', fontFamily: fontStack }}>
+          <div style={{ padding: '28px 30px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'sticky', top: 0, backgroundColor: 'white', zIndex: 10 }}>
             <div>
-
-              <h2 style={{ fontSize: '24px', fontWeight: '700', color: colors.darkGray, marginBottom: '8px', letterSpacing: '-0.3px' }}>
-
-                {selectedFaculty.name}
-
-              </h2>
-
-              <p style={{ fontSize: '14px', color: colors.mediumGray, margin: 0, fontWeight: '500' }}>
-
-                {selectedFaculty.rank} • {selectedFaculty.department}
-
-              </p>
-
+              <h2 style={{ fontSize: '24px', fontWeight: '700', color: colors.darkGray, marginBottom: '6px', letterSpacing: '-0.3px' }}>{profileTitle}</h2>
+              <p style={{ fontSize: '14px', color: colors.mediumGray, margin: 0, fontWeight: '500' }}>{profile.academic_rank || 'Set rank'} - {profile.email || 'Set email'}</p>
             </div>
-
-            <button 
-
-              onClick={() => setSelectedFaculty(null)}
-
-              style={{ 
-
-                background: 'none', 
-
-                border: 'none', 
-
-                cursor: 'pointer',
-
-                padding: '8px',
-
-                color: colors.mediumGray
-
-              }}>
-
+            <button onClick={() => setSelectedFaculty(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: colors.mediumGray }}>
               <X size={24} />
-
             </button>
-
           </div>
 
-
-
-          {/* Modal Content */}
-
-          <div style={{ padding: '32px' }}>
-
-            {/* Upload CV Section */}
-
-            <div style={{ 
-
-              marginBottom: '32px',
-
-              padding: '24px',
-
-              backgroundColor: colors.lightGray,
-
-              borderRadius: '8px',
-
-              border: `2px dashed ${colors.border}`
-
-            }}>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-
-                <Upload size={32} color={colors.primary} />
-
-                <div style={{ flex: 1 }}>
-
-                  <h4 style={{ fontSize: '15px', fontWeight: '700', color: colors.darkGray, marginBottom: '4px' }}>Upload CV</h4>
-
-                  <p style={{ fontSize: '13px', color: colors.mediumGray, margin: 0 }}>AI will automatically extract information to fill the form</p>
-
+          <div style={{ padding: '30px' }}>
+            <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: colors.lightGray, borderRadius: '8px', border: `1px solid ${colors.border}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: colors.darkGray }}>Faculty CV</div>
                 </div>
-
-                <button style={{
-
-                  backgroundColor: colors.primary,
-
-                  color: 'white',
-
-                  padding: '10px 20px',
-
-                  borderRadius: '6px',
-
-                  border: 'none',
-
-                  cursor: 'pointer',
-
-                  fontSize: '13px',
-
-                  fontWeight: '600'
-
-                }}>
-
-                  Choose File
-
-                </button>
-
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button type="button" onClick={openCvModal} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <Upload size={14} />
+                    Upload Documents
+                  </button>
+                  <button type="button" disabled style={{ backgroundColor: '#eceef2', color: colors.mediumGray, border: `1px solid ${colors.border}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', cursor: 'not-allowed', opacity: 0.9 }}>
+                    Extract with AI
+                  </button>
+                </div>
               </div>
-
             </div>
 
-
-
-            {/* Profile Information */}
-
-            <div style={{ marginBottom: '32px' }}>
-
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '20px', letterSpacing: '-0.2px' }}>
-
-                Basic Information
-
-              </h3>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    Rank/Title
-
-                  </label>
-
-                  <select style={{ 
-
-                    width: '100%', 
-
-                    padding: '10px 12px', 
-
-                    border: `1px solid ${colors.border}`, 
-
-                    borderRadius: '6px',
-
-                    fontSize: '14px',
-
-                    fontFamily: 'inherit'
-
-                  }}>
-
-                    <option>Professor</option>
-
-                    <option>Associate Professor</option>
-
-                    <option>Assistant Professor</option>
-
-                    <option>Instructor</option>
-
-                  </select>
-
-                </div>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    Type of Appointment
-
-                  </label>
-
-                  <select style={{ 
-
-                    width: '100%', 
-
-                    padding: '10px 12px', 
-
-                    border: `1px solid ${colors.border}`, 
-
-                    borderRadius: '6px',
-
-                    fontSize: '14px',
-
-                    fontFamily: 'inherit'
-
-                  }}>
-
-                    <option>Full-time, Tenure-track</option>
-
-                    <option>Full-time, Not Tenure-track</option>
-
-                    <option>Part-time</option>
-
-                  </select>
-
-                </div>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    Email
-
-                  </label>
-
-                  <input 
-
-                    type="email" 
-
-                    value={selectedFaculty.email}
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    Office Hours
-
-                  </label>
-
-                  <input 
-
-                    type="text" 
-
-                    placeholder="e.g., MW 2-4 PM"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '16px' }}>Basic Information</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <input type="text" value={profile.full_name} onChange={(event) => setProfile((prev) => ({ ...prev, full_name: event.target.value }))} placeholder="Full name" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="email" value={profile.email} onChange={(event) => setProfile((prev) => ({ ...prev, email: event.target.value }))} placeholder="Email" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="text" value={profile.academic_rank} onChange={(event) => setProfile((prev) => ({ ...prev, academic_rank: event.target.value }))} placeholder="Academic rank" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="text" value={profile.appointment_type} onChange={(event) => setProfile((prev) => ({ ...prev, appointment_type: event.target.value }))} placeholder="Appointment type" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="text" value={profile.office_hours} onChange={(event) => setProfile((prev) => ({ ...prev, office_hours: event.target.value }))} placeholder="Office hours" style={{ gridColumn: '1 / -1', width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
               </div>
-
             </div>
 
-
-
-            {/* Qualifications (Table 6-1) */}
-
-            <div style={{ marginBottom: '32px' }}>
-
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '20px', letterSpacing: '-0.2px' }}>
-
-                Qualifications (Table 6-1)
-
-              </h3>
-
-              
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Highest Degree
-
-                </label>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: '12px' }}>
-
-                  <input type="text" placeholder="Field (e.g., Electrical Engineering)" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                  <input type="text" placeholder="Institution (e.g., MIT)" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                  <input type="text" placeholder="Year" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                </div>
-
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '16px' }}>Qualifications</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                <input type="text" value={qualification.degree_field} onChange={(event) => setQualification((prev) => ({ ...prev, degree_field: event.target.value }))} placeholder="Degree field" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="text" value={qualification.degree_institution} onChange={(event) => setQualification((prev) => ({ ...prev, degree_institution: event.target.value }))} placeholder="Institution" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="number" min="1900" max="9999" value={qualification.degree_year} onChange={(event) => setQualification((prev) => ({ ...prev, degree_year: event.target.value }))} placeholder="Year" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
               </div>
-
-
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    Years in Industry/Government
-
-                  </label>
-
-                  <input type="number" placeholder="0" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                </div>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    Years at This Institution
-
-                  </label>
-
-                  <input type="number" placeholder="0" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                </div>
-
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <input type="number" min="0" value={qualification.years_industry_government} onChange={(event) => setQualification((prev) => ({ ...prev, years_industry_government: event.target.value }))} placeholder="Years in industry/government" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="number" min="0" value={qualification.years_at_institution} onChange={(event) => setQualification((prev) => ({ ...prev, years_at_institution: event.target.value }))} placeholder="Years at institution" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
               </div>
-
-
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Professional Certifications
-
-                </label>
-
-                <div style={{ marginBottom: '8px' }}>
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., PE License (2020)"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit',
-
-                      marginBottom: '8px'
-
-                    }} 
-
-                  />
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., PMP Certification (2022)"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <button style={{
-
-                  padding: '6px 12px',
-
-                  backgroundColor: 'white',
-
-                  color: colors.primary,
-
-                  border: `1px dashed ${colors.primary}`,
-
-                  borderRadius: '4px',
-
-                  cursor: 'pointer',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '4px'
-
-                }}>
-
-                  <Plus size={14} />
-
-                  Add Certification
-
-                </button>
-
-              </div>
-
-
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Professional Memberships
-
-                </label>
-
-                <div style={{ marginBottom: '8px' }}>
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., IEEE (Senior Member)"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit',
-
-                      marginBottom: '8px'
-
-                    }} 
-
-                  />
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., ASME"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <button style={{
-
-                  padding: '6px 12px',
-
-                  backgroundColor: 'white',
-
-                  color: colors.primary,
-
-                  border: `1px dashed ${colors.primary}`,
-
-                  borderRadius: '4px',
-
-                  cursor: 'pointer',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '4px'
-
-                }}>
-
-                  <Plus size={14} />
-
-                  Add Membership
-
-                </button>
-
-              </div>
-
-
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Professional Development Activities
-
-                </label>
-
-                <div style={{ marginBottom: '8px' }}>
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Attended IEEE International Conference 2024"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit',
-
-                      marginBottom: '8px'
-
-                    }} 
-
-                  />
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Completed Advanced VLSI Design Workshop (2023)"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <button style={{
-
-                  padding: '6px 12px',
-
-                  backgroundColor: 'white',
-
-                  color: colors.primary,
-
-                  border: `1px dashed ${colors.primary}`,
-
-                  borderRadius: '4px',
-
-                  cursor: 'pointer',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '4px'
-
-                }}>
-
-                  <Plus size={14} />
-
-                  Add Activity
-
-                </button>
-
-              </div>
-
-
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Consulting or Work in Industry
-
-                </label>
-
-                <div style={{ marginBottom: '8px' }}>
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Technical Consultant at XYZ Corporation (2023-Present)"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit',
-
-                      marginBottom: '8px'
-
-                    }} 
-
-                  />
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Part-time Engineer at ABC Tech (2020-2022)"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <button style={{
-
-                  padding: '6px 12px',
-
-                  backgroundColor: 'white',
-
-                  color: colors.primary,
-
-                  border: `1px dashed ${colors.primary}`,
-
-                  borderRadius: '4px',
-
-                  cursor: 'pointer',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '4px'
-
-                }}>
-
-                  <Plus size={14} />
-
-                  Add Position
-
-                </button>
-
-              </div>
-
-
-
-              <div>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Level of Activity
-
-                </label>
-
-                <select style={{ 
-
-                  width: '100%', 
-
-                  padding: '10px 12px', 
-
-                  border: `1px solid ${colors.border}`, 
-
-                  borderRadius: '6px',
-
-                  fontSize: '14px',
-
-                  fontFamily: 'inherit'
-
-                }}>
-
-                  <option value="">Select level</option>
-
-                  <option value="high">High</option>
-
-                  <option value="medium">Medium</option>
-
-                  <option value="low">Low</option>
-
-                </select>
-
-              </div>
-
             </div>
 
+            {renderSimpleList('Professional Certifications', certifications, setCertifications, 'e.g., PE License (2020)')}
+            {renderSimpleList('Professional Memberships', memberships, setMemberships, 'e.g., IEEE Senior Member')}
+            {renderSimpleList('Professional Development Activities', developmentActivities, setDevelopmentActivities, 'e.g., ABET workshop 2025')}
+            {renderSimpleList('Consulting or Work in Industry', industryExperience, setIndustryExperience, 'e.g., Technical Consultant at XYZ')}
 
-
-            {/* Workload (Table 6-2) */}
-
-            <div style={{ marginBottom: '32px' }}>
-
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '20px', letterSpacing: '-0.2px' }}>
-
-                Workload (Table 6-2)
-
-              </h3>
-
-              
-
-              <div style={{ marginBottom: '16px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Courses Taught (Current Cycle)
-
-                </label>
-
-                <div style={{ 
-
-                  padding: '16px',
-
-                  backgroundColor: colors.lightGray,
-
-                  borderRadius: '6px',
-
-                  border: `1px solid ${colors.border}`
-
-                }}>
-
-                  <div style={{ fontSize: '13px', color: colors.mediumGray, marginBottom: '8px', fontWeight: '500' }}>
-
-                    EECE 210 - Circuits I (Fall 2025, 3 credits)
-
-                  </div>
-
-                  <div style={{ fontSize: '13px', color: colors.mediumGray, fontWeight: '500' }}>
-
-                    EECE 311 - Signals & Systems (Fall 2025, 3 credits)
-
-                  </div>
-
-                </div>
-
-                <p style={{ fontSize: '12px', color: colors.mediumGray, marginTop: '8px', fontStyle: 'italic' }}>
-
-                  Auto-populated from course assignments
-
-                </p>
-
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '16px' }}>Workload (Courses will be linked later)</h3>
+              <div style={{ padding: '12px', backgroundColor: colors.lightGray, border: `1px solid ${colors.border}`, borderRadius: '8px', marginBottom: '10px', color: colors.mediumGray, fontSize: '13px' }}>
+                Courses section is intentionally blank for now and will be linked later.
               </div>
-
-
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    % Teaching
-
-                  </label>
-
-                  <input type="number" placeholder="e.g., 60" min="0" max="100" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                </div>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    % Research
-
-                  </label>
-
-                  <input type="number" placeholder="e.g., 30" min="0" max="100" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                </div>
-
-                <div>
-
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                    % Other
-
-                  </label>
-
-                  <input type="number" placeholder="e.g., 10" min="0" max="100" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                </div>
-
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+                <input type="number" min="0" max="100" value={workload.teaching_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, teaching_percentage: event.target.value }))} placeholder="% Teaching" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="number" min="0" max="100" value={workload.research_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, research_percentage: event.target.value }))} placeholder="% Research" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="number" min="0" max="100" value={workload.other_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, other_percentage: event.target.value }))} placeholder="% Other" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="number" min="0" max="100" value={workload.program_time_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, program_time_percentage: event.target.value }))} placeholder="% Program Time" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
               </div>
-
-              
-
-              <div style={{ marginTop: '16px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  % of Time Devoted to This Program
-
-                </label>
-
-                <input type="number" placeholder="e.g., 100" min="0" max="100" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-              </div>
-
             </div>
 
+            {renderSimpleList('Honors and Awards', honors, setHonors, 'e.g., Best Paper Award')}
+            {renderSimpleList('Service Activities', services, setServices, 'e.g., Curriculum committee member')}
+            {renderSimpleList('Publications', publications, setPublications, 'e.g., Author, Title, Venue, Year')}
 
-
-            {/* Additional Information */}
-
-            <div style={{ marginBottom: '32px' }}>
-
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '20px', letterSpacing: '-0.2px' }}>
-
-                Additional Information for Appendix B
-
-              </h3>
-
-              
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Honors and Awards
-
-                </label>
-
-                <div style={{ marginBottom: '8px' }}>
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Best Paper Award at IEEE Conference 2023"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit',
-
-                      marginBottom: '8px'
-
-                    }} 
-
-                  />
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Outstanding Teaching Award 2022"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <button style={{
-
-                  padding: '6px 12px',
-
-                  backgroundColor: 'white',
-
-                  color: colors.primary,
-
-                  border: `1px dashed ${colors.primary}`,
-
-                  borderRadius: '4px',
-
-                  cursor: 'pointer',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '4px'
-
-                }}>
-
-                  <Plus size={14} />
-
-                  Add Honor/Award
-
-                </button>
-
+            {saveSuccess && (
+              <div style={{ marginBottom: '12px', padding: '12px 16px', backgroundColor: '#d4edda', border: '1px solid #c3e6cb', borderRadius: '6px', color: '#155724', fontSize: '14px' }}>
+                Saved successfully!
               </div>
-
-
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Service Activities
-
-                </label>
-
-                <div style={{ marginBottom: '8px' }}>
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Member of Academic Senate"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit',
-
-                      marginBottom: '8px'
-
-                    }} 
-
-                  />
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Chair of Curriculum Committee"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <button style={{
-
-                  padding: '6px 12px',
-
-                  backgroundColor: 'white',
-
-                  color: colors.primary,
-
-                  border: `1px dashed ${colors.primary}`,
-
-                  borderRadius: '4px',
-
-                  cursor: 'pointer',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '4px'
-
-                }}>
-
-                  <Plus size={14} />
-
-                  Add Service Activity
-
-                </button>
-
+            )}
+            {saveError && (
+              <div style={{ marginBottom: '12px', padding: '12px 16px', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '6px', color: '#721c24', fontSize: '14px' }}>
+                {saveError}
               </div>
+            )}
 
-
-
-              <div style={{ marginBottom: '20px' }}>
-
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Publications and Presentations (Last 5 Years)
-
-                </label>
-
-                <div style={{ marginBottom: '8px' }}>
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., J. Smith, 'Signal Processing Methods', IEEE Trans. 2024"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit',
-
-                      marginBottom: '8px'
-
-                    }} 
-
-                  />
-
-                  <input 
-
-                    type="text"
-
-                    placeholder="e.g., Conference presentation at ICASSP 2023"
-
-                    style={{ 
-
-                      width: '100%', 
-
-                      padding: '10px 12px', 
-
-                      border: `1px solid ${colors.border}`, 
-
-                      borderRadius: '6px',
-
-                      fontSize: '14px',
-
-                      fontFamily: 'inherit'
-
-                    }} 
-
-                  />
-
-                </div>
-
-                <button style={{
-
-                  padding: '6px 12px',
-
-                  backgroundColor: 'white',
-
-                  color: colors.primary,
-
-                  border: `1px dashed ${colors.primary}`,
-
-                  borderRadius: '4px',
-
-                  cursor: 'pointer',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '4px'
-
-                }}>
-
-                  <Plus size={14} />
-
-                  Add Publication
-
-                </button>
-
-              </div>
-
-            </div>
-
-
-
-            {/* Action Buttons */}
-
-            <div style={{ display: 'flex', gap: '12px', paddingTop: '24px', borderTop: `1px solid ${colors.border}` }}>
-
-              <button style={{
-
-                flex: 1,
-
-                padding: '14px',
-
-                backgroundColor: colors.primary,
-
-                color: 'white',
-
-                border: 'none',
-
-                borderRadius: '6px',
-
-                fontSize: '15px',
-
-                fontWeight: '600',
-
-                cursor: 'pointer',
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                justifyContent: 'center',
-
-                gap: '8px'
-
-              }}>
-
+            <div style={{ display: 'flex', gap: '12px', paddingTop: '16px', borderTop: `1px solid ${colors.border}` }}>
+              <button type="button" onClick={handleSaveProfile} disabled={saving} style={{ flex: 1, padding: '13px', backgroundColor: colors.primary, color: 'white', border: 'none', borderRadius: '6px', fontSize: '15px', fontWeight: '700', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: saving ? 0.7 : 1 }}>
                 <Save size={18} />
-
-                Save Profile
-
+                {saving ? 'Saving...' : 'Save Profile'}
               </button>
-
-              <button style={{
-
-                padding: '14px 24px',
-
-                backgroundColor: 'white',
-
-                color: colors.primary,
-
-                border: `2px solid ${colors.primary}`,
-
-                borderRadius: '6px',
-
-                fontSize: '15px',
-
-                fontWeight: '600',
-
-                cursor: 'pointer',
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                gap: '8px'
-
-              }}>
-
-                <Download size={18} />
-
-                Generate Appendix B
-
-              </button>
-
-              <button style={{
-
-                padding: '14px 24px',
-
-                backgroundColor: 'white',
-
-                color: colors.mediumGray,
-
-                border: `2px solid ${colors.border}`,
-
-                borderRadius: '6px',
-
-                fontSize: '15px',
-
-                fontWeight: '600',
-
-                cursor: 'pointer'
-
-              }}
-
-              onClick={() => setSelectedFaculty(null)}>
-
+              <button type="button" onClick={() => setSelectedFaculty(null)} style={{ padding: '13px 22px', backgroundColor: 'white', color: colors.mediumGray, border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}>
                 Cancel
-
               </button>
-
             </div>
-
           </div>
-
         </div>
 
+        {cvModalOpen && (
+          <div onClick={() => setCvModalOpen(false)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(20, 25, 35, 0.52)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', zIndex: 2100 }}>
+            <div onClick={(event) => event.stopPropagation()} style={{ width: '100%', maxWidth: '720px', borderRadius: '14px', backgroundColor: 'white', boxShadow: '0 24px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+              <div style={{ backgroundColor: colors.primary, color: 'white', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontWeight: '700' }}>Faculty CV Documents</div>
+                <button onClick={() => setCvModalOpen(false)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }} aria-label="Close">x</button>
+              </div>
+              <div style={{ padding: '16px 18px', display: 'grid', gap: '12px' }}>
+                <input type="file" multiple onChange={handleCvSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                <button type="button" disabled style={{ padding: '10px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: '#eceef2', color: colors.mediumGray, fontWeight: '700', cursor: 'not-allowed' }}>
+                  Extract with AI
+                </button>
+                {cvStatus && (
+                  <div style={{ padding: '10px 12px', borderRadius: '8px', backgroundColor: '#f3f4f6', color: colors.mediumGray, fontSize: '13px' }}>
+                    {cvStatus}
+                  </div>
+                )}
+                <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', overflow: 'hidden' }}>
+                  {cvFiles.length === 0 ? (
+                    <div style={{ padding: '14px', color: colors.mediumGray, fontSize: '13px' }}>No documents uploaded yet.</div>
+                  ) : (
+                    cvFiles.map((file) => (
+                      <div key={file.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', padding: '12px 14px', borderTop: `1px solid ${colors.border}` }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ color: colors.darkGray, fontWeight: '700', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                          <div style={{ color: colors.mediumGray, fontSize: '12px' }}>{file.type || 'Unknown'} - {Math.max(1, Math.round((Number(file.size || 0) / 1024)))} KB</div>
+                        </div>
+                        <button type="button" onClick={() => handleCvRemove(file.id)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-
-      );
-
-    }
-
-
-
-  // Course Summary Modal (Generate Common Syllabus)
-
+    );
+  };
 
   const CourseSummaryModal = ({ selectedCourse, selectedInstructor, setSelectedCourse, setSelectedInstructor, setSyllabusMode }) => {
 
@@ -3484,3 +2524,4 @@ import { colors, fontStack } from '../../styles/theme';
 
 
 export { SyllabusModal, FacultyProfileModal, CourseSummaryModal };
+

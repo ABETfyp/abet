@@ -1,12 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { colors, fontStack } from './styles/theme';
+import { fontStack } from './styles/theme';
 import { useManropeFont } from './hooks/useManropeFont';
 import { apiRequest } from './utils/api';
 import { LoginPage, RegisterPage } from './pages/AuthPages';
 import SelectionPage from './pages/SelectionPage';
 import ChecklistPage from './pages/ChecklistPage';
-import { FullReportPage, BackgroundPage } from './pages/ReportPages';
+import { BackgroundPage } from './pages/ReportPages';
 import { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criterion5Page, Criterion6Page, Criterion7Page, Criterion8Page } from './pages/CriterionPages';
 import { AppendicesPage, AppendixCPage, AppendixDPage } from './pages/AppendixPages';
 import EvidencePage from './pages/EvidencePage';
@@ -18,7 +18,6 @@ const pageToPath = {
   register: '/register',
   selection: '/selection',
   checklist: '/checklist',
-  fullReport: '/full-report',
   background: '/background',
   criterion1: '/criterion-1',
   criterion2: '/criterion-2',
@@ -39,11 +38,29 @@ const pathToPage = Object.entries(pageToPath).reduce((acc, [key, value]) => {
   return acc;
 }, {});
 
+const cycleRequiredPages = new Set([
+  'checklist',
+  'background',
+  'criterion1',
+  'criterion2',
+  'criterion3',
+  'criterion4',
+  'criterion5',
+  'criterion6',
+  'criterion7',
+  'criterion8',
+  'appendices',
+  'appendixC',
+  'appendixD',
+  'evidence'
+]);
+
 const AUBAccreditationSystem = () => {
   useManropeFont();
 
   const navigate = useNavigate();
   const location = useLocation();
+  const firstLoadRef = useRef(true);
   const initialPage = useMemo(() => pathToPage[location.pathname] || 'login', [location.pathname]);
   const [currentPage, setCurrentPageState] = useState(initialPage);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -57,7 +74,8 @@ const AUBAccreditationSystem = () => {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [registerForm, setRegisterForm] = useState({ email: '', password: '', role: 'professor' });
+  const [registerForm, setRegisterForm] = useState({ email: '', password: '', role: 'faculty_admin' });
+  const isAuthenticated = Boolean(localStorage.getItem('accessToken'));
 
   const setCurrentPage = (page) => {
     const target = pageToPath[page] || '/login';
@@ -71,6 +89,29 @@ const AUBAccreditationSystem = () => {
       setCurrentPageState(nextPage);
     }
   }, [location.pathname, currentPage]);
+
+  useEffect(() => {
+    if (firstLoadRef.current) {
+      firstLoadRef.current = false;
+      const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+      if (!isAuthPage) {
+        navigate('/login', { replace: true });
+        return;
+      }
+    }
+
+    const token = localStorage.getItem('accessToken');
+    const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+    const nextPage = pathToPage[location.pathname];
+    const hasSelectedCycle = Boolean(localStorage.getItem('currentCycleId'));
+    if (!token && !isAuthPage) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    if (token && cycleRequiredPages.has(nextPage) && !hasSelectedCycle) {
+      navigate('/selection', { replace: true });
+    }
+  }, [location.pathname, navigate]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -100,16 +141,9 @@ const AUBAccreditationSystem = () => {
         method: 'POST',
         body: JSON.stringify(registerForm)
       });
-      const data = await apiRequest('/auth/login/', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: registerForm.email,
-          password: registerForm.password
-        })
-      });
-      localStorage.setItem('accessToken', data.access);
-      localStorage.setItem('refreshToken', data.refresh);
-      setCurrentPage('selection');
+      setAuthError('');
+      setCurrentPage('login');
+      setLoginForm({ email: registerForm.email, password: '' });
     } catch (error) {
       setAuthError(error.message || 'Signup failed');
     } finally {
@@ -162,8 +196,6 @@ const AUBAccreditationSystem = () => {
             onBack={handleBackToChecklist}
           />
         );
-      case 'fullReport':
-        return <FullReportPage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
       case 'background':
         return <BackgroundPage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
       case 'criterion1':
@@ -220,7 +252,6 @@ const AUBAccreditationSystem = () => {
         <Route path="/register" element={renderPage()} />
         <Route path="/selection" element={renderPage()} />
         <Route path="/checklist" element={renderPage()} />
-        <Route path="/full-report" element={renderPage()} />
         <Route path="/background" element={renderPage()} />
         <Route path="/criterion-1" element={renderPage()} />
         <Route path="/criterion-2" element={renderPage()} />
@@ -237,7 +268,7 @@ const AUBAccreditationSystem = () => {
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
 
-      {currentPage !== 'login' && currentPage !== 'register' && (
+      {isAuthenticated && currentPage !== 'login' && currentPage !== 'register' && (
         <Sidebar
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
@@ -278,36 +309,6 @@ const AUBAccreditationSystem = () => {
           setSyllabusMode={setSyllabusMode}
         />
       )}
-
-      {/* Navigation Controls */}
-      <div style={{ position: 'fixed', bottom: '24px', right: '24px', backgroundColor: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.12)', border: `1px solid ${colors.border}`, zIndex: 999 }}>
-        <div style={{ fontSize: '13px', fontWeight: '700', marginBottom: '14px', color: colors.darkGray, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Page Navigator</div>
-        <select
-          value={currentPage}
-          onChange={(e) => setCurrentPage(e.target.value)}
-          style={{ width: '220px', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', cursor: 'pointer', fontFamily: 'inherit', fontWeight: '500', marginBottom: '12px' }}
-        >
-          <option value="login">Login</option>
-          <option value="register">Register</option>
-          <option value="selection">Framework Selection</option>
-          <option value="checklist">Checklist Dashboard</option>
-          <option value="fullReport">Full Report</option>
-          <option value="background">Background Info</option>
-          <option value="criterion1">Criterion 1</option>
-          <option value="criterion2">Criterion 2</option>
-          <option value="criterion3">Criterion 3</option>
-          <option value="criterion4">Criterion 4</option>
-          <option value="criterion5">Criterion 5</option>
-          <option value="criterion6">Criterion 6</option>
-          <option value="criterion7">Criterion 7</option>
-          <option value="criterion8">Criterion 8</option>
-          <option value="appendices">Appendices A & B</option>
-          <option value="appendixC">Appendix C</option>
-          <option value="appendixD">Appendix D</option>
-          <option value="evidence">Evidence Library</option>
-        </select>
-        <div style={{ fontSize: '11px', color: colors.mediumGray, fontWeight: '500' }}>Select a page to preview the UI</div>
-      </div>
     </div>
   );
 };

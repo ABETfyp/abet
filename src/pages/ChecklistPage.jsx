@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { apiRequest } from '../utils/api';
 import { colors } from '../styles/theme';
+import { getActiveContext } from '../utils/activeContext';
 
-const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
+const ChecklistPage = ({ setCurrentPage, onToggleSidebar }) => {
   const [checklistData, setChecklistData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  const cycleId = localStorage.getItem('currentCycleId') || 1;
+  const cycleId = localStorage.getItem('currentCycleId');
+  const { programName, cycleLabel } = getActiveContext();
 
   useEffect(() => {
+    if (!cycleId) return;
     fetchChecklistData();
     
     // Check if refresh needed
@@ -26,6 +30,12 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
     
     try {
       const result = await apiRequest(`/cycles/${cycleId}/checklist/`);
+      if (result?.program_name) {
+        localStorage.setItem('currentProgramName', result.program_name);
+      }
+      if (result?.cycle_label) {
+        localStorage.setItem('currentCycleLabel', result.cycle_label);
+      }
       
       if (result.items) {
         result.items.sort((a, b) => {
@@ -106,19 +116,53 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
     if (!checklistData || !checklistData.items || checklistData.items.length === 0) {
       return 0;
     }
-    
-    const criteriaItems = checklistData.items.filter(
-      (item) => [1, 2, 3, 4, 5, 6, 7, 8].includes(Number(item.criterion_number))
-    );
-    
-    if (criteriaItems.length === 0) return 0;
-    
-    const total = criteriaItems.reduce((sum, item) => 
-      sum + (item.completion_percentage || 0), 0
-    );
-    
-    return Math.round(total / criteriaItems.length);
+
+    const targetCriteria = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const bestByCriterion = new Map();
+
+    checklistData.items.forEach((item) => {
+      const criterionNumber = Number(item?.criterion_number);
+      if (!targetCriteria.has(criterionNumber)) return;
+
+      const currentValue = Number(item?.completion_percentage || 0);
+      const previousValue = bestByCriterion.get(criterionNumber) ?? -1;
+      if (currentValue > previousValue) {
+        bestByCriterion.set(criterionNumber, currentValue);
+      }
+    });
+
+    const completedCount = Array.from(targetCriteria).filter((criterionNumber) => {
+      const completionValue = bestByCriterion.get(criterionNumber) ?? 0;
+      return completionValue >= 100;
+    }).length;
+
+    return Math.round((completedCount / targetCriteria.size) * 100);
   };
+
+  if (!cycleId) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'inherit' }}>
+        <div style={{ fontSize: '16px', color: '#6c757d', marginBottom: '16px' }}>
+          Please select a framework and cycle first.
+        </div>
+        <button
+          onClick={() => setCurrentPage('selection')}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#8b1538',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: '600'
+          }}
+        >
+          Go to Framework Selection
+        </button>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -147,9 +191,7 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
     );
   }
 
-  const overallProgress = Math.round(
-    Number(checklistData?.overall_progress_percentage ?? calculateOverallProgress())
-  );
+  const overallProgress = calculateOverallProgress();
   const displayedItems = (checklistData?.items || []).filter((item, index, list) => {
     const itemName = `${item.item_name || ''}`.trim().toLowerCase();
     const isBackground = item.criterion_number === 0 || itemName === 'background information';
@@ -220,6 +262,25 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
             Faculty of Engineering
           </p>
         </div>
+
+        <button
+          onClick={() => setCurrentPage('selection')}
+          style={{
+            marginLeft: 'auto',
+            color: 'white',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: '500',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+          Back to Frameworks
+        </button>
       </div>
 
       {/* MAIN CONTENT */}
@@ -246,14 +307,14 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
                 color: '#2c3e50',
                 margin: '0 0 6px 0'
               }}>
-                Computer & Communication Engineering
+                {programName}
               </h2>
               <p style={{ 
                 fontSize: '14px', 
                 color: '#6c757d',
                 margin: 0
               }}>
-                ABET Cycle 2025-2027
+                {cycleLabel}
               </p>
             </div>
 
@@ -301,30 +362,7 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
             justifyContent: 'space-between',
             alignItems: 'center'
           }}>
-            <p style={{ 
-              fontSize: '13px', 
-              color: '#6c757d',
-              margin: 0
-            }}>
-              Last updated: {new Date().toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
-            </p>
-
-            <button style={{
-              padding: '8px 20px',
-              backgroundColor: '#8b1538',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '13px',
-              fontWeight: '600'
-            }}>
-              View Full Report
-            </button>
+            <div />
           </div>
         </div>
 

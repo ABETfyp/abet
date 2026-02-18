@@ -28,6 +28,21 @@ class Criterion2PeosSerializer(serializers.ModelSerializer):
     class Meta:
         model = Criterion2Peos
         fields = '__all__'
+        extra_kwargs = {
+            'institutional_mission_statement': {'required': False, 'allow_blank': True},
+            'program_mission_statement': {'required': False, 'allow_blank': True},
+            'mission_source_link': {'required': False, 'allow_blank': True},
+            'peos_list': {'required': False, 'allow_blank': True},
+            'peos_short_descriptions': {'required': False, 'allow_blank': True},
+            'peos_publication_location': {'required': False, 'allow_blank': True},
+            'peos_mission_alignment_explanation': {'required': False, 'allow_blank': True},
+            'constituencies_list': {'required': False, 'allow_blank': True},
+            'constituencies_contribution_description': {'required': False, 'allow_blank': True},
+            'peo_review_frequency': {'required': False, 'allow_blank': True},
+            'peo_review_participants': {'required': False, 'allow_blank': True},
+            'feedback_collection_and_decision_process': {'required': False, 'allow_blank': True},
+            'changes_since_last_peo_review': {'required': False, 'allow_blank': True},
+        }
 
 
 class AppendixCEquipmentSerializer(serializers.ModelSerializer):
