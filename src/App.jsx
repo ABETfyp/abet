@@ -11,7 +11,8 @@ import { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criteri
 import { AppendicesPage, AppendixCPage, AppendixDPage } from './pages/AppendixPages';
 import EvidencePage from './pages/EvidencePage';
 import Sidebar from './components/layout/Sidebar';
-import { SyllabusModal, FacultyProfileModal, CourseSummaryModal } from './components/modals/Modals';
+import { FacultyProfileModal } from './components/modals/Modals';
+import { SyllabusModal, CourseSummaryModal } from './components/modals/CourseModals';
 
 const pageToPath = {
   login: '/login',
@@ -65,6 +66,9 @@ const AUBAccreditationSystem = () => {
   const [currentPage, setCurrentPageState] = useState(initialPage);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [facultyExpanded, setFacultyExpanded] = useState(false);
+  const [soExpanded, setSoExpanded] = useState(false);
+  const [cloExpanded, setCloExpanded] = useState(false);
+  const [peoExpanded, setPeoExpanded] = useState(false);
   const [coursesExpanded, setCoursesExpanded] = useState(false);
   const [expandedCourse, setExpandedCourse] = useState(null);
   const [selectedFaculty, setSelectedFaculty] = useState(null);
@@ -274,6 +278,12 @@ const AUBAccreditationSystem = () => {
           setSidebarOpen={setSidebarOpen}
           facultyExpanded={facultyExpanded}
           setFacultyExpanded={setFacultyExpanded}
+          soExpanded={soExpanded}
+          setSoExpanded={setSoExpanded}
+          cloExpanded={cloExpanded}
+          setCloExpanded={setCloExpanded}
+          peoExpanded={peoExpanded}
+          setPeoExpanded={setPeoExpanded}
           coursesExpanded={coursesExpanded}
           setCoursesExpanded={setCoursesExpanded}
           expandedCourse={expandedCourse}
@@ -307,6 +317,7 @@ const AUBAccreditationSystem = () => {
           syllabusMode={syllabusMode}
           setSelectedInstructor={setSelectedInstructor}
           setSyllabusMode={setSyllabusMode}
+          setSelectedCourse={setSelectedCourse}
         />
       )}
     </div>

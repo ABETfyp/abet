@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ChevronDown, Menu, X, Upload, Search, Check, Clock, AlertCircle, FileText, Users, BookOpen, Database, Plus, Edit, Trash2, Download, Eye, Save, ShieldCheck, Mail, Lock, Award, Globe2, Cpu, Cog, FlaskConical, CheckCircle2, Sparkles, LayoutGrid, ClipboardList } from 'lucide-react';
 import { colors, fontStack } from '../../styles/theme';
 import { apiRequest } from '../../utils/api';
+import EvidenceLibraryImport from '../shared/EvidenceLibraryImport';
 
 const FACULTY_DOCS_DB_NAME = 'abet-faculty-documents';
 const FACULTY_DOCS_STORE = 'documents';
@@ -932,7 +933,6 @@ const deleteFacultyDocById = async (docId) => {
 
                   <option>Elective</option>
 
-                  <option>Selective Elective</option>
 
                 </select>
 
@@ -1738,18 +1738,12 @@ const deleteFacultyDocById = async (docId) => {
 
     );
 
-  };
-
-
-
-  // Faculty Profile Modal
+  };  // Faculty Profile Modal
   const FacultyProfileModal = ({ selectedFaculty, setSelectedFaculty }) => {
     if (!selectedFaculty) return null;
 
     const cycleId = localStorage.getItem('currentCycleId') || 1;
-    const facultyKey = selectedFaculty?.faculty_id || selectedFaculty?.email || 'new';
-    const extrasStorageKey = `faculty-profile-extras:${cycleId}:${facultyKey}`;
-
+    const [resolvedProgramId, setResolvedProgramId] = useState((selectedFaculty?.program_id ?? Number(localStorage.getItem('currentProgramId') || 0)) || null);
     const [profile, setProfile] = useState({
       faculty_id: selectedFaculty?.faculty_id ?? null,
       full_name: selectedFaculty?.full_name ?? selectedFaculty?.name ?? '',
@@ -1769,54 +1763,59 @@ const deleteFacultyDocById = async (docId) => {
     const [memberships, setMemberships] = useState(['']);
     const [developmentActivities, setDevelopmentActivities] = useState(['']);
     const [industryExperience, setIndustryExperience] = useState(['']);
-    const [workload, setWorkload] = useState({
-      teaching_percentage: '',
-      research_percentage: '',
-      other_percentage: '',
-      program_time_percentage: ''
-    });
-    const [honors, setHonors] = useState(['']);
+    const [honors, setHonors] = useState([{ title: '', year: '' }]);
     const [services, setServices] = useState(['']);
     const [publications, setPublications] = useState(['']);
     const [cvModalOpen, setCvModalOpen] = useState(false);
     const [cvFiles, setCvFiles] = useState([]);
     const [cvStatus, setCvStatus] = useState('');
     const [saving, setSaving] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [saveError, setSaveError] = useState('');
 
-    useEffect(() => {
-      try {
-        const raw = localStorage.getItem(extrasStorageKey);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (parsed?.qualification) setQualification(parsed.qualification);
-        if (Array.isArray(parsed?.certifications)) setCertifications(parsed.certifications.length ? parsed.certifications : ['']);
-        if (Array.isArray(parsed?.memberships)) setMemberships(parsed.memberships.length ? parsed.memberships : ['']);
-        if (Array.isArray(parsed?.developmentActivities)) setDevelopmentActivities(parsed.developmentActivities.length ? parsed.developmentActivities : ['']);
-        if (Array.isArray(parsed?.industryExperience)) setIndustryExperience(parsed.industryExperience.length ? parsed.industryExperience : ['']);
-        if (parsed?.workload) setWorkload(parsed.workload);
-        if (Array.isArray(parsed?.honors)) setHonors(parsed.honors.length ? parsed.honors : ['']);
-        if (Array.isArray(parsed?.services)) setServices(parsed.services.length ? parsed.services : ['']);
-        if (Array.isArray(parsed?.publications)) setPublications(parsed.publications.length ? parsed.publications : ['']);
-      } catch (_error) {
-      }
-    }, [extrasStorageKey]);
+    const currentFacultyKey = `${resolvedProgramId || 'global'}:${profile.faculty_id || selectedFaculty?.email || 'new'}`;
 
     useEffect(() => {
-      const payload = {
-        qualification,
-        certifications,
-        memberships,
-        developmentActivities,
-        industryExperience,
-        workload,
-        honors,
-        services,
-        publications
-      };
-      localStorage.setItem(extrasStorageKey, JSON.stringify(payload));
-    }, [extrasStorageKey, qualification, certifications, memberships, developmentActivities, industryExperience, workload, honors, services, publications]);
+      if (resolvedProgramId) return;
+      apiRequest(`/accreditation-cycles/${cycleId}/`, { method: 'GET' })
+        .then((cycle) => {
+          const programId = Number(cycle?.program || 0) || null;
+          if (programId) {
+            setResolvedProgramId(programId);
+            localStorage.setItem('currentProgramId', String(programId));
+          }
+        })
+        .catch(() => {});
+    }, [cycleId, resolvedProgramId]);
+
+    useEffect(() => {
+      if (!profile.faculty_id) return;
+      apiRequest(`/faculty-members/${profile.faculty_id}/profile/?cycle_id=${cycleId}`, { method: 'GET' })
+        .then((details) => {
+          setQualification(details?.qualification || { degree_field: '', degree_institution: '', degree_year: '', years_industry_government: '', years_at_institution: '' });
+          setCertifications(Array.isArray(details?.certifications) && details.certifications.length ? details.certifications : ['']);
+          setMemberships(Array.isArray(details?.memberships) && details.memberships.length ? details.memberships : ['']);
+          setDevelopmentActivities(Array.isArray(details?.development_activities) && details.development_activities.length ? details.development_activities : ['']);
+          setIndustryExperience(Array.isArray(details?.industry_experience) && details.industry_experience.length ? details.industry_experience : ['']);
+          if (Array.isArray(details?.honors) && details.honors.length) {
+            setHonors(details.honors.map((value) => {
+              const text = `${value ?? ''}`.trim();
+              const matched = text.match(/^(.*?)(?:\s*\((\d{4})\))?$/);
+              return {
+                title: (matched?.[1] || text).trim(),
+                year: matched?.[2] || ''
+              };
+            }));
+          } else {
+            setHonors([{ title: '', year: '' }]);
+          }
+          setServices(Array.isArray(details?.services) && details.services.length ? details.services : ['']);
+          setPublications(Array.isArray(details?.publications) && details.publications.length ? details.publications : ['']);
+        })
+        .catch(() => {});
+    }, [profile.faculty_id, cycleId]);
 
     const updateListItem = (setter, index, value) => setter((prev) => prev.map((row, i) => (i === index ? value : row)));
     const addListItem = (setter) => setter((prev) => [...prev, '']);
@@ -1826,7 +1825,7 @@ const deleteFacultyDocById = async (docId) => {
       setCvStatus('');
       setCvModalOpen(true);
       try {
-        const docs = await listFacultyDocs(cycleId, facultyKey);
+        const docs = await listFacultyDocs(cycleId, currentFacultyKey);
         setCvFiles(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
       } catch (error) {
         setCvFiles([]);
@@ -1834,12 +1833,12 @@ const deleteFacultyDocById = async (docId) => {
       }
     };
 
-    const handleCvSelection = async (event) => {
-      const files = Array.from(event.target.files || []);
-      if (files.length === 0) return;
+    const handleCvFiles = async (files) => {
+      const selectedFiles = Array.isArray(files) ? files : [];
+      if (selectedFiles.length === 0) return;
       try {
-        await appendFacultyDocs(cycleId, facultyKey, files);
-        const docs = await listFacultyDocs(cycleId, facultyKey);
+        await appendFacultyDocs(cycleId, currentFacultyKey, selectedFiles);
+        const docs = await listFacultyDocs(cycleId, currentFacultyKey);
         setCvFiles(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
         setCvStatus(`${docs.length} file(s) saved.`);
       } catch (error) {
@@ -1847,16 +1846,32 @@ const deleteFacultyDocById = async (docId) => {
       }
     };
 
+    const handleCvSelection = async (event) => {
+      const files = Array.from(event.target.files || []);
+      await handleCvFiles(files);
+    };
+
     const handleCvRemove = async (docId) => {
       try {
         await deleteFacultyDocById(docId);
-        const docs = await listFacultyDocs(cycleId, facultyKey);
+        const docs = await listFacultyDocs(cycleId, currentFacultyKey);
         setCvFiles(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
         setCvStatus('Document removed.');
       } catch (error) {
         setCvStatus(error?.message || 'Unable to remove document.');
       }
     };
+
+    const normalizedList = (rows) => rows.map((row) => `${row ?? ''}`.trim()).filter(Boolean);
+    const normalizedAwards = (rows) => rows
+      .map((row) => ({
+        title: `${row?.title ?? ''}`.trim(),
+        year: `${row?.year ?? ''}`.trim()
+      }))
+      .filter((row) => row.title !== '')
+      .map((row) => (row.year ? `${row.title} (${row.year})` : row.title));
+
+    const keepDigits = (value, maxDigits) => `${value ?? ''}`.replace(/\D/g, '').slice(0, maxDigits);
 
     const handleSaveProfile = async () => {
       const name = `${profile.full_name ?? ''}`.trim();
@@ -1871,10 +1886,13 @@ const deleteFacultyDocById = async (docId) => {
         setSaveError('');
         setSaveSuccess(false);
 
-        let facultyId = profile.faculty_id;
+        const allFaculty = await apiRequest('/faculty-members/', { method: 'GET' });
+        const list = Array.isArray(allFaculty) ? allFaculty : [];
+        const emailMatch = list.find((row) => `${row?.email ?? ''}`.trim().toLowerCase() === email.toLowerCase());
+
+        let facultyId = profile.faculty_id || emailMatch?.faculty_id || null;
         if (!facultyId) {
-          const allFaculty = await apiRequest('/faculty-members/', { method: 'GET' });
-          const maxId = (Array.isArray(allFaculty) ? allFaculty : []).reduce((max, row) => {
+          const maxId = list.reduce((max, row) => {
             const id = Number(row?.faculty_id || 0);
             return Number.isFinite(id) && id > max ? id : max;
           }, 0);
@@ -1882,7 +1900,7 @@ const deleteFacultyDocById = async (docId) => {
         }
 
         const payload = {
-          faculty_id: facultyId,
+          faculty_id: Number(facultyId),
           full_name: name,
           academic_rank: `${profile.academic_rank ?? ''}`.trim(),
           appointment_type: `${profile.appointment_type ?? ''}`.trim(),
@@ -1890,35 +1908,80 @@ const deleteFacultyDocById = async (docId) => {
           office_hours: `${profile.office_hours ?? ''}`.trim()
         };
 
-        try {
-          await apiRequest(`/faculty-members/${facultyId}/`, { method: 'GET' });
-          await apiRequest(`/faculty-members/${facultyId}/`, { method: 'PUT', body: JSON.stringify(payload) });
-        } catch (_notFound) {
+        if (profile.faculty_id || emailMatch) {
+          try {
+            await apiRequest(`/faculty-members/${payload.faculty_id}/`, { method: 'PUT', body: JSON.stringify(payload) });
+          } catch (error) {
+            const shouldFallbackCreate = `${error?.message || ''}`.includes('Request failed (404)') && !emailMatch;
+            if (shouldFallbackCreate) {
+              await apiRequest('/faculty-members/', { method: 'POST', body: JSON.stringify(payload) });
+            } else {
+              throw error;
+            }
+          }
+        } else {
           await apiRequest('/faculty-members/', { method: 'POST', body: JSON.stringify(payload) });
         }
 
-        setProfile((prev) => ({ ...prev, faculty_id: facultyId }));
-        localStorage.setItem(`faculty-profile-extras:${cycleId}:${facultyId}`, JSON.stringify({
-          qualification,
-          certifications,
-          memberships,
-          developmentActivities,
-          industryExperience,
-          workload,
-          honors,
-          services,
-          publications
-        }));
-        setSelectedFaculty((prev) => ({ ...(prev || {}), ...payload, name: payload.full_name, rank: payload.academic_rank }));
+        setProfile((prev) => ({ ...prev, faculty_id: payload.faculty_id }));
+
+        if (resolvedProgramId) {
+          await apiRequest(`/programs/${resolvedProgramId}/faculty-members/`, {
+            method: 'POST',
+            body: JSON.stringify({ faculty_id: payload.faculty_id })
+          });
+        }
+
+        await apiRequest(`/faculty-members/${payload.faculty_id}/profile/?cycle_id=${cycleId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            cycle_id: Number(cycleId),
+            qualification,
+            certifications: normalizedList(certifications),
+            memberships: normalizedList(memberships),
+            development_activities: normalizedList(developmentActivities),
+            industry_experience: normalizedList(industryExperience),
+            honors: normalizedAwards(honors),
+            services: normalizedList(services),
+            publications: normalizedList(publications)
+          })
+        });
+
+        setSelectedFaculty((prev) => ({ ...(prev || {}), ...payload, name: payload.full_name, rank: payload.academic_rank, program_id: resolvedProgramId }));
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2500);
         localStorage.setItem('facultyNeedsRefresh', 'true');
-        window.dispatchEvent(new Event('faculty-updated'));
+        window.dispatchEvent(new CustomEvent('faculty-updated', { detail: { facultyId: payload.faculty_id } }));
         setTimeout(() => setSelectedFaculty(null), 350);
       } catch (error) {
         setSaveError(error?.message || 'Unable to save faculty profile.');
       } finally {
         setSaving(false);
+      }
+    };
+
+    const handleDeleteFaculty = async () => {
+      if (!profile.faculty_id) {
+        setSelectedFaculty(null);
+        return;
+      }
+      if (!resolvedProgramId) {
+        setSaveError('Program context is missing. Please reopen this faculty member from the sidebar.');
+        return;
+      }
+
+      try {
+        setDeleting(true);
+        setSaveError('');
+        await apiRequest(`/programs/${resolvedProgramId}/faculty-members/${profile.faculty_id}/`, { method: 'DELETE' });
+        localStorage.setItem('facultyNeedsRefresh', 'true');
+        window.dispatchEvent(new CustomEvent('faculty-updated', { detail: { deletedFacultyId: profile.faculty_id } }));
+        setSelectedFaculty(null);
+      } catch (error) {
+        setSaveError(error?.message || 'Unable to delete faculty member.');
+      } finally {
+        setDeleting(false);
+        setConfirmDeleteOpen(false);
       }
     };
 
@@ -1945,6 +2008,12 @@ const deleteFacultyDocById = async (docId) => {
         </button>
       </div>
     );
+
+    const updateAward = (index, field, value) => {
+      setHonors((prev) => prev.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+    };
+    const addAward = () => setHonors((prev) => [...prev, { title: '', year: '' }]);
+    const removeAward = (index) => setHonors((prev) => (prev.length <= 1 ? prev : prev.filter((_, rowIndex) => rowIndex !== index)));
 
     const profileTitle = useMemo(() => `${profile.full_name || 'Faculty Profile'}`, [profile.full_name]);
 
@@ -1995,11 +2064,11 @@ const deleteFacultyDocById = async (docId) => {
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: '10px', marginBottom: '10px' }}>
                 <input type="text" value={qualification.degree_field} onChange={(event) => setQualification((prev) => ({ ...prev, degree_field: event.target.value }))} placeholder="Degree field" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
                 <input type="text" value={qualification.degree_institution} onChange={(event) => setQualification((prev) => ({ ...prev, degree_institution: event.target.value }))} placeholder="Institution" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-                <input type="number" min="1900" max="9999" value={qualification.degree_year} onChange={(event) => setQualification((prev) => ({ ...prev, degree_year: event.target.value }))} placeholder="Year" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={qualification.degree_year} onChange={(event) => setQualification((prev) => ({ ...prev, degree_year: keepDigits(event.target.value, 4) }))} placeholder="Year (YYYY)" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input type="number" min="0" value={qualification.years_industry_government} onChange={(event) => setQualification((prev) => ({ ...prev, years_industry_government: event.target.value }))} placeholder="Years in industry/government" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-                <input type="number" min="0" value={qualification.years_at_institution} onChange={(event) => setQualification((prev) => ({ ...prev, years_at_institution: event.target.value }))} placeholder="Years at institution" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={qualification.years_industry_government} onChange={(event) => setQualification((prev) => ({ ...prev, years_industry_government: keepDigits(event.target.value, 2) }))} placeholder="Years in industry/government" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={qualification.years_at_institution} onChange={(event) => setQualification((prev) => ({ ...prev, years_at_institution: keepDigits(event.target.value, 2) }))} placeholder="Years at institution" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
               </div>
             </div>
 
@@ -2007,21 +2076,36 @@ const deleteFacultyDocById = async (docId) => {
             {renderSimpleList('Professional Memberships', memberships, setMemberships, 'e.g., IEEE Senior Member')}
             {renderSimpleList('Professional Development Activities', developmentActivities, setDevelopmentActivities, 'e.g., ABET workshop 2025')}
             {renderSimpleList('Consulting or Work in Industry', industryExperience, setIndustryExperience, 'e.g., Technical Consultant at XYZ')}
-
-            <div style={{ marginBottom: '24px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '700', color: colors.darkGray, marginBottom: '16px' }}>Workload (Courses will be linked later)</h3>
-              <div style={{ padding: '12px', backgroundColor: colors.lightGray, border: `1px solid ${colors.border}`, borderRadius: '8px', marginBottom: '10px', color: colors.mediumGray, fontSize: '13px' }}>
-                Courses section is intentionally blank for now and will be linked later.
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
-                <input type="number" min="0" max="100" value={workload.teaching_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, teaching_percentage: event.target.value }))} placeholder="% Teaching" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-                <input type="number" min="0" max="100" value={workload.research_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, research_percentage: event.target.value }))} placeholder="% Research" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-                <input type="number" min="0" max="100" value={workload.other_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, other_percentage: event.target.value }))} placeholder="% Other" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-                <input type="number" min="0" max="100" value={workload.program_time_percentage} onChange={(event) => setWorkload((prev) => ({ ...prev, program_time_percentage: event.target.value }))} placeholder="% Program Time" style={{ padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-              </div>
+            <div style={{ marginBottom: '22px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>Honors and Awards</label>
+              {honors.map((row, index) => (
+                <div key={`award-${index}`} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '8px', marginBottom: '8px' }}>
+                  <input
+                    type="text"
+                    value={row.title}
+                    onChange={(event) => updateAward(index, 'title', event.target.value)}
+                    placeholder="Award title"
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }}
+                  />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={row.year}
+                    onChange={(event) => updateAward(index, 'year', keepDigits(event.target.value, 4))}
+                    placeholder="Year"
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }}
+                  />
+                  <button type="button" onClick={() => removeAward(index)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '10px 12px', cursor: 'pointer' }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={addAward} style={{ padding: '6px 12px', backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <Plus size={14} />
+                Add Award
+              </button>
             </div>
-
-            {renderSimpleList('Honors and Awards', honors, setHonors, 'e.g., Best Paper Award')}
             {renderSimpleList('Service Activities', services, setServices, 'e.g., Curriculum committee member')}
             {renderSimpleList('Publications', publications, setPublications, 'e.g., Author, Title, Venue, Year')}
 
@@ -2041,6 +2125,24 @@ const deleteFacultyDocById = async (docId) => {
                 <Save size={18} />
                 {saving ? 'Saving...' : 'Save Profile'}
               </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteOpen(true)}
+                disabled={!profile.faculty_id || deleting}
+                style={{
+                  padding: '13px 16px',
+                  backgroundColor: 'white',
+                  color: '#b42318',
+                  border: '1px solid #ef9a9a',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '700',
+                  cursor: !profile.faculty_id || deleting ? 'not-allowed' : 'pointer',
+                  opacity: !profile.faculty_id || deleting ? 0.6 : 1
+                }}
+              >
+                {deleting ? 'Deleting...' : 'Delete Faculty'}
+              </button>
               <button type="button" onClick={() => setSelectedFaculty(null)} style={{ padding: '13px 22px', backgroundColor: 'white', color: colors.mediumGray, border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}>
                 Cancel
               </button>
@@ -2057,6 +2159,11 @@ const deleteFacultyDocById = async (docId) => {
               </div>
               <div style={{ padding: '16px 18px', display: 'grid', gap: '12px' }}>
                 <input type="file" multiple onChange={handleCvSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                <EvidenceLibraryImport
+                  cycleId={cycleId}
+                  programId={resolvedProgramId || localStorage.getItem('currentProgramId') || 1}
+                  onImportFiles={handleCvFiles}
+                />
                 <button type="button" disabled style={{ padding: '10px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: '#eceef2', color: colors.mediumGray, fontWeight: '700', cursor: 'not-allowed' }}>
                   Extract with AI
                 </button>
@@ -2082,6 +2189,75 @@ const deleteFacultyDocById = async (docId) => {
                     ))
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmDeleteOpen && (
+          <div
+            onClick={() => setConfirmDeleteOpen(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(20, 25, 35, 0.52)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+              zIndex: 2200
+            }}
+          >
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '460px',
+                borderRadius: '12px',
+                backgroundColor: 'white',
+                boxShadow: '0 24px 60px rgba(0,0,0,0.3)',
+                padding: '20px'
+              }}
+            >
+              <div style={{ fontSize: '18px', fontWeight: '800', color: colors.darkGray, marginBottom: '8px' }}>
+                Delete Faculty Member?
+              </div>
+              <div style={{ fontSize: '14px', color: colors.mediumGray, marginBottom: '18px' }}>
+                This will remove this faculty member from the current program.
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteOpen(false)}
+                  style={{
+                    backgroundColor: 'white',
+                    border: `1px solid ${colors.border}`,
+                    color: colors.mediumGray,
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteFaculty}
+                  disabled={deleting}
+                  style={{
+                    backgroundColor: '#b42318',
+                    border: 'none',
+                    color: 'white',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    fontWeight: '700',
+                    cursor: deleting ? 'not-allowed' : 'pointer',
+                    opacity: deleting ? 0.7 : 1
+                  }}
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </div>
           </div>
@@ -2524,4 +2700,5 @@ const deleteFacultyDocById = async (docId) => {
 
 
 export { SyllabusModal, FacultyProfileModal, CourseSummaryModal };
+
 

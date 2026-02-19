@@ -4,6 +4,7 @@ import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
+import EvidenceLibraryImport from '../components/shared/EvidenceLibraryImport';
 
 const C1_DOCS_DB_NAME = 'abet-criterion1-documents';
 const C1_DOCS_STORE = 'documents';
@@ -260,6 +261,7 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
   
   // Get cycle ID from localStorage or default to 1
   const cycleId = localStorage.getItem('currentCycleId') || 1;
+  const programId = localStorage.getItem('currentProgramId') || 1;
 
   useEffect(() => {
     fetchCriterion1Data();
@@ -350,18 +352,22 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
     setDocStatus('');
   };
 
-  const handleDocSelection = (event) => {
+  const handleCriterion1DocFiles = async (files) => {
     if (!docModal.sectionTitle) return;
-    const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
+    if (!Array.isArray(files) || files.length === 0) return;
+    try {
+      await appendCriterion1SectionDocs(cycleId, docModal.sectionTitle, files);
+      const docs = await listCriterion1SectionDocs(cycleId, docModal.sectionTitle);
+      setSelectedDocs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+      setDocStatus(`${docs.length} file(s) saved for ${docModal.sectionTitle}.`);
+    } catch (err) {
+      setDocStatus(err?.message || 'Unable to save documents.');
+    }
+  };
 
-    appendCriterion1SectionDocs(cycleId, docModal.sectionTitle, files)
-      .then(() => listCriterion1SectionDocs(cycleId, docModal.sectionTitle))
-      .then((docs) => {
-        setSelectedDocs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
-        setDocStatus(`${docs.length} file(s) saved for ${docModal.sectionTitle}.`);
-      })
-      .catch((err) => setDocStatus(err?.message || 'Unable to save documents.'));
+  const handleDocSelection = (event) => {
+    const files = Array.from(event.target.files || []);
+    handleCriterion1DocFiles(files);
   };
 
   const handleRemoveDoc = (docId) => {
@@ -754,6 +760,11 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
                 Select Documents
                 <input type="file" multiple onChange={handleDocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
               </label>
+              <EvidenceLibraryImport
+                cycleId={cycleId}
+                programId={programId}
+                onImportFiles={handleCriterion1DocFiles}
+              />
 
               <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
                 <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
@@ -962,12 +973,73 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
   const [docModal, setDocModal] = useState({ open: false, sectionTitle: '' });
   const [criterion2Docs, setCriterion2Docs] = useState([]);
   const [criterion2DocStatus, setCriterion2DocStatus] = useState('');
+  const [linkedPeos, setLinkedPeos] = useState([]);
+  const [linkedPeosLoading, setLinkedPeosLoading] = useState(false);
+  const [linkedPeosError, setLinkedPeosError] = useState('');
   
   const cycleId = localStorage.getItem('currentCycleId') || 1;
+  const programId = localStorage.getItem('currentProgramId') || 1;
 
   useEffect(() => {
     fetchCriterion2Data();
   }, [cycleId]);
+
+  const resolveCriterion2ProgramId = async () => {
+    const fromLocal = Number(programId || 0);
+    if (fromLocal > 0) return fromLocal;
+    try {
+      const cycleRecord = await apiRequest(`/accreditation-cycles/${cycleId}/`, { method: 'GET' });
+      const fromCycle = Number(cycleRecord?.program || 0);
+      return fromCycle > 0 ? fromCycle : null;
+    } catch (_error) {
+      return null;
+    }
+  };
+
+  const fetchLinkedPeos = async () => {
+    try {
+      setLinkedPeosLoading(true);
+      setLinkedPeosError('');
+      const resolvedProgramId = await resolveCriterion2ProgramId();
+      if (!resolvedProgramId) {
+        setLinkedPeos([]);
+        setLinkedPeosError('No program selected.');
+        return;
+      }
+      const rows = await apiRequest(`/programs/${resolvedProgramId}/peos/`, { method: 'GET' });
+      setLinkedPeos(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setLinkedPeos([]);
+      setLinkedPeosError(err?.message || 'Unable to load PEOs.');
+    } finally {
+      setLinkedPeosLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLinkedPeos();
+  }, [cycleId, programId]);
+
+  useEffect(() => {
+    if (!data) return;
+    const peoCodes = linkedPeos
+      .map((row, index) => `${row?.display_code || row?.peo_code || `PEO${index + 1}`}`.trim())
+      .filter(Boolean)
+      .join('\n');
+    const peoDescriptions = linkedPeos
+      .map((row) => `${row?.peo_description || ''}`.trim())
+      .filter(Boolean)
+      .join('\n');
+
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        peos_list: peoCodes,
+        peos_short_descriptions: peoDescriptions
+      };
+    });
+  }, [linkedPeos]);
 
   const fetchCriterion2Data = async () => {
     setLoading(true);
@@ -1002,18 +1074,22 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
     setCriterion2DocStatus('');
   };
 
-  const handleCriterion2DocSelection = (event) => {
+  const handleCriterion2DocFiles = async (files) => {
     if (!docModal.sectionTitle) return;
-    const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
+    if (!Array.isArray(files) || files.length === 0) return;
+    try {
+      await appendCriterion1SectionDocs(cycleId, `Criterion2:${docModal.sectionTitle}`, files);
+      const docs = await listCriterion1SectionDocs(cycleId, `Criterion2:${docModal.sectionTitle}`);
+      setCriterion2Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+      setCriterion2DocStatus(`${docs.length} file(s) saved for ${docModal.sectionTitle}.`);
+    } catch (err) {
+      setCriterion2DocStatus(err?.message || 'Unable to save documents.');
+    }
+  };
 
-    appendCriterion1SectionDocs(cycleId, `Criterion2:${docModal.sectionTitle}`, files)
-      .then(() => listCriterion1SectionDocs(cycleId, `Criterion2:${docModal.sectionTitle}`))
-      .then((docs) => {
-        setCriterion2Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
-        setCriterion2DocStatus(`${docs.length} file(s) saved for ${docModal.sectionTitle}.`);
-      })
-      .catch((err) => setCriterion2DocStatus(err?.message || 'Unable to save documents.'));
+  const handleCriterion2DocSelection = (event) => {
+    const files = Array.from(event.target.files || []);
+    handleCriterion2DocFiles(files);
   };
 
   const handleCriterion2RemoveDoc = (docId) => {
@@ -1236,23 +1312,44 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
           sectionTitle="B. Program Educational Objectives (PEOs)"
           onOpenUpload={openCriterion2UploadModal}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
-            <FormField
-              label="Editable list of PEOs"
-              value={data?.peos_list || ''}
-              onChange={(value) => handleChange('peos_list', value)}
-              placeholder="Editable list of PEOs"
-              multiline
-              rows={6}
-            />
-            <FormField
-              label="Short descriptions under each objective (optional)"
-              value={data?.peos_short_descriptions || ''}
-              onChange={(value) => handleChange('peos_short_descriptions', value)}
-              placeholder="Short descriptions under each objective (optional)"
-              multiline
-              rows={6}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+            <div>
+              <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>
+                PEOs from Sidebar (auto-linked)
+              </label>
+              <div
+                style={{
+                  minHeight: '170px',
+                  maxHeight: '240px',
+                  overflowY: 'auto',
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: '6px',
+                  backgroundColor: 'white',
+                  padding: '10px'
+                }}
+              >
+                {linkedPeosLoading ? (
+                  <div style={{ color: colors.mediumGray, fontSize: '13px' }}>Loading PEOs...</div>
+                ) : linkedPeosError ? (
+                  <div style={{ color: '#b42318', fontSize: '13px' }}>{linkedPeosError}</div>
+                ) : linkedPeos.length === 0 ? (
+                  <div style={{ color: colors.mediumGray, fontSize: '13px' }}>No PEOs found. Add them from the sidebar PEO section.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {linkedPeos.map((row, index) => (
+                      <div key={row?.peo_id || `peo-row-${index}`} style={{ border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px 10px', backgroundColor: '#fafafa' }}>
+                        <div style={{ fontSize: '13px', fontWeight: '700', color: colors.darkGray, marginBottom: '4px' }}>
+                          {row?.display_code || row?.peo_code || `PEO${index + 1}`}
+                        </div>
+                        <div style={{ fontSize: '13px', color: colors.mediumGray, lineHeight: 1.35 }}>
+                          {row?.peo_description || '-'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <FormField
               label="Where PEOs are published (URL or document name)"
               value={data?.peos_publication_location || ''}
@@ -1391,6 +1488,11 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
 
               <div style={{ padding: '16px 20px', display: 'grid', gap: '12px' }}>
                 <input type="file" multiple onChange={handleCriterion2DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                <EvidenceLibraryImport
+                  cycleId={cycleId}
+                  programId={programId}
+                  onImportFiles={handleCriterion2DocFiles}
+                />
 
                 <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
                   {criterion2Docs.length === 0 ? (
@@ -1445,11 +1547,198 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
 
 // Keep the same Section and FormField components from Criterion1Page
 
-const Criterion3Page = ({ onToggleSidebar, onBack }) => (
+const Criterion3Page = ({ onToggleSidebar, onBack }) => {
+  const cycleId = localStorage.getItem('currentCycleId') || 1;
+  const [programId, setProgramId] = useState(localStorage.getItem('currentProgramId') || null);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [matrixError, setMatrixError] = useState('');
+  const [soCoverageLoading, setSoCoverageLoading] = useState(false);
+  const [soCoverageError, setSoCoverageError] = useState('');
+  const [soCoverageRows, setSoCoverageRows] = useState([]);
+  const [studentOutcomes, setStudentOutcomes] = useState([]);
+  const [peos, setPeos] = useState([]);
+  const [mappingPairs, setMappingPairs] = useState(new Set());
+
+  const resolveCriterion3ProgramId = async () => {
+    const localProgramId = Number(programId || 0);
+    if (localProgramId > 0) return localProgramId;
+
+    try {
+      const cycleRecord = await apiRequest(`/accreditation-cycles/${cycleId}/`, { method: 'GET' });
+      const cycleProgramId = Number(cycleRecord?.program || 0);
+      if (cycleProgramId > 0) {
+        setProgramId(cycleProgramId);
+        localStorage.setItem('currentProgramId', String(cycleProgramId));
+        return cycleProgramId;
+      }
+    } catch (_error) {
+      // Fall through to null.
+    }
+    return null;
+  };
+
+  const pairKey = (soId, peoId) => `${Number(soId)}:${Number(peoId)}`;
+
+  const calculateCriterion3Completion = (soRows, peoRows, pairsSet) => {
+    if (!Array.isArray(soRows) || soRows.length === 0 || !Array.isArray(peoRows) || peoRows.length === 0) {
+      return 0;
+    }
+    const mappedSoCount = soRows.filter((so) => (
+      peoRows.some((peo) => pairsSet.has(pairKey(so.so_id, peo.peo_id)))
+    )).length;
+    return Math.round((mappedSoCount / soRows.length) * 100);
+  };
+
+  const updateCriterion3Checklist = async (completionPercentage) => {
+    const checklistResult = await apiRequest(`/cycles/${cycleId}/checklist/`, { method: 'GET' });
+    const criterion3Item = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 3);
+    if (!criterion3Item?.item_id) return;
+    const checklistItem = await apiRequest(`/checklist-items/${criterion3Item.item_id}/`, { method: 'GET' });
+    await apiRequest(`/checklist-items/${criterion3Item.item_id}/`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...checklistItem,
+        status: completionPercentage >= 100 ? 1 : 0,
+        completion_percentage: completionPercentage
+      })
+    });
+  };
+
+  const loadSoPeoMatrix = async () => {
+    setMatrixLoading(true);
+    setSoCoverageLoading(true);
+    setMatrixError('');
+    setSoCoverageError('');
+    try {
+      const resolvedProgramId = await resolveCriterion3ProgramId();
+      if (!resolvedProgramId) {
+        setStudentOutcomes([]);
+        setPeos([]);
+        setMappingPairs(new Set());
+        setSoCoverageRows([]);
+        setMatrixError('No program selected.');
+        setSoCoverageError('No program selected.');
+        return;
+      }
+
+      const [matrixResult, coverageResult] = await Promise.allSettled([
+        apiRequest(`/programs/${resolvedProgramId}/so-peo-mappings/`, { method: 'GET' }),
+        apiRequest(`/programs/${resolvedProgramId}/so-course-links/?cycle_id=${cycleId}`, { method: 'GET' }),
+      ]);
+
+      if (matrixResult.status === 'fulfilled') {
+        const result = matrixResult.value;
+        const soRows = Array.isArray(result?.student_outcomes) ? result.student_outcomes : [];
+        const peoRows = Array.isArray(result?.peos) ? result.peos : [];
+        const pairs = new Set(
+          (Array.isArray(result?.mappings) ? result.mappings : [])
+            .map((row) => pairKey(row?.so_id, row?.peo_id))
+        );
+        setStudentOutcomes(soRows);
+        setPeos(peoRows);
+        setMappingPairs(pairs);
+      } else {
+        setStudentOutcomes([]);
+        setPeos([]);
+        setMappingPairs(new Set());
+        setMatrixError(matrixResult.reason?.message || 'Unable to load SO-PEO mappings.');
+      }
+
+      if (coverageResult.status === 'fulfilled') {
+        const rows = Array.isArray(coverageResult.value?.student_outcomes)
+          ? coverageResult.value.student_outcomes
+          : [];
+        setSoCoverageRows(rows);
+      } else {
+        setSoCoverageRows([]);
+        setSoCoverageError(coverageResult.reason?.message || 'Unable to load SO course/CLO links.');
+      }
+    } finally {
+      setMatrixLoading(false);
+      setSoCoverageLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSoPeoMatrix();
+  }, [cycleId]);
+
+  useEffect(() => {
+    const handleCriterion3DataUpdated = () => {
+      loadSoPeoMatrix();
+    };
+    window.addEventListener('so-peo-updated', handleCriterion3DataUpdated);
+    window.addEventListener('courses-updated', handleCriterion3DataUpdated);
+    return () => {
+      window.removeEventListener('so-peo-updated', handleCriterion3DataUpdated);
+      window.removeEventListener('courses-updated', handleCriterion3DataUpdated);
+    };
+  }, [cycleId, programId]);
+
+  const toggleSoPeoMapping = (soId, peoId) => {
+    const key = pairKey(soId, peoId);
+    setMappingPairs((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveDraft = async () => {
+    try {
+      setSaving(true);
+      setSaveError('');
+      setSaveSuccess(false);
+      const resolvedProgramId = await resolveCriterion3ProgramId();
+      if (!resolvedProgramId) {
+        setSaveError('No program selected.');
+        return;
+      }
+
+      const payloadMappings = Array.from(mappingPairs).map((key) => {
+        const [soId, peoId] = key.split(':').map((value) => Number(value));
+        return { so_id: soId, peo_id: peoId };
+      });
+
+      const result = await apiRequest(`/programs/${resolvedProgramId}/so-peo-mappings/`, {
+        method: 'PUT',
+        body: JSON.stringify({ mappings: payloadMappings })
+      });
+
+      const soRows = Array.isArray(result?.student_outcomes) ? result.student_outcomes : studentOutcomes;
+      const peoRows = Array.isArray(result?.peos) ? result.peos : peos;
+      const pairs = new Set(
+        (Array.isArray(result?.mappings) ? result.mappings : [])
+          .map((row) => pairKey(row?.so_id, row?.peo_id))
+      );
+      setStudentOutcomes(soRows);
+      setPeos(peoRows);
+      setMappingPairs(pairs);
+
+      const completion = calculateCriterion3Completion(soRows, peoRows, pairs);
+      await updateCriterion3Checklist(completion);
+      localStorage.setItem('checklistNeedsRefresh', 'true');
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (error) {
+      setSaveError(`Save failed: ${error?.message || 'Please try again.'}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
-      <GlobalHeader title="Criterion 4 - Continuous Improvement" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
+      <GlobalHeader title="Criterion 3 - Student Outcomes" subtitle={getActiveContext().subtitle} showBackButton={true} onToggleSidebar={onToggleSidebar} onBack={onBack} />
 
 
 
@@ -1472,26 +1761,16 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
             </div>
 
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-
-              <div style={{ backgroundColor: colors.lightGray, borderRadius: '8px', padding: '10px 14px', border: `1px solid ${colors.border}`, color: colors.darkGray, fontWeight: '700', fontSize: '13px' }}>
-
-                Program: <span style={{ color: colors.primary }}>{getActiveContext().programName}</span> - Cycle: <span style={{ color: colors.primary }}>{getActiveContext().cycleLabel}</span>
-
-              </div>
-
-              <button style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={saving}
+                style={{ backgroundColor: colors.primary, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', opacity: saving ? 0.7 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}
+              >
 
                 <Save size={16} />
 
-                Save Draft
-
-              </button>
-
-              <button style={{ backgroundColor: colors.success, color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px' }}>
-
-                <Check size={16} />
-
-                Mark Complete
+                {saving ? 'Saving...' : 'Save Draft'}
 
               </button>
 
@@ -1501,174 +1780,109 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
         </div>
 
+        {saveSuccess && (
+          <div style={{ marginBottom: '20px', padding: '12px 16px', backgroundColor: '#d4edda', border: '1px solid #c3e6cb', borderRadius: '6px', color: '#155724', fontSize: '14px' }}>
+            Saved successfully!
+          </div>
+        )}
 
-
-
+        {saveError && (
+          <div style={{ marginBottom: '20px', padding: '12px 16px', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '6px', color: '#721c24', fontSize: '14px' }}>
+            {saveError}
+          </div>
+        )}
 
         {/* Section A: Student Outcomes */}
 
         <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '32px', marginBottom: '24px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: `1px solid ${colors.border}` }}>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
-
-            <div>
-
-              <h3 style={{ color: colors.darkGray, fontSize: '20px', fontWeight: '700', marginBottom: '6px', letterSpacing: '-0.2px' }}>A. Student Outcomes</h3>
-
-              <p style={{ color: colors.mediumGray, fontSize: '14px', margin: 0 }}>List official Student Outcomes and connect them with course CLOs</p>
-
-            </div>
-
-            <button style={{ 
-
-              backgroundColor: colors.primary, 
-
-              color: 'white', 
-
-              padding: '10px 20px', 
-
-              borderRadius: '6px', 
-
-              border: 'none', 
-
-              cursor: 'pointer', 
-
-              fontSize: '13px',
-
-              fontWeight: '600',
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              gap: '6px'
-
-            }}>
-
-              <Plus size={16} />
-
-              Add New Outcome
-
-            </button>
-
+          <div style={{ marginBottom: '20px' }}>
+            <h3 style={{ color: colors.darkGray, fontSize: '20px', fontWeight: '700', marginBottom: '6px', letterSpacing: '-0.2px' }}>A. Student Outcomes</h3>
+            <p style={{ color: colors.mediumGray, fontSize: '14px', margin: 0 }}>
+              Auto-filled from the Courses section using CLO to SO mappings in each syllabus.
+            </p>
           </div>
 
-
-
-          {/* SO Cards */}
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-            {/* SO 1 */}
-
-            <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '24px' }}>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-
-                <div style={{ flex: 1 }}>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-
-                    <span style={{ backgroundColor: colors.primary, color: 'white', padding: '6px 14px', borderRadius: '6px', fontSize: '13px', fontWeight: '700' }}>SO 1</span>
-
-                    <input type="text" value="Ability to apply knowledge of math, science and engineering" style={{ flex: 1, padding: '10px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-
-                  </div>
-
-                </div>
-
-                <button style={{ marginLeft: '12px', color: colors.primary, background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-
-                  <Edit size={14} />
-
-                  Edit
-
-                </button>
-
-              </div>
-
-
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginTop: '16px' }}>
-
-                <div>
-
-                  <div style={{ color: colors.darkGray, fontSize: '12px', fontWeight: '700', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Linked Courses</div>
-
-                  <div style={{ fontSize: '13px', color: colors.mediumGray }}>
-
-                    <div style={{ marginBottom: '6px', fontWeight: '500' }}>EECE 210</div>
-
-                    <div style={{ marginBottom: '6px', fontWeight: '500' }}>EECE 320</div>
-
-                    <div style={{ fontWeight: '500' }}>EECE 330</div>
-
-                  </div>
-
-                </div>
-
-                <div>
-
-                  <div style={{ color: colors.darkGray, fontSize: '12px', fontWeight: '700', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>CLOs Covered</div>
-
-                  <div style={{ fontSize: '13px', color: colors.mediumGray }}>
-
-                    <div style={{ marginBottom: '6px', fontWeight: '500' }}>CLO 1, CLO 3</div>
-
-                    <div style={{ marginBottom: '6px', fontWeight: '500' }}>CLO 2</div>
-
-                    <div style={{ fontWeight: '500' }}>CLO 1, CLO 4</div>
-
-                  </div>
-
-                </div>
-
-                <div>
-
-                  <div style={{ color: colors.darkGray, fontSize: '12px', fontWeight: '700', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Evidence</div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-
-                    <a href="#" style={{ fontSize: '13px', color: colors.primary, textDecoration: 'none', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '4px' }}>
-
-                      <FileText size={14} />
-
-                      Assessment Matrix.pdf
-
-                    </a>
-
-                    <button style={{ fontSize: '12px', color: colors.primary, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontWeight: '600' }}>
-
-                      + Upload Evidence
-
-                    </button>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-
-
-              <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
-
-                <button style={{ backgroundColor: colors.lightGray, color: colors.primary, padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
-
-                  Link Courses
-
-                </button>
-
-                <button style={{ backgroundColor: colors.lightGray, color: colors.primary, padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>
-
-                  AI Auto-Map
-
-                </button>
-
-              </div>
-
+          {soCoverageError ? (
+            <div style={{ marginBottom: '12px', padding: '10px 12px', borderRadius: '8px', border: '1px solid #f5c6cb', backgroundColor: '#f8d7da', color: '#721c24', fontSize: '13px', fontWeight: '700' }}>
+              {soCoverageError}
             </div>
+          ) : null}
 
+          <div style={{ overflowX: 'auto', border: `1px solid ${colors.border}`, borderRadius: '8px' }}>
+            {soCoverageLoading ? (
+              <div style={{ padding: '16px', color: colors.mediumGray, fontSize: '14px' }}>Loading linked courses and CLOs...</div>
+            ) : soCoverageRows.length === 0 ? (
+              <div style={{ padding: '16px', color: colors.mediumGray, fontSize: '14px' }}>
+                Add SOs in the sidebar, then map CLOs to SOs in course syllabi to populate this table.
+              </div>
+            ) : (
+              <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8f9fb' }}>
+                    <th style={{ padding: '14px 12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}`, borderRight: `1px solid ${colors.border}`, fontWeight: '800', color: colors.darkGray, width: '40%' }}>
+                      Student Outcome
+                    </th>
+                    <th style={{ padding: '14px 12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}`, borderRight: `1px solid ${colors.border}`, fontWeight: '800', color: colors.darkGray, width: '30%' }}>
+                      Linked Courses
+                    </th>
+                    <th style={{ padding: '14px 12px', textAlign: 'left', borderBottom: `1px solid ${colors.border}`, fontWeight: '800', color: colors.darkGray, width: '30%' }}>
+                      Linked CLOs
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {soCoverageRows.map((so) => (
+                    <tr key={so.so_id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '12px', borderRight: `1px solid ${colors.border}`, verticalAlign: 'top' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                          <span style={{ backgroundColor: colors.primary, color: 'white', padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '800', lineHeight: 1.4 }}>
+                            {so.display_code || so.so_code}
+                          </span>
+                          <span style={{ color: colors.darkGray, fontWeight: '600', lineHeight: 1.4 }}>
+                            {so.so_discription || 'No description provided.'}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px', borderRight: `1px solid ${colors.border}`, verticalAlign: 'top' }}>
+                        {Array.isArray(so.linked_courses) && so.linked_courses.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {so.linked_courses.map((courseCode) => (
+                              <span key={`${so.so_id}-${courseCode}`} style={{ backgroundColor: '#f3f5f8', border: `1px solid ${colors.border}`, borderRadius: '999px', padding: '4px 10px', fontSize: '12px', color: colors.darkGray, fontWeight: '700' }}>
+                                {courseCode}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: colors.mediumGray, fontSize: '13px' }}>Not linked yet.</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px', verticalAlign: 'top' }}>
+                        {Array.isArray(so.linked_clos) && so.linked_clos.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {so.linked_clos.map((clo) => (
+                              <span
+                                key={`${so.so_id}-${clo.clo_id}`}
+                                title={clo.description || ''}
+                                style={{ backgroundColor: '#fff3f7', border: `1px solid ${colors.primary}`, borderRadius: '999px', padding: '4px 10px', fontSize: '12px', color: colors.primary, fontWeight: '800' }}
+                              >
+                                {clo.display_code}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ color: colors.mediumGray, fontSize: '13px' }}>No CLO mappings yet.</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div style={{ marginTop: '10px', color: colors.mediumGray, fontSize: '12px', fontWeight: '600' }}>
+            {soCoverageRows.length} SO(s) shown from sidebar/course data.
           </div>
 
         </div>
@@ -1691,94 +1905,78 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
           {/* Mapping Matrix */}
 
-          <div style={{ overflowX: 'auto' }}>
+          {matrixError ? (
+            <div style={{ marginBottom: '12px', padding: '10px 12px', borderRadius: '8px', border: '1px solid #f5c6cb', backgroundColor: '#f8d7da', color: '#721c24', fontSize: '13px', fontWeight: '700' }}>
+              {matrixError}
+            </div>
+          ) : null}
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+          <div style={{ overflowX: 'auto', border: `1px solid ${colors.border}`, borderRadius: '8px' }}>
+            {matrixLoading ? (
+              <div style={{ padding: '16px', color: colors.mediumGray, fontSize: '14px' }}>Loading SO-PEO matrix...</div>
+            ) : studentOutcomes.length === 0 || peos.length === 0 ? (
+              <div style={{ padding: '16px', color: colors.mediumGray, fontSize: '14px' }}>
+                Add SOs and PEOs from the sidebar to build the mapping matrix.
+              </div>
+            ) : (
+              <table style={{ width: '100%', minWidth: `${Math.max(760, 280 + (peos.length * 170))}px`, borderCollapse: 'collapse', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: colors.primary, color: 'white' }}>
+                    <th style={{ padding: '14px', textAlign: 'left', borderRight: '1px solid rgba(255,255,255,0.2)', fontWeight: '700', position: 'sticky', left: 0, backgroundColor: colors.primary, zIndex: 3, minWidth: '280px' }}>
+                      Student Outcome
+                    </th>
+                    {peos.map((peo) => (
+                      <th
+                        key={peo.peo_id}
+                        title={peo.peo_description || ''}
+                        style={{ padding: '12px 10px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.2)', fontWeight: '700', minWidth: '170px', verticalAlign: 'top' }}
+                      >
+                        <div style={{ fontSize: '17px', fontWeight: '800', lineHeight: 1.1 }}>
+                          {peo.display_code || peo.peo_code}
+                        </div>
+                        <div style={{ marginTop: '5px', fontSize: '11px', fontWeight: '500', opacity: 0.92, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {peo.peo_description || '-'}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {studentOutcomes.map((so) => (
+                    <tr key={so.so_id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td
+                        title={so.so_discription || ''}
+                        style={{ padding: '12px 14px', borderRight: `1px solid ${colors.border}`, position: 'sticky', left: 0, zIndex: 2, backgroundColor: 'white', minWidth: '280px' }}
+                      >
+                        <div style={{ fontWeight: '700', color: colors.darkGray }}>
+                          {so.display_code || so.so_code}
+                        </div>
+                        <div style={{ marginTop: '4px', color: colors.mediumGray, fontSize: '12px', lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                          {so.so_discription || '-'}
+                        </div>
+                      </td>
+                      {peos.map((peo) => {
+                        const checked = mappingPairs.has(pairKey(so.so_id, peo.peo_id));
+                        return (
+                          <td key={`${so.so_id}-${peo.peo_id}`} style={{ padding: '12px', textAlign: 'center', borderRight: `1px solid ${colors.border}` }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSoPeoMapping(so.so_id, peo.peo_id)}
+                              style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-              <thead>
-
-                <tr style={{ backgroundColor: colors.primary, color: 'white' }}>
-
-                  <th style={{ padding: '14px', textAlign: 'left', borderRight: '1px solid rgba(255,255,255,0.2)', fontWeight: '700' }}>Student Outcome</th>
-
-                  <th style={{ padding: '14px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.2)', fontWeight: '700' }}>PEO 1</th>
-
-                  <th style={{ padding: '14px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.2)', fontWeight: '700' }}>PEO 2</th>
-
-                  <th style={{ padding: '14px', textAlign: 'center', borderRight: '1px solid rgba(255,255,255,0.2)', fontWeight: '700' }}>PEO 3</th>
-
-                  <th style={{ padding: '14px', textAlign: 'center', fontWeight: '700' }}>PEO 4</th>
-
-                </tr>
-
-              </thead>
-
-              <tbody>
-
-                <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
-
-                  <td style={{ padding: '14px', borderRight: `1px solid ${colors.border}`, fontWeight: '600' }}>SO 1</td>
-
-                  <td style={{ padding: '14px', textAlign: 'center', borderRight: `1px solid ${colors.border}` }}>
-
-                    <input type="checkbox" checked style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                  <td style={{ padding: '14px', textAlign: 'center', borderRight: `1px solid ${colors.border}` }}>
-
-                    <input type="checkbox" checked style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                  <td style={{ padding: '14px', textAlign: 'center', borderRight: `1px solid ${colors.border}` }}>
-
-                    <input type="checkbox" style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                  <td style={{ padding: '14px', textAlign: 'center' }}>
-
-                    <input type="checkbox" style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                </tr>
-
-                <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
-
-                  <td style={{ padding: '14px', borderRight: `1px solid ${colors.border}`, fontWeight: '600' }}>SO 2</td>
-
-                  <td style={{ padding: '14px', textAlign: 'center', borderRight: `1px solid ${colors.border}` }}>
-
-                    <input type="checkbox" style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                  <td style={{ padding: '14px', textAlign: 'center', borderRight: `1px solid ${colors.border}` }}>
-
-                    <input type="checkbox" checked style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                  <td style={{ padding: '14px', textAlign: 'center', borderRight: `1px solid ${colors.border}` }}>
-
-                    <input type="checkbox" checked style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                  <td style={{ padding: '14px', textAlign: 'center' }}>
-
-                    <input type="checkbox" style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
-
-                  </td>
-
-                </tr>
-
-              </tbody>
-
-            </table>
-
+          <div style={{ marginTop: '10px', color: colors.mediumGray, fontSize: '12px', fontWeight: '600' }}>
+            {studentOutcomes.length} SO(s) x {peos.length} PEO(s) - hover any code to preview full description.
           </div>
 
 
@@ -1816,6 +2014,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
     </div>
 
   );
+};
 
 
 
@@ -3304,6 +3503,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
   const Criterion7Page = ({ onToggleSidebar, onBack, setCurrentPage }) => {
     // State for Criterion 7 data
   const cycleId = localStorage.getItem('currentCycleId') || 1;
+  const programId = localStorage.getItem('currentProgramId') || 1;
   const [criterion7Data, setCriterion7Data] = useState({
     criterion7_id: null,
     is_complete: false,
@@ -3926,18 +4126,22 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
     setCriterion7DocStatus('');
   };
 
-  const handleCriterion7DocSelection = (event) => {
+  const handleCriterion7DocFiles = async (files) => {
     if (!criterion7DocModal.sectionTitle) return;
-    const files = Array.from(event.target.files || []);
-    if (files.length === 0) return;
+    if (!Array.isArray(files) || files.length === 0) return;
+    try {
+      await appendCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`, files);
+      const docs = await listCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`);
+      setCriterion7Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+      setCriterion7DocStatus(`${docs.length} file(s) saved for ${criterion7DocModal.sectionTitle}.`);
+    } catch (err) {
+      setCriterion7DocStatus(err?.message || 'Unable to save documents.');
+    }
+  };
 
-    appendCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`, files)
-      .then(() => listCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`))
-      .then((docs) => {
-        setCriterion7Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
-        setCriterion7DocStatus(`${docs.length} file(s) saved for ${criterion7DocModal.sectionTitle}.`);
-      })
-      .catch((err) => setCriterion7DocStatus(err?.message || 'Unable to save documents.'));
+  const handleCriterion7DocSelection = (event) => {
+    const files = Array.from(event.target.files || []);
+    handleCriterion7DocFiles(files);
   };
 
   const handleCriterion7RemoveDoc = (docId) => {
@@ -4371,6 +4575,11 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                   Select Documents
                   <input type="file" multiple onChange={handleCriterion7DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
                 </label>
+                <EvidenceLibraryImport
+                  cycleId={cycleId}
+                  programId={programId}
+                  onImportFiles={handleCriterion7DocFiles}
+                />
                 <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
                   <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
                     Selected Files
@@ -4420,6 +4629,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
 
   const Criterion8Page = ({ onToggleSidebar, onBack }) => {
     const cycleId = localStorage.getItem('currentCycleId') || 1;
+    const programId = localStorage.getItem('currentProgramId') || 1;
     const [criterion8Data, setCriterion8Data] = useState({
       criterion8_id: null,
       leadership_structure_description: '',
@@ -4559,18 +4769,22 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
       setCriterion8DocStatus('');
     };
 
-    const handleCriterion8DocSelection = (event) => {
+    const handleCriterion8DocFiles = async (files) => {
       if (!criterion8DocModal.sectionTitle) return;
-      const files = Array.from(event.target.files || []);
-      if (files.length === 0) return;
+      if (!Array.isArray(files) || files.length === 0) return;
+      try {
+        await appendCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`, files);
+        const docs = await listCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`);
+        setCriterion8Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
+        setCriterion8DocStatus(`${docs.length} file(s) saved for ${criterion8DocModal.sectionTitle}.`);
+      } catch (err) {
+        setCriterion8DocStatus(err?.message || 'Unable to save documents.');
+      }
+    };
 
-      appendCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`, files)
-        .then(() => listCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`))
-        .then((docs) => {
-          setCriterion8Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
-          setCriterion8DocStatus(`${docs.length} file(s) saved for ${criterion8DocModal.sectionTitle}.`);
-        })
-        .catch((err) => setCriterion8DocStatus(err?.message || 'Unable to save documents.'));
+    const handleCriterion8DocSelection = (event) => {
+      const files = Array.from(event.target.files || []);
+      handleCriterion8DocFiles(files);
     };
 
     const handleCriterion8RemoveDoc = (docId) => {
@@ -5050,6 +5264,11 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => (
                     Select Documents
                     <input type="file" multiple onChange={handleCriterion8DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
                   </label>
+                  <EvidenceLibraryImport
+                    cycleId={cycleId}
+                    programId={programId}
+                    onImportFiles={handleCriterion8DocFiles}
+                  />
 
                   <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
                     <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>

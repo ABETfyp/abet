@@ -4,6 +4,7 @@ import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
+import EvidenceLibraryImport from '../components/shared/EvidenceLibraryImport';
 
 const BG_DOCS_DB_NAME = 'abet-background-documents';
 const BG_DOCS_STORE = 'documents';
@@ -318,6 +319,7 @@ const deleteBackgroundDocById = async (docId) => {
 
   const BackgroundPage = ({ onToggleSidebar, onBack }) => {
     const cycleId = localStorage.getItem('currentCycleId') || 1;
+    const programId = localStorage.getItem('currentProgramId') || 1;
     const { programName, cycleLabel, subtitle } = getActiveContext();
     const draftStorageKey = `backgroundInfoDraft_${cycleId}`;
     const [loading, setLoading] = useState(false);
@@ -416,28 +418,28 @@ const deleteBackgroundDocById = async (docId) => {
       setAiImportStatus('');
     };
 
-    const handleDocumentSelection = (event) => {
+    const handleStoreSectionDocuments = async (files) => {
       if (!aiImportModal.sectionTitle) return;
-      const files = Array.from(event.target.files || []);
-      if (files.length === 0) return;
+      if (!Array.isArray(files) || files.length === 0) return;
+      try {
+        await appendBackgroundSectionDocs(cycleId, aiImportModal.sectionTitle, files);
+        const storedDocs = await listBackgroundSectionDocs(cycleId, aiImportModal.sectionTitle);
+        const mappedDocs = storedDocs.map((row) => ({
+          id: row.id,
+          name: row.name,
+          size: row.size,
+          type: row.type,
+        }));
+        setSelectedDocuments(mappedDocs);
+        setAiImportStatus(`${mappedDocs.length} file(s) saved for ${aiImportModal.sectionTitle}.`);
+      } catch (error) {
+        setAiImportStatus(error?.message || 'Unable to save selected documents.');
+      }
+    };
 
-      appendBackgroundSectionDocs(cycleId, aiImportModal.sectionTitle, files)
-        .then(() => {
-          return listBackgroundSectionDocs(cycleId, aiImportModal.sectionTitle);
-        })
-        .then((storedDocs) => {
-          const mappedDocs = storedDocs.map((row) => ({
-            id: row.id,
-            name: row.name,
-            size: row.size,
-            type: row.type,
-          }));
-          setSelectedDocuments(mappedDocs);
-          setAiImportStatus(`${mappedDocs.length} file(s) saved for ${aiImportModal.sectionTitle}.`);
-        })
-        .catch((error) => {
-          setAiImportStatus(error?.message || 'Unable to save selected documents.');
-        });
+    const handleDocumentSelection = (event) => {
+      const files = Array.from(event.target.files || []);
+      handleStoreSectionDocuments(files);
     };
 
     const handleRemoveDocument = (docId) => {
@@ -696,6 +698,11 @@ const deleteBackgroundDocById = async (docId) => {
                   Select Documents
                   <input type="file" multiple onChange={handleDocumentSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
                 </label>
+                <EvidenceLibraryImport
+                  cycleId={cycleId}
+                  programId={programId}
+                  onImportFiles={handleStoreSectionDocuments}
+                />
 
                 <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', backgroundColor: '#fafafa' }}>
                   <div style={{ fontSize: '12px', color: colors.mediumGray, fontWeight: '700', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
