@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Criterion1Students,
     Criterion2Peos,
+    BackgroundInfo,
     AppendixCEquipment,
     EquipmentItem,
     Criterion7Facilities,
@@ -42,6 +43,22 @@ class Criterion2PeosSerializer(serializers.ModelSerializer):
             'peo_review_participants': {'required': False, 'allow_blank': True},
             'feedback_collection_and_decision_process': {'required': False, 'allow_blank': True},
             'changes_since_last_peo_review': {'required': False, 'allow_blank': True},
+        }
+
+
+class BackgroundInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BackgroundInfo
+        fields = '__all__'
+        extra_kwargs = {
+            'program_contact_name': {'required': False, 'allow_blank': True},
+            'contact_title': {'required': False, 'allow_blank': True},
+            'office_location': {'required': False, 'allow_blank': True},
+            'phone_number': {'required': False, 'allow_blank': True},
+            'email_address': {'required': False, 'allow_blank': True},
+            'year_implemented': {'required': False},
+            'last_general_review_date': {'required': False},
+            'summary_of_major_changes': {'required': False, 'allow_blank': True},
         }
 
 

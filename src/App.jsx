@@ -229,7 +229,7 @@ const AUBAccreditationSystem = () => {
       case 'appendixC':
         return <AppendixCPage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} setCurrentPage={setCurrentPage} />;
       case 'appendixD':
-        return <AppendixDPage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
+        return <AppendixDPage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} setCurrentPage={setCurrentPage} />;
       case 'evidence':
         return <EvidencePage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
       default:

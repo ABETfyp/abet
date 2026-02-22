@@ -14,6 +14,7 @@ import jwt
 from datetime import timedelta
 from .models import (
     Criterion1Students,
+    BackgroundInfo,
     AppendixCEquipment,
     EquipmentItem,
     Criterion7Facilities,
@@ -45,6 +46,11 @@ from .models import (
     ServiceActivity,
     Publication,
     Criterion6Faculty,
+    AppendixDInstitution,
+    AcademicSupportUnit,
+    NonacademicSupportUnit,
+    EnrollmentRecord,
+    PersonnelRecord,
 )
 from .serializers import (
     Criterion1StudentsSerializer,
@@ -275,13 +281,11 @@ def _calculate_cycle_progress(cycle):
         if current_value > previous_value:
             criterion_progress[criterion_number] = current_value
 
-    completed_count = 0
+    total_percentage = 0.0
     for criterion_number in target_criteria:
-        completion_value = criterion_progress.get(criterion_number, 0)
-        if completion_value >= 100:
-            completed_count += 1
+        total_percentage += float(criterion_progress.get(criterion_number, 0))
 
-    return round((completed_count / len(target_criteria)) * 100)
+    return round(total_percentage / len(target_criteria))
 
 
 def _program_icon(program):
@@ -517,6 +521,187 @@ def _get_or_create_criterion1(cycle):
     return obj, item
 
 
+def _validate_background_year(value):
+    text = f'{value or ""}'.strip()
+    if not text:
+        return 0, None
+    if not re.fullmatch(r'\d{4}', text):
+        return None, 'Year Implemented must be a 4-digit number.'
+    year = int(text)
+    current_year = timezone.now().year
+    if year > current_year:
+        return None, 'Year Implemented cannot be in the future.'
+    return year, None
+
+
+def _validate_background_phone(value):
+    text = f'{value or ""}'.strip()
+    if not text:
+        return '', None
+    normalized = re.sub(r'[\s\-\(\)]', '', text)
+    if not re.fullmatch(r'\+?\d+', normalized):
+        return None, 'Phone Number must contain only numbers.'
+    return normalized, None
+
+
+def _validate_background_review_date(raw_value):
+    text = f'{raw_value or ""}'.strip()
+    if not text:
+        return None, 'Date of Last General Review is required.'
+
+    parsed_date = None
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y'):
+        try:
+            parsed_date = datetime.strptime(text, fmt).date()
+            break
+        except ValueError:
+            continue
+
+    if parsed_date is None:
+        return None, 'Date of Last General Review must be a valid date (YYYY-MM-DD, YYYY/MM/DD, or MM/DD/YYYY).'
+
+    current_year = timezone.now().year
+    if parsed_date.year >= current_year:
+        return None, 'Date of Last General Review must be before the current year.'
+    return parsed_date, None
+
+
+def _background_completion_percentage(background):
+    fields = [
+        background.program_contact_name,
+        background.contact_title,
+        background.office_location,
+        background.phone_number,
+        background.email_address,
+        background.year_implemented,
+        background.last_general_review_date,
+        background.summary_of_major_changes,
+    ]
+
+    completed = 0
+    for value in fields:
+        if isinstance(value, str):
+            if value.strip():
+                completed += 1
+        elif isinstance(value, (int, float)):
+            if value > 0:
+                completed += 1
+        elif value is not None:
+            completed += 1
+
+    return round((completed / len(fields)) * 100)
+
+
+def _ensure_background(cycle):
+    _ensure_checklist_items(cycle)
+
+    item = ChecklistItem.objects.filter(
+        checklist=cycle.checklist,
+        item_name__icontains='background'
+    ).order_by('-item_id').first()
+    if not item:
+        item = ChecklistItem.objects.create(
+            checklist=cycle.checklist,
+            item_name=CRITERION_ITEMS[0],
+            status=0,
+            completion_percentage=0,
+        )
+
+    obj = BackgroundInfo.objects.filter(cycle=cycle).order_by('-background_id').first()
+    if obj:
+        return obj, item
+
+    max_id = BackgroundInfo.objects.aggregate(max_id=Max('background_id')).get('max_id') or 0
+    obj = BackgroundInfo.objects.create(
+        background_id=int(max_id) + 1,
+        program_contact_name='',
+        contact_title='',
+        office_location='',
+        phone_number='',
+        email_address='',
+        year_implemented=0,
+        last_general_review_date=timezone.now().date(),
+        summary_of_major_changes='',
+        cycle=cycle,
+        item=item,
+    )
+    return obj, item
+
+
+def _serialize_background_payload(background):
+    return {
+        'background_id': background.background_id,
+        'contactName': background.program_contact_name or '',
+        'positionTitle': background.contact_title or '',
+        'officeLocation': background.office_location or '',
+        'phoneNumber': background.phone_number or '',
+        'emailAddress': background.email_address or '',
+        'yearImplemented': str(background.year_implemented or ''),
+        'lastReviewDate': str(background.last_general_review_date) if background.last_general_review_date else '',
+        'majorChanges': background.summary_of_major_changes or '',
+    }
+
+
+@api_view(['GET', 'PUT'])
+def cycle_background(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    background, item = _ensure_background(cycle)
+
+    if request.method == 'GET':
+        return Response(_serialize_background_payload(background))
+
+    contact_name = f'{request.data.get("contactName", request.data.get("program_contact_name", ""))}'.strip()
+    position_title = f'{request.data.get("positionTitle", request.data.get("contact_title", ""))}'.strip()
+    office_location = f'{request.data.get("officeLocation", request.data.get("office_location", ""))}'.strip()
+    phone_number = f'{request.data.get("phoneNumber", request.data.get("phone_number", ""))}'.strip()
+    email_address = f'{request.data.get("emailAddress", request.data.get("email_address", ""))}'.strip()
+    year_implemented_raw = request.data.get('yearImplemented', request.data.get('year_implemented'))
+    last_review_raw = request.data.get('lastReviewDate', request.data.get('last_general_review_date'))
+    major_changes = f'{request.data.get("majorChanges", request.data.get("summary_of_major_changes", ""))}'.strip()
+
+    year_implemented, year_error = _validate_background_year(year_implemented_raw)
+    phone_number_validated, phone_error = _validate_background_phone(phone_number)
+    last_review_date, review_date_error = _validate_background_review_date(last_review_raw)
+    validation_errors = {}
+    if year_error:
+        validation_errors['yearImplemented'] = [year_error]
+    if phone_error:
+        validation_errors['phoneNumber'] = [phone_error]
+    if review_date_error:
+        validation_errors['lastReviewDate'] = [review_date_error]
+    if (
+        not year_error and
+        not review_date_error and
+        year_implemented is not None and
+        year_implemented > int(last_review_date.year)
+    ):
+        validation_errors['yearImplemented'] = ['Year Implemented cannot be after Date of Last General Review.']
+    if validation_errors:
+        return Response(validation_errors, status=status.HTTP_400_BAD_REQUEST)
+
+    background.program_contact_name = contact_name
+    background.contact_title = position_title
+    background.office_location = office_location
+    background.phone_number = phone_number_validated
+    background.email_address = email_address
+    background.year_implemented = year_implemented
+    background.last_general_review_date = last_review_date
+    background.summary_of_major_changes = major_changes
+    background.cycle = cycle
+    background.item = item
+    background.save()
+
+    completion_percentage = _background_completion_percentage(background)
+    item.status = 1 if completion_percentage >= 100 else 0
+    item.completion_percentage = completion_percentage
+    item.save(update_fields=['status', 'completion_percentage'])
+
+    return Response(_serialize_background_payload(background))
+
+
 @api_view(['GET', 'PUT'])
 def cycle_criterion1(request, cycle_id):
     cycle = _ensure_cycle(cycle_id)
@@ -565,21 +750,135 @@ def _get_or_create_appendixc(cycle):
     )
 
 
-def _parse_service_date(raw_value):
-    if not raw_value:
-        return timezone.now().date()
+def _ensure_appendices_item(cycle):
+    _ensure_checklist_items(cycle)
+    item = ChecklistItem.objects.filter(
+        checklist=cycle.checklist,
+        item_name__icontains='append'
+    ).order_by('-item_id').first()
+    if item:
+        return item
+    return ChecklistItem.objects.create(
+        checklist=cycle.checklist,
+        item_name=CRITERION_ITEMS[9],
+        status=0,
+        completion_percentage=0,
+    )
 
-    value = str(raw_value).strip()
-    for fmt in ('%Y-%m-%d', '%b %Y', '%B %Y'):
+
+def _validate_appendixc_service_date(raw_value):
+    text = f'{raw_value or ""}'.strip()
+    if not text:
+        return None, 'Last service date is required.'
+
+    parsed = None
+    for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y'):
         try:
-            parsed = datetime.strptime(value, fmt)
-            if fmt in ('%b %Y', '%B %Y'):
-                return parsed.replace(day=1).date()
-            return parsed.date()
+            parsed = datetime.strptime(text, fmt).date()
+            break
         except ValueError:
             continue
+    if parsed is None:
+        return None, 'Last service date must be a valid date (YYYY-MM-DD, YYYY/MM/DD, or MM/DD/YYYY).'
 
-    return timezone.now().date()
+    if parsed > timezone.now().date():
+        return None, 'Last service date cannot be in the future.'
+    return parsed, None
+
+
+def _appendixc_completion_from_rows(rows):
+    if not rows:
+        return 0
+    required_fields = 6  # name/category/quantity/location/use/last_service_date
+    total_cells = len(rows) * required_fields
+    filled_cells = 0
+
+    for row in rows:
+        if f'{row.get("equipment_name") or ""}'.strip():
+            filled_cells += 1
+        if f'{row.get("category") or ""}'.strip():
+            filled_cells += 1
+        if int(row.get('quantity') or 0) > 0:
+            filled_cells += 1
+        if f'{row.get("location_lab") or ""}'.strip():
+            filled_cells += 1
+        if f'{row.get("instructional_use") or ""}'.strip():
+            filled_cells += 1
+        if row.get('last_service_date') is not None:
+            filled_cells += 1
+
+    return round((filled_cells / total_cells) * 100)
+
+
+def _appendixd_completion_from_payload(payload):
+    scalar_fields = [
+        payload.get('institution_name'),
+        payload.get('institutiton_address'),
+        payload.get('chief_executive_name'),
+        payload.get('chief_ececutive_title'),
+        payload.get('self_study_submitter_name'),
+        payload.get('self_study_submitter_title'),
+        payload.get('institutional_accreditations'),
+        payload.get('accreditation_evalutaion_dates'),
+        payload.get('control_type_description'),
+        payload.get('administrative_chain_description'),
+        payload.get('credit_hour_definition'),
+        payload.get('deviations_from_standard'),
+    ]
+    scalar_completed = sum(1 for value in scalar_fields if f'{value or ""}'.strip())
+    scalar_total = len(scalar_fields)
+
+    row_groups = [
+        payload.get('academic_support_units') or [],
+        payload.get('nonacademic_support_units') or [],
+        payload.get('enrollment_records') or [],
+        payload.get('personnel_records') or [],
+    ]
+    row_group_completed = sum(1 for rows in row_groups if len(rows) > 0)
+    row_group_total = len(row_groups)
+
+    return round(((scalar_completed + row_group_completed) / (scalar_total + row_group_total)) * 100)
+
+
+def _current_appendixd_completion(cycle):
+    appendix_d = AppendixDInstitution.objects.filter(cycle=cycle).order_by('-appendix_d_id').first()
+    if not appendix_d:
+        return 0
+
+    payload = {
+        'institution_name': appendix_d.institution_name,
+        'institutiton_address': appendix_d.institutiton_address,
+        'chief_executive_name': appendix_d.chief_executive_name,
+        'chief_ececutive_title': appendix_d.chief_ececutive_title,
+        'self_study_submitter_name': appendix_d.self_study_submitter_name,
+        'self_study_submitter_title': appendix_d.self_study_submitter_title,
+        'institutional_accreditations': appendix_d.institutional_accreditations,
+        'accreditation_evalutaion_dates': appendix_d.accreditation_evalutaion_dates,
+        'control_type_description': appendix_d.control_type_description,
+        'administrative_chain_description': appendix_d.administrative_chain_description,
+        'credit_hour_definition': appendix_d.credit_hour_definition,
+        'deviations_from_standard': appendix_d.deviations_from_standard,
+        'academic_support_units': list(AcademicSupportUnit.objects.filter(appendix_d=appendix_d).values('support_unit_id')),
+        'nonacademic_support_units': list(NonacademicSupportUnit.objects.filter(appendix_d=appendix_d).values('nonacademic_support_unit_id')),
+        'enrollment_records': list(EnrollmentRecord.objects.filter(appendix_d=appendix_d).values('enrollment_record_id')),
+        'personnel_records': list(PersonnelRecord.objects.filter(appendix_d=appendix_d).values('personnel_record_id')),
+    }
+    return _appendixd_completion_from_payload(payload)
+
+
+def _current_appendixc_completion(cycle):
+    appendix_c = AppendixCEquipment.objects.filter(cycle=cycle).order_by('-appendix_c_id').first()
+    if not appendix_c:
+        return 0
+    rows = EquipmentItem.objects.filter(appendix_c=appendix_c).values(
+        'equipment_name',
+        'category',
+        'quantity',
+        'location_lab',
+        'instructional_use',
+        'last_service_date',
+    )
+    return _appendixc_completion_from_rows(rows)
 
 
 def _to_int(value, default=0):
@@ -608,35 +907,438 @@ def cycle_appendixc(request, cycle_id):
     if not isinstance(rows, list):
         return Response({'detail': 'equipment_rows must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    EquipmentItem.objects.filter(appendix_c=appendix).delete()
+    labs_covered_count = _to_int(request.data.get('labs_covered_count'), 0)
+    high_value_assets_count = _to_int(request.data.get('high_value_assets_count'), 0)
+    if labs_covered_count < 0:
+        return Response({'labs_covered_count': ['Labs covered count must be 0 or greater.']}, status=status.HTTP_400_BAD_REQUEST)
+    if high_value_assets_count < 0:
+        return Response({'high_value_assets_count': ['High-value assets count must be 0 or greater.']}, status=status.HTTP_400_BAD_REQUEST)
 
-    created_rows = []
-    for row in rows:
+    normalized_rows = []
+    row_errors = {}
+    for index, row in enumerate(rows):
         if not isinstance(row, dict):
+            row_errors[f'equipment_rows[{index}]'] = ['Each equipment row must be an object.']
             continue
 
-        created = EquipmentItem.objects.create(
-            equipment_name=(row.get('equipment_name') or '').strip(),
-            category=(row.get('category') or '').strip(),
-            quantity=_to_int(row.get('quantity'), 0),
-            location_lab=(row.get('location_lab') or '').strip(),
-            instructional_use=(row.get('instructional_use') or '').strip(),
-            last_service_date=_parse_service_date(row.get('last_service_date')),
-            evidence_link=(row.get('evidence_link') or '').strip(),
-            appendix_c=appendix,
-        )
-        created_rows.append(created)
+        equipment_name = f'{row.get("equipment_name") or ""}'.strip()
+        category = f'{row.get("category") or ""}'.strip()
+        location_lab = f'{row.get("location_lab") or ""}'.strip()
+        instructional_use = f'{row.get("instructional_use") or ""}'.strip()
+        evidence_link = f'{row.get("evidence_link") or ""}'.strip()
+        quantity_raw = row.get('quantity')
+        try:
+            quantity = int(quantity_raw)
+        except (TypeError, ValueError):
+            quantity = -1
+        service_date, service_date_error = _validate_appendixc_service_date(row.get('last_service_date'))
 
-    appendix.labs_covered_count = _to_int(request.data.get('labs_covered_count'), appendix.labs_covered_count or 0)
-    appendix.high_value_assets_count = _to_int(request.data.get('high_value_assets_count'), appendix.high_value_assets_count or 0)
-    appendix.equipment_items_count = len(created_rows)
-    appendix.last_updated_date = timezone.now().date()
-    appendix.save()
+        current_row_errors = []
+        if not equipment_name:
+            current_row_errors.append('Equipment name is required.')
+        if not category:
+            current_row_errors.append('Category is required.')
+        if quantity <= 0:
+            current_row_errors.append('Quantity must be a positive integer.')
+        if not location_lab:
+            current_row_errors.append('Location / Lab is required.')
+        if not instructional_use:
+            current_row_errors.append('Instructional use is required.')
+        if service_date_error:
+            current_row_errors.append(service_date_error)
+
+        if current_row_errors:
+            row_errors[f'equipment_rows[{index}]'] = current_row_errors
+            continue
+
+        normalized_rows.append({
+            'equipment_name': equipment_name,
+            'category': category,
+            'quantity': quantity,
+            'location_lab': location_lab,
+            'instructional_use': instructional_use,
+            'last_service_date': service_date,
+            'evidence_link': evidence_link,
+        })
+
+    if row_errors:
+        return Response(row_errors, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        EquipmentItem.objects.filter(appendix_c=appendix).delete()
+
+        next_equipment_id = (EquipmentItem.objects.aggregate(max_id=Max('equipment_id')).get('max_id') or 0) + 1
+        created_rows = []
+        for index, row in enumerate(normalized_rows):
+            created = EquipmentItem.objects.create(
+                equipment_id=int(next_equipment_id + index),
+                equipment_name=row.get('equipment_name'),
+                category=row.get('category'),
+                quantity=row.get('quantity'),
+                location_lab=row.get('location_lab'),
+                instructional_use=row.get('instructional_use'),
+                last_service_date=row.get('last_service_date'),
+                evidence_link=row.get('evidence_link'),
+                appendix_c=appendix,
+            )
+            created_rows.append(created)
+
+        appendix.labs_covered_count = labs_covered_count
+        appendix.high_value_assets_count = high_value_assets_count
+        appendix.equipment_items_count = len(created_rows)
+        appendix.last_updated_date = timezone.now().date()
+        appendix.save()
+
+        appendices_item = _ensure_appendices_item(cycle)
+        appendix_c_completion = _appendixc_completion_from_rows(normalized_rows)
+        appendix_d_completion = _current_appendixd_completion(cycle)
+        completion_percentage = round((appendix_c_completion + appendix_d_completion) / 2)
+        appendices_item.status = 1 if completion_percentage >= 100 else 0
+        appendices_item.completion_percentage = completion_percentage
+        appendices_item.save(update_fields=['status', 'completion_percentage'])
 
     return Response({
         'appendix': AppendixCEquipmentSerializer(appendix).data,
         'equipment_rows': EquipmentItemSerializer(created_rows, many=True).data,
     })
+
+
+def _get_or_create_appendixd(cycle):
+    appendix_d = AppendixDInstitution.objects.filter(cycle=cycle).order_by('-appendix_d_id').first()
+    if appendix_d:
+        return appendix_d
+
+    appendices_item = _ensure_appendices_item(cycle)
+    max_id = AppendixDInstitution.objects.aggregate(max_id=Max('appendix_d_id')).get('max_id') or 0
+    return AppendixDInstitution.objects.create(
+        appendix_d_id=int(max_id) + 1,
+        institution_name='',
+        institutiton_address='',
+        chief_executive_name='',
+        chief_ececutive_title='',
+        self_study_submitter_name='',
+        self_study_submitter_title='',
+        institutional_accreditations='',
+        accreditation_evalutaion_dates='',
+        control_type_description='',
+        administrative_chain_description='',
+        organization_chart_file_reference='',
+        credit_hour_definition='',
+        deviations_from_standard='',
+        cycle=cycle,
+        item=appendices_item,
+    )
+
+
+def _serialize_appendixd_payload(appendix_d):
+    academic_units = list(
+        AcademicSupportUnit.objects.filter(appendix_d=appendix_d).order_by('support_unit_id').values(
+            'support_unit_id', 'unit_name', 'responsible_person_name', 'responsible_person_title', 'contact_email', 'contact_phone'
+        )
+    )
+    nonacademic_units = list(
+        NonacademicSupportUnit.objects.filter(appendix_d=appendix_d).order_by('nonacademic_support_unit_id').values(
+            'nonacademic_support_unit_id', 'unit_name', 'responsible_person_name', 'responsible_person_title', 'contact_email', 'contact_phone'
+        )
+    )
+    enrollment_records = list(
+        EnrollmentRecord.objects.filter(appendix_d=appendix_d).order_by('enrollment_record_id').values(
+            'enrollment_record_id',
+            'academic_year',
+            'student_type',
+            'year1_count',
+            'year2_count',
+            'year3_count',
+            'year4_count',
+            'year5_count',
+            'total_undergraduate',
+            'total_graduate',
+            'associates_awarded',
+            'bachelors_awarded',
+            'masters_awarded',
+            'doctorates_awarded',
+        )
+    )
+    personnel_records = list(
+        PersonnelRecord.objects.filter(appendix_d=appendix_d).order_by('personnel_record_id').values(
+            'personnel_record_id', 'employment_category', 'full_time_count', 'part_time_count', 'fte_count'
+        )
+    )
+
+    return {
+        'appendix_d_id': appendix_d.appendix_d_id,
+        'institutionName': appendix_d.institution_name or '',
+        'institutionAddress': appendix_d.institutiton_address or '',
+        'chiefExecutiveName': appendix_d.chief_executive_name or '',
+        'chiefExecutiveTitle': appendix_d.chief_ececutive_title or '',
+        'selfStudySubmitterName': appendix_d.self_study_submitter_name or '',
+        'selfStudySubmitterTitle': appendix_d.self_study_submitter_title or '',
+        'institutionalAccreditations': appendix_d.institutional_accreditations or '',
+        'accreditationEvaluationDates': appendix_d.accreditation_evalutaion_dates or '',
+        'controlTypeDescription': appendix_d.control_type_description or '',
+        'administrativeChainDescription': appendix_d.administrative_chain_description or '',
+        'organizationChartFileReference': appendix_d.organization_chart_file_reference or '',
+        'creditHourDefinition': appendix_d.credit_hour_definition or '',
+        'deviationsFromStandard': appendix_d.deviations_from_standard or '',
+        'academicSupportUnits': academic_units,
+        'nonacademicSupportUnits': nonacademic_units,
+        'enrollmentRecords': enrollment_records,
+        'personnelRecords': personnel_records,
+    }
+
+
+@api_view(['GET', 'PUT'])
+def cycle_appendixd(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    appendix_d = _get_or_create_appendixd(cycle)
+
+    if request.method == 'GET':
+        return Response(_serialize_appendixd_payload(appendix_d))
+
+    academic_units = request.data.get('academicSupportUnits', [])
+    nonacademic_units = request.data.get('nonacademicSupportUnits', [])
+    enrollment_records = request.data.get('enrollmentRecords', [])
+    personnel_records = request.data.get('personnelRecords', [])
+
+    list_fields = {
+        'academicSupportUnits': academic_units,
+        'nonacademicSupportUnits': nonacademic_units,
+        'enrollmentRecords': enrollment_records,
+        'personnelRecords': personnel_records,
+    }
+    for field_name, field_value in list_fields.items():
+        if not isinstance(field_value, list):
+            return Response({field_name: ['Must be a list.']}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _norm_text(value):
+        return f'{value or ""}'.strip()
+    email_regex = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+    def _is_numeric_contact(text):
+        normalized = re.sub(r'[\s\-\(\)]', '', text or '')
+        return bool(re.fullmatch(r'\+?\d+', normalized))
+    def _optional_nonnegative_int(value, label):
+        text = f'{value or ""}'.strip()
+        if text == '':
+            return 0, None
+        try:
+            parsed = int(text)
+        except (TypeError, ValueError):
+            return 0, f'{label} must be a non-negative integer.'
+        if parsed < 0:
+            return 0, f'{label} must be a non-negative integer.'
+        return parsed, None
+
+    normalized_academic = []
+    row_errors = {}
+    for row in academic_units:
+        if not isinstance(row, dict):
+            continue
+        normalized = {
+            'unit_name': _norm_text(row.get('unit_name', row.get('unit'))),
+            'responsible_person_name': _norm_text(row.get('responsible_person_name', row.get('name'))),
+            'responsible_person_title': _norm_text(row.get('responsible_person_title', row.get('title'))),
+            'contact_email': _norm_text(row.get('contact_email')),
+            'contact_phone': _norm_text(row.get('contact_phone', row.get('contact'))),
+        }
+        row_index = len(normalized_academic)
+        current_errors = []
+        has_any = any(normalized.values())
+        if not has_any:
+            continue
+        if normalized['contact_email'] and not email_regex.match(normalized['contact_email']):
+            current_errors.append('Email must be valid.')
+        if normalized['contact_phone'] and not _is_numeric_contact(normalized['contact_phone']):
+            current_errors.append('Phone must contain only numbers.')
+        if current_errors:
+            row_errors[f'academicSupportUnits[{row_index}]'] = current_errors
+        normalized_academic.append(normalized)
+
+    normalized_nonacademic = []
+    for row in nonacademic_units:
+        if not isinstance(row, dict):
+            continue
+        normalized = {
+            'unit_name': _norm_text(row.get('unit_name', row.get('unit'))),
+            'responsible_person_name': _norm_text(row.get('responsible_person_name', row.get('name'))),
+            'responsible_person_title': _norm_text(row.get('responsible_person_title', row.get('title'))),
+            'contact_email': _norm_text(row.get('contact_email')),
+            'contact_phone': _norm_text(row.get('contact_phone', row.get('contact'))),
+        }
+        row_index = len(normalized_nonacademic)
+        current_errors = []
+        has_any = any(normalized.values())
+        if not has_any:
+            continue
+        if normalized['contact_email'] and not email_regex.match(normalized['contact_email']):
+            current_errors.append('Email must be valid.')
+        if normalized['contact_phone'] and not _is_numeric_contact(normalized['contact_phone']):
+            current_errors.append('Phone must contain only numbers.')
+        if current_errors:
+            row_errors[f'nonacademicSupportUnits[{row_index}]'] = current_errors
+        normalized_nonacademic.append(normalized)
+
+    normalized_enrollment = []
+    for row in enrollment_records:
+        if not isinstance(row, dict):
+            continue
+        year1_count, err_year1 = _optional_nonnegative_int(row.get('year1_count', row.get('y1')), '1st year enrollment')
+        year2_count, err_year2 = _optional_nonnegative_int(row.get('year2_count', row.get('y2')), '2nd year enrollment')
+        year3_count, err_year3 = _optional_nonnegative_int(row.get('year3_count', row.get('y3')), '3rd year enrollment')
+        year4_count, err_year4 = _optional_nonnegative_int(row.get('year4_count', row.get('y4')), '4th year enrollment')
+        year5_count, err_year5 = _optional_nonnegative_int(row.get('year5_count', row.get('y5')), '5th year enrollment')
+        total_undergraduate, err_ug = _optional_nonnegative_int(row.get('total_undergraduate', row.get('ug')), 'Total UG')
+        total_graduate, err_grad = _optional_nonnegative_int(row.get('total_graduate', row.get('grad')), 'Total Grad')
+        associates_awarded, err_a = _optional_nonnegative_int(row.get('associates_awarded', row.get('a')), 'Associates')
+        bachelors_awarded, err_b = _optional_nonnegative_int(row.get('bachelors_awarded', row.get('b')), 'Bachelors')
+        masters_awarded, err_m = _optional_nonnegative_int(row.get('masters_awarded', row.get('m')), 'Masters')
+        doctorates_awarded, err_d = _optional_nonnegative_int(row.get('doctorates_awarded', row.get('d')), 'Doctorates')
+        normalized = {
+            'academic_year': _norm_text(row.get('academic_year', row.get('year'))),
+            'student_type': _norm_text(row.get('student_type', row.get('type'))),
+            'year1_count': year1_count,
+            'year2_count': year2_count,
+            'year3_count': year3_count,
+            'year4_count': year4_count,
+            'year5_count': year5_count,
+            'total_undergraduate': total_undergraduate,
+            'total_graduate': total_graduate,
+            'associates_awarded': associates_awarded,
+            'bachelors_awarded': bachelors_awarded,
+            'masters_awarded': masters_awarded,
+            'doctorates_awarded': doctorates_awarded,
+        }
+        row_index = len(normalized_enrollment)
+        current_errors = []
+        has_any = (
+            normalized['academic_year'] or normalized['student_type'] or
+            normalized['year1_count'] or normalized['year2_count'] or normalized['year3_count'] or normalized['year4_count'] or
+            normalized['year5_count'] or normalized['total_undergraduate'] or normalized['total_graduate'] or
+            normalized['associates_awarded'] or normalized['bachelors_awarded'] or normalized['masters_awarded'] or normalized['doctorates_awarded']
+        )
+        if not has_any:
+            continue
+        if normalized['student_type'] and normalized['student_type'].upper() not in ('FT', 'PT'):
+            current_errors.append('FT/PT must be either FT or PT.')
+        for parse_error in [
+            err_year1, err_year2, err_year3, err_year4, err_year5,
+            err_ug, err_grad, err_a, err_b, err_m, err_d
+        ]:
+            if parse_error:
+                current_errors.append(parse_error)
+        if current_errors:
+            row_errors[f'enrollmentRecords[{row_index}]'] = current_errors
+        normalized_enrollment.append(normalized)
+
+    normalized_personnel = []
+    for row in personnel_records:
+        if not isinstance(row, dict):
+            continue
+        full_time_count, err_ft = _optional_nonnegative_int(row.get('full_time_count', row.get('ft')), 'FT')
+        part_time_count, err_pt = _optional_nonnegative_int(row.get('part_time_count', row.get('pt')), 'PT')
+        fte_count, err_fte = _optional_nonnegative_int(row.get('fte_count', row.get('fte')), 'FTE')
+        normalized = {
+            'employment_category': _norm_text(row.get('employment_category', row.get('cat'))),
+            'full_time_count': full_time_count,
+            'part_time_count': part_time_count,
+            'fte_count': fte_count,
+        }
+        row_index = len(normalized_personnel)
+        current_errors = []
+        has_any = normalized['employment_category'] or normalized['full_time_count'] or normalized['part_time_count'] or normalized['fte_count']
+        if not has_any:
+            continue
+        for parse_error in [err_ft, err_pt, err_fte]:
+            if parse_error:
+                current_errors.append(parse_error)
+        if current_errors:
+            row_errors[f'personnelRecords[{row_index}]'] = current_errors
+        normalized_personnel.append(normalized)
+    if row_errors:
+        return Response(row_errors, status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+        appendix_d.institution_name = _norm_text(request.data.get('institutionName'))
+        appendix_d.institutiton_address = _norm_text(request.data.get('institutionAddress'))
+        appendix_d.chief_executive_name = _norm_text(request.data.get('chiefExecutiveName'))
+        appendix_d.chief_ececutive_title = _norm_text(request.data.get('chiefExecutiveTitle'))
+        appendix_d.self_study_submitter_name = _norm_text(request.data.get('selfStudySubmitterName'))
+        appendix_d.self_study_submitter_title = _norm_text(request.data.get('selfStudySubmitterTitle'))
+        appendix_d.institutional_accreditations = _norm_text(request.data.get('institutionalAccreditations'))
+        appendix_d.accreditation_evalutaion_dates = _norm_text(request.data.get('accreditationEvaluationDates'))
+        appendix_d.control_type_description = _norm_text(request.data.get('controlTypeDescription'))
+        appendix_d.administrative_chain_description = _norm_text(request.data.get('administrativeChainDescription'))
+        appendix_d.organization_chart_file_reference = _norm_text(request.data.get('organizationChartFileReference'))
+        appendix_d.credit_hour_definition = _norm_text(request.data.get('creditHourDefinition'))
+        appendix_d.deviations_from_standard = _norm_text(request.data.get('deviationsFromStandard'))
+        appendix_d.save()
+
+        AcademicSupportUnit.objects.filter(appendix_d=appendix_d).delete()
+        NonacademicSupportUnit.objects.filter(appendix_d=appendix_d).delete()
+        EnrollmentRecord.objects.filter(appendix_d=appendix_d).delete()
+        PersonnelRecord.objects.filter(appendix_d=appendix_d).delete()
+
+        next_academic_id = (AcademicSupportUnit.objects.aggregate(max_id=Max('support_unit_id')).get('max_id') or 0) + 1
+        for index, row in enumerate(normalized_academic):
+            AcademicSupportUnit.objects.create(
+                support_unit_id=int(next_academic_id + index),
+                appendix_d=appendix_d,
+                **row,
+            )
+
+        next_nonacademic_id = (NonacademicSupportUnit.objects.aggregate(max_id=Max('nonacademic_support_unit_id')).get('max_id') or 0) + 1
+        for index, row in enumerate(normalized_nonacademic):
+            NonacademicSupportUnit.objects.create(
+                nonacademic_support_unit_id=int(next_nonacademic_id + index),
+                appendix_d=appendix_d,
+                **row,
+            )
+
+        next_enrollment_id = (EnrollmentRecord.objects.aggregate(max_id=Max('enrollment_record_id')).get('max_id') or 0) + 1
+        for index, row in enumerate(normalized_enrollment):
+            EnrollmentRecord.objects.create(
+                enrollment_record_id=int(next_enrollment_id + index),
+                appendix_d=appendix_d,
+                **row,
+            )
+
+        next_personnel_id = (PersonnelRecord.objects.aggregate(max_id=Max('personnel_record_id')).get('max_id') or 0) + 1
+        for index, row in enumerate(normalized_personnel):
+            PersonnelRecord.objects.create(
+                personnel_record_id=int(next_personnel_id + index),
+                appendix_d=appendix_d,
+                **row,
+            )
+
+        appendices_item = _ensure_appendices_item(cycle)
+        appendix_d_completion = _appendixd_completion_from_payload({
+            'institution_name': appendix_d.institution_name,
+            'institutiton_address': appendix_d.institutiton_address,
+            'chief_executive_name': appendix_d.chief_executive_name,
+            'chief_ececutive_title': appendix_d.chief_ececutive_title,
+            'self_study_submitter_name': appendix_d.self_study_submitter_name,
+            'self_study_submitter_title': appendix_d.self_study_submitter_title,
+            'institutional_accreditations': appendix_d.institutional_accreditations,
+            'accreditation_evalutaion_dates': appendix_d.accreditation_evalutaion_dates,
+            'control_type_description': appendix_d.control_type_description,
+            'administrative_chain_description': appendix_d.administrative_chain_description,
+            'credit_hour_definition': appendix_d.credit_hour_definition,
+            'deviations_from_standard': appendix_d.deviations_from_standard,
+            'academic_support_units': normalized_academic,
+            'nonacademic_support_units': normalized_nonacademic,
+            'enrollment_records': normalized_enrollment,
+            'personnel_records': normalized_personnel,
+        })
+        appendix_c_completion = _current_appendixc_completion(cycle)
+        completion_percentage = round((appendix_c_completion + appendix_d_completion) / 2)
+        appendices_item.status = 1 if completion_percentage >= 100 else 0
+        appendices_item.completion_percentage = completion_percentage
+        appendices_item.save(update_fields=['status', 'completion_percentage'])
+
+    appendix_d.refresh_from_db()
+    return Response(_serialize_appendixd_payload(appendix_d))
 
 
 # ============================================================================

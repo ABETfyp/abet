@@ -321,7 +321,6 @@ const deleteBackgroundDocById = async (docId) => {
     const cycleId = localStorage.getItem('currentCycleId') || 1;
     const programId = localStorage.getItem('currentProgramId') || 1;
     const { programName, cycleLabel, subtitle } = getActiveContext();
-    const draftStorageKey = `backgroundInfoDraft_${cycleId}`;
     const [loading, setLoading] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [saveError, setSaveError] = useState('');
@@ -340,31 +339,108 @@ const deleteBackgroundDocById = async (docId) => {
     });
 
     useEffect(() => {
-      const raw = localStorage.getItem(draftStorageKey);
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw);
-        setFormData((prev) => ({ ...prev, ...parsed }));
-      } catch (_error) {
-        // Ignore invalid local draft payloads.
-      }
-    }, [draftStorageKey]);
+      const fetchBackgroundData = async () => {
+        try {
+          setLoading(true);
+          setSaveError('');
+          const result = await apiRequest(`/cycles/${cycleId}/background/`, { method: 'GET' });
+          setFormData((prev) => ({
+            ...prev,
+            contactName: `${result?.contactName ?? ''}`,
+            positionTitle: `${result?.positionTitle ?? ''}`,
+            officeLocation: `${result?.officeLocation ?? ''}`,
+            phoneNumber: `${result?.phoneNumber ?? ''}`,
+            emailAddress: `${result?.emailAddress ?? ''}`,
+            yearImplemented: `${result?.yearImplemented ?? ''}`,
+            lastReviewDate: `${result?.lastReviewDate ?? ''}`,
+            majorChanges: `${result?.majorChanges ?? ''}`,
+          }));
+        } catch (error) {
+          setSaveError(`Unable to load background information: ${error?.message || 'Unknown error'}`);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchBackgroundData();
+    }, [cycleId]);
 
-    const updateBackgroundChecklist = async (completionPercentage) => {
-      const checklistResult = await apiRequest(`/cycles/${cycleId}/checklist/`, { method: 'GET' });
-      const backgroundItem = checklistResult?.items?.find((row) => Number(row?.criterion_number) === 0);
-      if (!backgroundItem?.item_id) {
-        throw new Error('Background checklist item not found.');
+    const parseValidDate = (value) => {
+      const text = `${value || ''}`.trim();
+      if (!text) return null;
+
+      const yyyyMmDd = /^(\d{4})-(\d{2})-(\d{2})$/;
+      const yyyyMmDdSlash = /^(\d{4})\/(\d{2})\/(\d{2})$/;
+      const mmDdYyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+      let year;
+      let month;
+      let day;
+      if (yyyyMmDd.test(text)) {
+        const match = text.match(yyyyMmDd);
+        year = Number(match[1]);
+        month = Number(match[2]);
+        day = Number(match[3]);
+      } else if (yyyyMmDdSlash.test(text)) {
+        const match = text.match(yyyyMmDdSlash);
+        year = Number(match[1]);
+        month = Number(match[2]);
+        day = Number(match[3]);
+      } else if (mmDdYyyy.test(text)) {
+        const match = text.match(mmDdYyyy);
+        month = Number(match[1]);
+        day = Number(match[2]);
+        year = Number(match[3]);
+      } else {
+        return null;
       }
-      const checklistItem = await apiRequest(`/checklist-items/${backgroundItem.item_id}/`, { method: 'GET' });
-      await apiRequest(`/checklist-items/${backgroundItem.item_id}/`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          ...checklistItem,
-          status: completionPercentage >= 100 ? 1 : 0,
-          completion_percentage: completionPercentage
-        })
-      });
+
+      const parsed = new Date(year, month - 1, day);
+      if (
+        Number.isNaN(parsed.getTime()) ||
+        parsed.getFullYear() !== year ||
+        parsed.getMonth() !== month - 1 ||
+        parsed.getDate() !== day
+      ) {
+        return null;
+      }
+      return parsed;
+    };
+
+    const validateBackgroundForm = () => {
+      const currentYear = new Date().getFullYear();
+
+      const yearText = `${formData.yearImplemented || ''}`.trim();
+      if (yearText && !/^\d{4}$/.test(yearText)) {
+        return 'Year Implemented must be a 4-digit number.';
+      }
+      if (yearText && Number(yearText) > currentYear) {
+        return 'Year Implemented cannot be in the future.';
+      }
+
+      const phoneText = `${formData.phoneNumber || ''}`.trim();
+      if (phoneText) {
+        const normalizedPhone = phoneText.replace(/[\s\-()]/g, '');
+        if (!/^\+?\d+$/.test(normalizedPhone)) {
+          return 'Phone Number must contain only numbers.';
+        }
+      }
+
+      const reviewDateText = `${formData.lastReviewDate || ''}`.trim();
+      if (!reviewDateText) {
+        return 'Date of Last General Review is required.';
+      }
+      const parsedReviewDate = parseValidDate(reviewDateText);
+      if (!parsedReviewDate) {
+        return 'Date of Last General Review must be a valid date (YYYY-MM-DD, YYYY/MM/DD, or MM/DD/YYYY).';
+      }
+      if (parsedReviewDate.getFullYear() >= currentYear) {
+        return 'Date of Last General Review must be before the current year.';
+      }
+      if (yearText && Number(yearText) > parsedReviewDate.getFullYear()) {
+        return 'Year Implemented cannot be after Date of Last General Review.';
+      }
+
+      return '';
     };
 
     const handleSaveDraft = async () => {
@@ -372,12 +448,28 @@ const deleteBackgroundDocById = async (docId) => {
         setLoading(true);
         setSaveError('');
         setSaveSuccess(false);
-        localStorage.setItem(draftStorageKey, JSON.stringify(formData));
 
-        const trackedFields = Object.values(formData);
-        const completedCount = trackedFields.filter((value) => `${value}`.trim() !== '').length;
-        const completion = Math.round((completedCount / trackedFields.length) * 100);
-        await updateBackgroundChecklist(completion);
+        const validationError = validateBackgroundForm();
+        if (validationError) {
+          setSaveError(validationError);
+          return;
+        }
+
+        const saved = await apiRequest(`/cycles/${cycleId}/background/`, {
+          method: 'PUT',
+          body: JSON.stringify(formData)
+        });
+        setFormData((prev) => ({
+          ...prev,
+          contactName: `${saved?.contactName ?? prev.contactName}`,
+          positionTitle: `${saved?.positionTitle ?? prev.positionTitle}`,
+          officeLocation: `${saved?.officeLocation ?? prev.officeLocation}`,
+          phoneNumber: `${saved?.phoneNumber ?? prev.phoneNumber}`,
+          emailAddress: `${saved?.emailAddress ?? prev.emailAddress}`,
+          yearImplemented: `${saved?.yearImplemented ?? prev.yearImplemented}`,
+          lastReviewDate: `${saved?.lastReviewDate ?? prev.lastReviewDate}`,
+          majorChanges: `${saved?.majorChanges ?? prev.majorChanges}`,
+        }));
 
         localStorage.setItem('checklistNeedsRefresh', 'true');
         setSaveSuccess(true);
@@ -584,7 +676,7 @@ const deleteBackgroundDocById = async (docId) => {
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Phone Number</label>
 
-              <input type="text" value={formData.phoneNumber} onChange={handleFieldChange('phoneNumber')} placeholder="e.g., +961 1 123456" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" inputMode="numeric" value={formData.phoneNumber} onChange={handleFieldChange('phoneNumber')} placeholder="e.g., +9611123456" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -633,7 +725,7 @@ const deleteBackgroundDocById = async (docId) => {
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Year Implemented</label>
 
-              <input type="text" value={formData.yearImplemented} onChange={handleFieldChange('yearImplemented')} placeholder="e.g., 1995" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={formData.yearImplemented} onChange={handleFieldChange('yearImplemented')} placeholder="e.g., 1995" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
@@ -641,7 +733,7 @@ const deleteBackgroundDocById = async (docId) => {
 
               <label style={{ display: 'block', color: colors.darkGray, fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>Date of Last General Review</label>
 
-              <input type="text" value={formData.lastReviewDate} onChange={handleFieldChange('lastReviewDate')} placeholder="e.g., 2022" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+              <input type="text" value={formData.lastReviewDate} onChange={handleFieldChange('lastReviewDate')} placeholder="e.g., 2022-05-15" style={{ width: '100%', padding: '11px 14px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
 
             </div>
 
