@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Criterion1Students,
     Criterion2Peos,
+    Criterion5Curriculum,
     AppendixCEquipment,
     EquipmentItem,
     Criterion7Facilities,
@@ -42,6 +43,27 @@ class Criterion2PeosSerializer(serializers.ModelSerializer):
             'peo_review_participants': {'required': False, 'allow_blank': True},
             'feedback_collection_and_decision_process': {'required': False, 'allow_blank': True},
             'changes_since_last_peo_review': {'required': False, 'allow_blank': True},
+        }
+
+
+class Criterion5CurriculumSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Criterion5Curriculum
+        fields = '__all__'
+        extra_kwargs = {
+            'academic_calender_type': {'required': False, 'allow_blank': True},
+            'plan_of_study_description': {'required': False, 'allow_blank': True},
+            'curriculum_alignment_description': {'required': False, 'allow_blank': True},
+            'prerequisites_support_description': {'required': False, 'allow_blank': True},
+            'prerequisite_flowchart_description': {'required': False, 'allow_blank': True},
+            'hours_depth_by_subject_area_description': {'required': False, 'allow_blank': True},
+            'broad_education_component_description': {'required': False, 'allow_blank': True},
+            'cooperative_education_description': {'required': False, 'allow_blank': True},
+            'materials_available_description': {'required': False, 'allow_blank': True},
+            'culminating_design_experience': {'required': False, 'allow_blank': True},
+            'curricular_paths': {'required': False, 'allow_blank': True},
+            'table_5_1_rows': {'required': False},
+            'design_project_rows': {'required': False},
         }
 
 

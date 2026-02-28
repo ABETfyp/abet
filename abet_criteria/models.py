@@ -89,14 +89,18 @@ class Criterion3SoPeo(models.Model):
 class Criterion5Curriculum(models.Model):
     criterion5_id = models.AutoField(primary_key=True)
     academic_calender_type = models.CharField(max_length=50)
+    plan_of_study_description = models.TextField(blank=True, default='')
     curriculum_alignment_description = models.TextField()
     prerequisites_support_description = models.TextField()
+    prerequisite_flowchart_description = models.TextField(blank=True, default='')
     hours_depth_by_subject_area_description = models.TextField()
     broad_education_component_description = models.TextField()
     cooperative_education_description = models.TextField()
     materials_available_description = models.TextField()
     culminating_design_experience = models.TextField()
     curricular_paths = models.TextField(db_column='Curricular_paths')
+    table_5_1_rows = models.JSONField(default=list, blank=True)
+    design_project_rows = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = 'CRITERION_5_CURRICULUM'

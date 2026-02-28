@@ -14,6 +14,7 @@ import jwt
 from datetime import timedelta
 from .models import (
     Criterion1Students,
+    Criterion5Curriculum,
     AppendixCEquipment,
     EquipmentItem,
     Criterion7Facilities,
@@ -49,6 +50,7 @@ from .models import (
 from .serializers import (
     Criterion1StudentsSerializer,
     Criterion2PeosSerializer,
+    Criterion5CurriculumSerializer,
     AppendixCEquipmentSerializer,
     EquipmentItemSerializer,
     Criterion7FacilitiesSerializer,
@@ -549,6 +551,79 @@ def cycle_criterion2(request, cycle_id):
     serializer.is_valid(raise_exception=True)
     serializer.save()
     return Response(serializer.data)
+
+
+def _get_or_create_criterion5(cycle):
+    item = ChecklistItem.objects.filter(
+        checklist=cycle.checklist,
+        item_name__icontains='Criterion 5'
+    ).order_by('-item_id').first()
+    if not item:
+        item = ChecklistItem.objects.create(
+            checklist=cycle.checklist,
+            item_name=CRITERION_ITEMS[5],
+            status=0,
+            completion_percentage=0,
+        )
+
+    criterion5 = cycle.criterion5
+    if not criterion5:
+        criterion5 = Criterion5Curriculum.objects.create(
+            academic_calender_type='Semester',
+            plan_of_study_description='',
+            curriculum_alignment_description='',
+            prerequisites_support_description='',
+            prerequisite_flowchart_description='',
+            hours_depth_by_subject_area_description='',
+            broad_education_component_description='',
+            cooperative_education_description='',
+            materials_available_description='',
+            culminating_design_experience='',
+            curricular_paths='',
+            table_5_1_rows=[],
+            design_project_rows=[],
+        )
+        cycle.criterion5 = criterion5
+        cycle.save(update_fields=['criterion5'])
+
+    if item.criterion5_id != criterion5.criterion5_id:
+        item.criterion5 = criterion5
+        item.save(update_fields=['criterion5'])
+
+    if cycle.criterion5_id != criterion5.criterion5_id:
+        cycle.criterion5 = criterion5
+        cycle.save(update_fields=['criterion5'])
+
+    return criterion5, item
+
+
+@api_view(['GET', 'PUT'])
+def cycle_criterion5(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    criterion5, item = _get_or_create_criterion5(cycle)
+
+    if request.method == 'GET':
+        payload = Criterion5CurriculumSerializer(criterion5).data
+        payload['checklist_item_id'] = item.item_id
+        return Response(payload)
+
+    serializer = Criterion5CurriculumSerializer(criterion5, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    saved = serializer.save()
+
+    if cycle.criterion5_id != saved.criterion5_id:
+        cycle.criterion5 = saved
+        cycle.save(update_fields=['criterion5'])
+    if item.criterion5_id != saved.criterion5_id:
+        item.criterion5 = saved
+        item.save(update_fields=['criterion5'])
+
+    payload = serializer.data
+    payload['checklist_item_id'] = item.item_id
+    return Response(payload)
 
 
 def _get_or_create_appendixc(cycle):

@@ -5,6 +5,7 @@ import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
 import EvidenceLibraryImport from '../components/shared/EvidenceLibraryImport';
+import Criterion5PageImpl from './Criterion5Page';
 
 const C1_DOCS_DB_NAME = 'abet-criterion1-documents';
 const C1_DOCS_STORE = 'documents';
@@ -206,7 +207,7 @@ const C8_TRACKED_FIELDS = [
   'additional_narrative_on_staffing',
 ];
 
-  const calculateCriterion8Completion = (payload) => {
+const calculateCriterion8Completion = (payload) => {
   const completed = C8_TRACKED_FIELDS.filter((field) => `${payload?.[field] ?? ''}`.trim() !== '').length;
   return Math.round((completed / C8_TRACKED_FIELDS.length) * 100);
 };
@@ -5315,7 +5316,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   // Appendix C Page
 
 
-export { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criterion5Page, Criterion6Page, Criterion7Page, Criterion8Page };
+export { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criterion5PageImpl as Criterion5Page, Criterion6Page, Criterion7Page, Criterion8Page };
 
 
 
