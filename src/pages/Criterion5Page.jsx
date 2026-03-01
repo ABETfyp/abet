@@ -2,11 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Upload,
   Save,
-  Check,
   ClipboardList,
   FileText,
   Plus,
-  Sparkles,
 } from "lucide-react";
 import GlobalHeader from "../components/layout/GlobalHeader";
 import EvidenceLibraryImport from "../components/shared/EvidenceLibraryImport";
@@ -31,6 +29,10 @@ const C5_TRACKED_FIELDS = [
 const C5_DOCS_DB_NAME = "abet-criterion5-documents";
 const C5_DOCS_STORE = "documents";
 const C5_FLOWCHART_SECTION = "A. Program Curriculum - Plan of Study / Flowchart";
+const C5_TABLE_SECTION = "A. Program Curriculum - Table 5-1";
+const C5_ALIGNMENT_SECTION = "A. Program Curriculum - Alignment Narratives";
+const C5_DESIGN_SECTION = "A. Program Curriculum - Design Experience";
+const C5_SUPPORTING_SECTION = "A. Program Curriculum - Supporting Materials";
 
 const isPdfFile = (doc) => {
   const type = `${doc?.type || ""}`.toLowerCase();
@@ -155,6 +157,7 @@ const newProjectRow = () => ({
   project_title: "",
   team_identifier: "",
   year: "",
+  project_description: "",
 });
 
 const normalizeTableRows = (rows) => {
@@ -201,17 +204,8 @@ const calculateCompletion = (payload) => {
   return Math.round((completed / totalRequired) * 100);
 };
 
-const hasFilledValue = (value) => `${value ?? ""}`.trim() !== "";
-
-const countFilledRows = (rows = [], ignoredKeys = ["local_id"]) =>
-  rows.filter((row) =>
-    Object.entries(row || {}).some(
-      ([key, value]) => !ignoredKeys.includes(key) && hasFilledValue(value),
-    ),
-  ).length;
-
 const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
-  const { subtitle, programName, cycleLabel } = getActiveContext();
+  const { subtitle } = getActiveContext();
   const cycleId = localStorage.getItem("currentCycleId") || 1;
   const programId = localStorage.getItem("currentProgramId") || 1;
   const [loading, setLoading] = useState(true);
@@ -324,36 +318,20 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
     [data.table_5_1_rows],
   );
 
-  const completion = useMemo(() => calculateCompletion(data), [data]);
-
-  const filledCourseRows = useMemo(
-    () => countFilledRows(data.table_5_1_rows, ["local_id", "r_se_category"]),
-    [data.table_5_1_rows],
-  );
-
-  const filledProjectRows = useMemo(
-    () => countFilledRows(data.design_project_rows),
-    [data.design_project_rows],
-  );
-
-  const totalCredits =
-    tableTotals.math + tableTotals.engineering + tableTotals.other;
-
   const surfaceCardStyle = {
-    backgroundColor: "rgba(255, 255, 255, 0.94)",
-    borderRadius: "18px",
-    padding: "clamp(18px, 2vw, 28px)",
-    boxShadow: "0 16px 34px rgba(33, 37, 41, 0.08)",
-    border: `1px solid rgba(139, 21, 56, 0.14)`,
+    backgroundColor: "white",
+    borderRadius: "10px",
+    padding: "24px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+    border: `1px solid ${colors.border}`,
   };
 
   const mutedBlockStyle = {
     marginTop: "16px",
-    border: `1px solid rgba(139, 21, 56, 0.16)`,
-    borderRadius: "14px",
+    border: `1px solid ${colors.border}`,
+    borderRadius: "10px",
     padding: "18px",
-    background:
-      "linear-gradient(135deg, rgba(139, 21, 56, 0.06) 0%, rgba(248, 249, 250, 0.95) 55%)",
+    backgroundColor: "white",
   };
 
   const requirementBlockStyle = {
@@ -387,6 +365,20 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
     color: colors.mediumGray,
     fontSize: "12px",
     lineHeight: 1.4,
+  };
+
+  const sectionUploadButtonStyle = {
+    backgroundColor: colors.primary,
+    color: "white",
+    border: "none",
+    borderRadius: "10px",
+    padding: "9px 14px",
+    fontWeight: "700",
+    fontSize: "13px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    cursor: "pointer",
   };
 
   const openCriterion5UploadModal = async (sectionTitle) => {
@@ -485,7 +477,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
     }
   };
 
-  const save = async (markComplete = false) => {
+  const save = async () => {
     setSaving(true);
     setSaveError("");
     setSaveSuccess(false);
@@ -519,6 +511,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
             project_title: `${row.project_title ?? ""}`.trim(),
             team_identifier: `${row.team_identifier ?? ""}`.trim(),
             year: Number(row.year || 0),
+            project_description: `${row.project_description ?? ""}`.trim(),
           })),
       };
 
@@ -534,9 +527,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
       };
       setData(normalizedData);
 
-      const completionPercentage = markComplete
-        ? 100
-        : calculateCompletion(payload);
+      const completionPercentage = calculateCompletion(payload);
       const checklistResult = await apiRequest(
         `/cycles/${cycleId}/checklist/`,
         { method: "GET" },
@@ -589,6 +580,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
       className="criterion5-page"
       style={{
         minHeight: "100vh",
+        backgroundColor: colors.lightGray,
         fontFamily: fontStack,
       }}
     >
@@ -612,9 +604,6 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
           style={{
             ...surfaceCardStyle,
             marginBottom: "20px",
-            background:
-              "linear-gradient(130deg, rgba(139, 21, 56, 0.11) 0%, rgba(255, 255, 255, 0.98) 50%)",
-            border: `1px solid rgba(139, 21, 56, 0.22)`,
           }}
         >
           <div
@@ -654,226 +643,31 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
               style={{
                 display: "flex",
                 gap: "10px",
-                alignItems: "flex-start",
+                alignItems: "center",
                 flexWrap: "wrap",
                 justifyContent: "flex-end",
               }}
             >
-              <div
-                style={{
-                  backgroundColor: "rgba(255, 255, 255, 0.92)",
-                  borderRadius: "12px",
-                  padding: "11px 14px",
-                  border: `1px solid rgba(139, 21, 56, 0.18)`,
-                  color: colors.darkGray,
-                  fontWeight: "700",
-                  fontSize: "13px",
-                  boxShadow: "0 8px 18px rgba(139, 21, 56, 0.08)",
-                }}
-              >
-                Program:{" "}
-                <span style={{ color: colors.primary }}>{programName}</span> -
-                Cycle:{" "}
-                <span style={{ color: colors.primary }}>{cycleLabel}</span>
-              </div>
               <button
-                onClick={() => save(false)}
+                onClick={save}
                 disabled={saving}
                 className="criterion5-action-button"
                 style={{
-                  background:
-                    "linear-gradient(135deg, rgba(139, 21, 56, 1) 0%, rgba(107, 15, 42, 1) 100%)",
+                  backgroundColor: colors.primary,
                   color: "white",
-                  padding: "10px 18px",
-                  borderRadius: "10px",
+                  padding: "10px 16px",
+                  borderRadius: "8px",
                   border: "none",
                   fontWeight: "700",
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
                   opacity: saving ? 0.7 : 1,
-                  boxShadow: "0 12px 24px rgba(107, 15, 42, 0.28)",
                 }}
               >
                 <Save size={16} />
                 {saving ? "Saving..." : "Save Draft"}
               </button>
-              <button
-                onClick={() => save(true)}
-                disabled={saving}
-                className="criterion5-action-button"
-                style={{
-                  background:
-                    "linear-gradient(135deg, rgba(40, 167, 69, 1) 0%, rgba(34, 139, 58, 1) 100%)",
-                  color: "white",
-                  padding: "10px 18px",
-                  borderRadius: "10px",
-                  border: "none",
-                  fontWeight: "700",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  opacity: saving ? 0.7 : 1,
-                  boxShadow: "0 12px 24px rgba(34, 139, 58, 0.22)",
-                }}
-              >
-                <Check size={16} />
-                Mark Complete
-              </button>
-            </div>
-          </div>
-          <div
-            style={{
-              marginTop: "16px",
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-              gap: "10px",
-            }}
-          >
-            <div
-              className="criterion5-stat-card"
-              style={{
-                backgroundColor: "rgba(255, 255, 255, 0.92)",
-                border: `1px solid rgba(139, 21, 56, 0.16)`,
-                borderRadius: "12px",
-                padding: "10px 12px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: colors.mediumGray,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                }}
-              >
-                Completion
-              </div>
-              <div
-                style={{
-                  marginTop: "4px",
-                  fontSize: "20px",
-                  fontWeight: "800",
-                  color: colors.primary,
-                }}
-              >
-                {completion}%
-              </div>
-            </div>
-            <div
-              className="criterion5-stat-card"
-              style={{
-                backgroundColor: "rgba(255, 255, 255, 0.92)",
-                border: `1px solid rgba(139, 21, 56, 0.16)`,
-                borderRadius: "12px",
-                padding: "10px 12px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: colors.mediumGray,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                }}
-              >
-                Course Rows
-              </div>
-              <div
-                style={{
-                  marginTop: "4px",
-                  fontSize: "20px",
-                  fontWeight: "800",
-                  color: colors.primary,
-                }}
-              >
-                {filledCourseRows}
-              </div>
-            </div>
-            <div
-              className="criterion5-stat-card"
-              style={{
-                backgroundColor: "rgba(255, 255, 255, 0.92)",
-                border: `1px solid rgba(139, 21, 56, 0.16)`,
-                borderRadius: "12px",
-                padding: "10px 12px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: colors.mediumGray,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                }}
-              >
-                Total Credits
-              </div>
-              <div
-                style={{
-                  marginTop: "4px",
-                  fontSize: "20px",
-                  fontWeight: "800",
-                  color: colors.primary,
-                }}
-              >
-                {totalCredits}
-              </div>
-            </div>
-            <div
-              className="criterion5-stat-card"
-              style={{
-                backgroundColor: "rgba(255, 255, 255, 0.92)",
-                border: `1px solid rgba(139, 21, 56, 0.16)`,
-                borderRadius: "12px",
-                padding: "10px 12px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: colors.mediumGray,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.08em",
-                }}
-              >
-                Design Projects
-              </div>
-              <div
-                style={{
-                  marginTop: "4px",
-                  fontSize: "20px",
-                  fontWeight: "800",
-                  color: colors.primary,
-                }}
-              >
-                {filledProjectRows}
-              </div>
-            </div>
-          </div>
-          <div style={{ marginTop: "14px" }}>
-            <div
-              className="criterion5-progress-track"
-              style={{
-                width: "100%",
-                height: "10px",
-                borderRadius: "999px",
-                backgroundColor: "rgba(255, 255, 255, 0.75)",
-                border: `1px solid rgba(139, 21, 56, 0.18)`,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                className="criterion5-progress-fill"
-                style={{
-                  height: "100%",
-                  width: `${completion}%`,
-                  background:
-                    "linear-gradient(90deg, rgba(139, 21, 56, 1) 0%, rgba(107, 15, 42, 0.86) 100%)",
-                  borderRadius: "999px",
-                  transition: "width 0.35s ease",
-                }}
-              />
             </div>
           </div>
           {saveSuccess ? (
@@ -953,38 +747,10 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                 type="button"
                 onClick={() => openCriterion5UploadModal(C5_FLOWCHART_SECTION)}
                 className="criterion5-action-button"
-                style={{
-                  backgroundColor: "white",
-                  color: colors.primary,
-                  border: `1px dashed rgba(139, 21, 56, 0.8)`,
-                  padding: "9px 13px",
-                  borderRadius: "8px",
-                  fontWeight: "700",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
+                style={sectionUploadButtonStyle}
               >
                 <Upload size={16} />
-                Upload Plan of Study / Flowchart
-              </button>
-              <button
-                type="button"
-                className="criterion5-action-button"
-                style={{
-                  backgroundColor: "rgba(139, 21, 56, 0.08)",
-                  color: colors.primary,
-                  border: "none",
-                  padding: "9px 13px",
-                  borderRadius: "8px",
-                  fontWeight: "700",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-              >
-                <Sparkles size={16} />
-                AI Extract curriculum data
+                Upload & AI Auto-fill
               </button>
             </div>
           </div>
@@ -1137,9 +903,9 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
             style={{
               marginTop: "12px",
               overflowX: "auto",
-              border: `1px solid rgba(139, 21, 56, 0.18)`,
-              borderRadius: "12px",
-              backgroundColor: "rgba(255, 255, 255, 0.94)",
+              border: `1px solid ${colors.border}`,
+              borderRadius: "10px",
+              backgroundColor: "white",
             }}
           >
             <div
@@ -1153,6 +919,25 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                 Recommended schedule by term, course offerings, credits, and
                 maximum section enrollment for recent terms.
               </div>
+              <div
+                style={{
+                  marginTop: "8px",
+                  marginBottom: "8px",
+                  display: "flex",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => openCriterion5UploadModal(C5_TABLE_SECTION)}
+                  className="criterion5-action-button"
+                  style={sectionUploadButtonStyle}
+                >
+                  <Upload size={16} />
+                  Upload & AI Auto-fill
+                </button>
+              </div>
             </div>
             <table
               style={{
@@ -1164,7 +949,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
               <thead>
                 <tr
                   style={{
-                    backgroundColor: "rgba(139, 21, 56, 0.06)",
+                    backgroundColor: colors.lightGray,
                     color: colors.darkGray,
                   }}
                 >
@@ -1480,7 +1265,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                     </td>
                   </tr>
                 ))}
-                <tr style={{ backgroundColor: "rgba(139, 21, 56, 0.06)" }}>
+                <tr style={{ backgroundColor: colors.lightGray }}>
                   <td style={{ padding: "10px", fontWeight: "700" }}>Totals</td>
                   <td></td>
                   <td></td>
@@ -1524,6 +1309,24 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
             >
               <Plus size={14} />
               Add Course Row
+            </button>
+          </div>
+          <div
+            style={{
+              marginTop: "10px",
+              display: "flex",
+              gap: "8px",
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => openCriterion5UploadModal(C5_ALIGNMENT_SECTION)}
+              className="criterion5-action-button"
+              style={sectionUploadButtonStyle}
+            >
+              <Upload size={16} />
+              Upload & AI Auto-fill
             </button>
           </div>
           <div
@@ -1663,12 +1466,10 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
             <div
               style={{
                 marginTop: "16px",
-                border: `1px solid rgba(139, 21, 56, 0.22)`,
-                borderRadius: "14px",
-                background:
-                  "linear-gradient(145deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 249, 250, 0.95) 100%)",
+                border: `1px solid ${colors.border}`,
+                borderRadius: "10px",
+                backgroundColor: "white",
                 padding: "14px",
-                boxShadow: "0 14px 28px rgba(33, 37, 41, 0.08)",
               }}
             >
               <div
@@ -1700,36 +1501,11 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                     type="button"
                     onClick={() => openCriterion5UploadModal(C5_FLOWCHART_SECTION)}
                     className="criterion5-action-button"
-                    style={{
-                      backgroundColor: "white",
-                      color: colors.primary,
-                      border: `1px dashed rgba(139, 21, 56, 0.8)`,
-                      borderRadius: "8px",
-                      padding: "8px 12px",
-                      fontWeight: "700",
-                      fontSize: "13px",
-                    }}
+                    style={sectionUploadButtonStyle}
                   >
-                    Upload / Manage Files
+                    <Upload size={16} />
+                    Upload Flowchart
                   </button>
-                  {selectedFlowchartDoc ? (
-                    <button
-                      type="button"
-                      onClick={() => handleCriterion5DownloadDoc(selectedFlowchartDoc.id)}
-                      className="criterion5-action-button"
-                      style={{
-                        backgroundColor: "white",
-                        color: colors.primary,
-                        border: `1px solid ${colors.border}`,
-                        borderRadius: "8px",
-                        padding: "8px 12px",
-                        fontWeight: "700",
-                        fontSize: "13px",
-                      }}
-                    >
-                      Download Current
-                    </button>
-                  ) : null}
                 </div>
               </div>
 
@@ -1758,7 +1534,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                 >
                   <div
                     style={{
-                      border: `1px solid rgba(139, 21, 56, 0.16)`,
+                      border: `1px solid ${colors.border}`,
                       borderRadius: "12px",
                       padding: "10px",
                       display: "grid",
@@ -1766,8 +1542,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                       alignContent: "start",
                       maxHeight: "520px",
                       overflowY: "auto",
-                      background:
-                        "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(247,248,250,1) 100%)",
+                      backgroundColor: "white",
                     }}
                   >
                     <div
@@ -1797,7 +1572,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                           borderRadius: "8px",
                           backgroundColor:
                             selectedFlowchartDocId === doc.id
-                              ? "rgba(139, 21, 56, 0.12)"
+                              ? "rgba(139, 21, 56, 0.08)"
                               : "white",
                           padding: "10px 12px",
                           color: colors.darkGray,
@@ -1823,7 +1598,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                   </div>
                   <div
                     style={{
-                      border: `1px solid rgba(139, 21, 56, 0.16)`,
+                      border: `1px solid ${colors.border}`,
                       borderRadius: "12px",
                       backgroundColor: "white",
                       minHeight: "520px",
@@ -1936,11 +1711,26 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                 alignItems: "center",
                 gap: "10px",
                 marginBottom: "10px",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
               }}
             >
-              <ClipboardList size={18} color={colors.primary} />
-              <div style={{ fontWeight: "800", color: colors.darkGray }}>
-                A7. Culminating Major Design Experience
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <ClipboardList size={18} color={colors.primary} />
+                <div style={{ fontWeight: "800", color: colors.darkGray }}>
+                  A7. Culminating Major Design Experience
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => openCriterion5UploadModal(C5_DESIGN_SECTION)}
+                  className="criterion5-action-button"
+                  style={sectionUploadButtonStyle}
+                >
+                  <Upload size={16} />
+                  Upload & AI Auto-fill
+                </button>
               </div>
             </div>
             <textarea
@@ -2007,108 +1797,139 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                 </thead>
                 <tbody>
                   {data.design_project_rows.map((row) => (
-                    <tr
-                      key={row.local_id}
-                      style={{ borderBottom: `1px solid ${colors.border}` }}
-                    >
-                      <td style={{ padding: "8px" }}>
-                        <input
-                          value={row.project_title}
-                          onChange={(e) =>
-                            setData((prev) => ({
-                              ...prev,
-                              design_project_rows: prev.design_project_rows.map(
-                                (item) =>
-                                  item.local_id === row.local_id
-                                    ? { ...item, project_title: e.target.value }
-                                    : item,
-                              ),
-                            }))
-                          }
-                          style={{
-                            width: "220px",
-                            padding: "6px",
-                            borderRadius: "6px",
-                            border: `1px solid ${colors.border}`,
-                          }}
-                        />
-                      </td>
-                      <td style={{ padding: "8px" }}>
-                        <input
-                          value={row.team_identifier}
-                          onChange={(e) =>
-                            setData((prev) => ({
-                              ...prev,
-                              design_project_rows: prev.design_project_rows.map(
-                                (item) =>
-                                  item.local_id === row.local_id
-                                    ? {
-                                        ...item,
-                                        team_identifier: e.target.value,
-                                      }
-                                    : item,
-                              ),
-                            }))
-                          }
-                          style={{
-                            width: "150px",
-                            padding: "6px",
-                            borderRadius: "6px",
-                            border: `1px solid ${colors.border}`,
-                          }}
-                        />
-                      </td>
-                      <td style={{ padding: "8px" }}>
-                        <input
-                          type="number"
-                          min="2000"
-                          value={row.year}
-                          onChange={(e) =>
-                            setData((prev) => ({
-                              ...prev,
-                              design_project_rows: prev.design_project_rows.map(
-                                (item) =>
-                                  item.local_id === row.local_id
-                                    ? { ...item, year: e.target.value }
-                                    : item,
-                              ),
-                            }))
-                          }
-                          style={{
-                            width: "90px",
-                            padding: "6px",
-                            borderRadius: "6px",
-                            border: `1px solid ${colors.border}`,
-                          }}
-                        />
-                      </td>
-                      <td style={{ padding: "8px" }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setData((prev) => ({
-                              ...prev,
-                              design_project_rows:
-                                prev.design_project_rows.length > 1
-                                  ? prev.design_project_rows.filter(
-                                      (item) => item.local_id !== row.local_id,
-                                    )
-                                  : prev.design_project_rows,
-                            }))
-                          }
-                          className="criterion5-action-button"
-                          style={{
-                            border: `1px solid ${colors.border}`,
-                            borderRadius: "8px",
-                            backgroundColor: "white",
-                            color: colors.primary,
-                            padding: "6px 8px",
-                          }}
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
+                    <React.Fragment key={row.local_id}>
+                      <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                        <td style={{ padding: "8px" }}>
+                          <input
+                            value={row.project_title}
+                            onChange={(e) =>
+                              setData((prev) => ({
+                                ...prev,
+                                design_project_rows: prev.design_project_rows.map(
+                                  (item) =>
+                                    item.local_id === row.local_id
+                                      ? { ...item, project_title: e.target.value }
+                                      : item,
+                                ),
+                              }))
+                            }
+                            style={{
+                              width: "220px",
+                              padding: "6px",
+                              borderRadius: "6px",
+                              border: `1px solid ${colors.border}`,
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "8px" }}>
+                          <input
+                            value={row.team_identifier}
+                            onChange={(e) =>
+                              setData((prev) => ({
+                                ...prev,
+                                design_project_rows: prev.design_project_rows.map(
+                                  (item) =>
+                                    item.local_id === row.local_id
+                                      ? {
+                                          ...item,
+                                          team_identifier: e.target.value,
+                                        }
+                                      : item,
+                                ),
+                              }))
+                            }
+                            style={{
+                              width: "150px",
+                              padding: "6px",
+                              borderRadius: "6px",
+                              border: `1px solid ${colors.border}`,
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "8px" }}>
+                          <input
+                            type="number"
+                            min="2000"
+                            value={row.year}
+                            onChange={(e) =>
+                              setData((prev) => ({
+                                ...prev,
+                                design_project_rows: prev.design_project_rows.map(
+                                  (item) =>
+                                    item.local_id === row.local_id
+                                      ? { ...item, year: e.target.value }
+                                      : item,
+                                ),
+                              }))
+                            }
+                            style={{
+                              width: "90px",
+                              padding: "6px",
+                              borderRadius: "6px",
+                              border: `1px solid ${colors.border}`,
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "8px" }}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setData((prev) => ({
+                                ...prev,
+                                design_project_rows:
+                                  prev.design_project_rows.length > 1
+                                    ? prev.design_project_rows.filter(
+                                        (item) => item.local_id !== row.local_id,
+                                      )
+                                    : prev.design_project_rows,
+                              }))
+                            }
+                            className="criterion5-action-button"
+                            style={{
+                              border: `1px solid ${colors.border}`,
+                              borderRadius: "8px",
+                              backgroundColor: "white",
+                              color: colors.primary,
+                              padding: "6px 8px",
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                      <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                        <td colSpan={4} style={{ padding: "0 8px 10px 8px" }}>
+                          <textarea
+                            value={row.project_description || ""}
+                            onChange={(e) =>
+                              setData((prev) => ({
+                                ...prev,
+                                design_project_rows: prev.design_project_rows.map(
+                                  (item) =>
+                                    item.local_id === row.local_id
+                                      ? {
+                                          ...item,
+                                          project_description: e.target.value,
+                                        }
+                                      : item,
+                                ),
+                              }))
+                            }
+                            placeholder="Project description / additional details (scope, objectives, constraints, outcomes)."
+                            style={{
+                              width: "100%",
+                              minHeight: "68px",
+                              padding: "10px 12px",
+                              borderRadius: "8px",
+                              border: `1px solid ${colors.border}`,
+                              fontFamily: "inherit",
+                              fontSize: "13px",
+                              color: colors.darkGray,
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -2151,6 +1972,17 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
               gap: "12px",
             }}
           >
+            <div style={{ gridColumn: "1 / -1", display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => openCriterion5UploadModal(C5_SUPPORTING_SECTION)}
+                className="criterion5-action-button"
+                style={sectionUploadButtonStyle}
+              >
+                <Upload size={16} />
+                Upload & AI Auto-fill
+              </button>
+            </div>
             <div style={{ display: "grid", gap: "6px" }}>
               <span style={requirementBadgeStyle}>Requirement 8</span>
               <div style={requirementHintStyle}>
@@ -2233,7 +2065,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
               >
                 <div>
                   <div style={{ fontSize: "17px", fontWeight: "800" }}>
-                    Document Upload
+                    AI Document Import
                   </div>
                   <div
                     style={{
@@ -2381,7 +2213,7 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                   </div>
                 ) : null}
 
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
                   <button
                     type="button"
                     onClick={closeCriterion5UploadModal}
@@ -2395,7 +2227,22 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                       cursor: "pointer",
                     }}
                   >
-                    Close
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      backgroundColor: "#d8d8dd",
+                      border: "none",
+                      color: "#6c757d",
+                      borderRadius: "8px",
+                      padding: "10px 16px",
+                      fontWeight: "700",
+                      cursor: "not-allowed",
+                    }}
+                  >
+                    Extract with AI
                   </button>
                 </div>
               </div>

@@ -100,6 +100,16 @@ const deleteCriterion1DocById = async (docId) => {
   });
 };
 
+const getCriterion1DocById = async (docId) => {
+  const db = await openCriterion1DocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(C1_DOCS_STORE, 'readonly');
+    const req = tx.objectStore(C1_DOCS_STORE).get(docId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error('Unable to load document.'));
+  });
+};
+
 const calculateCriterion1Completion = (payload) => {
   if (!payload) return 0;
   const completed = C1_TRACKED_FIELDS.filter((field) => {
@@ -379,6 +389,26 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
         setDocStatus('Document removed.');
       })
       .catch((err) => setDocStatus(err?.message || 'Unable to remove document.'));
+  };
+
+  const handleDownloadDoc = async (docId) => {
+    try {
+      const doc = await getCriterion1DocById(docId);
+      if (!doc?.fileBlob) {
+        setDocStatus('Selected file is not available.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(doc.fileBlob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = doc.name || 'document';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (err) {
+      setDocStatus(err?.message || 'Unable to download document.');
+    }
   };
 
   if (loading) {
@@ -778,13 +808,22 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
                     {selectedDocs.map((file) => (
                       <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveDoc(file.id)}
-                          style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
-                        >
-                          Remove
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadDoc(file.id)}
+                            style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.primary, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                          >
+                            Download
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDoc(file.id)}
+                            style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1101,6 +1140,26 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
         setCriterion2DocStatus('Document removed.');
       })
       .catch((err) => setCriterion2DocStatus(err?.message || 'Unable to remove document.'));
+  };
+
+  const handleCriterion2DownloadDoc = async (docId) => {
+    try {
+      const doc = await getCriterion1DocById(docId);
+      if (!doc?.fileBlob) {
+        setCriterion2DocStatus('Selected file is not available.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(doc.fileBlob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = doc.name || 'document';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (err) {
+      setCriterion2DocStatus(err?.message || 'Unable to download document.');
+    }
   };
 
   const handleSave = async () => {
@@ -1506,21 +1565,38 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
                             <div style={{ color: colors.darkGray, fontWeight: '700', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
                             <div style={{ color: colors.mediumGray, fontSize: '12px' }}>{file.type || 'Unknown'} - {Math.max(1, Math.round((Number(file.size || 0) / 1024)))} KB</div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleCriterion2RemoveDoc(file.id)}
-                            style={{
-                              border: `1px solid ${colors.border}`,
-                              backgroundColor: 'white',
-                              color: colors.mediumGray,
-                              borderRadius: '6px',
-                              padding: '6px 10px',
-                              cursor: 'pointer',
-                              fontWeight: '700'
-                            }}
-                          >
-                            Remove
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleCriterion2DownloadDoc(file.id)}
+                              style={{
+                                border: `1px solid ${colors.border}`,
+                                backgroundColor: 'white',
+                                color: colors.primary,
+                                borderRadius: '6px',
+                                padding: '6px 10px',
+                                cursor: 'pointer',
+                                fontWeight: '700'
+                              }}
+                            >
+                              Download
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCriterion2RemoveDoc(file.id)}
+                              style={{
+                                border: `1px solid ${colors.border}`,
+                                backgroundColor: 'white',
+                                color: colors.mediumGray,
+                                borderRadius: '6px',
+                                padding: '6px 10px',
+                                cursor: 'pointer',
+                                fontWeight: '700'
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -4155,6 +4231,26 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
       .catch((err) => setCriterion7DocStatus(err?.message || 'Unable to remove document.'));
   };
 
+  const handleCriterion7DownloadDoc = async (docId) => {
+    try {
+      const doc = await getCriterion1DocById(docId);
+      if (!doc?.fileBlob) {
+        setCriterion7DocStatus('Selected file is not available.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(doc.fileBlob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = doc.name || 'document';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (err) {
+      setCriterion7DocStatus(err?.message || 'Unable to download document.');
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
@@ -4592,13 +4688,22 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                       {criterion7Docs.map((file) => (
                         <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleCriterion7RemoveDoc(file.id)}
-                            style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
-                          >
-                            Remove
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleCriterion7DownloadDoc(file.id)}
+                              style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.primary, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              Download
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleCriterion7RemoveDoc(file.id)}
+                              style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -4796,6 +4901,26 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
           setCriterion8DocStatus('Document removed.');
         })
         .catch((err) => setCriterion8DocStatus(err?.message || 'Unable to remove document.'));
+    };
+
+    const handleCriterion8DownloadDoc = async (docId) => {
+      try {
+        const doc = await getCriterion1DocById(docId);
+        if (!doc?.fileBlob) {
+          setCriterion8DocStatus('Selected file is not available.');
+          return;
+        }
+        const objectUrl = URL.createObjectURL(doc.fileBlob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = doc.name || 'document';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      } catch (err) {
+        setCriterion8DocStatus(err?.message || 'Unable to download document.');
+      }
     };
 
     const saveCriterion8 = async ({ markComplete = false, silent = false } = {}) => {
@@ -5282,13 +5407,22 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                         {criterion8Docs.map((file) => (
                           <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCriterion8RemoveDoc(file.id)}
-                              style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
-                            >
-                              Remove
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                              <button
+                                type="button"
+                                onClick={() => handleCriterion8DownloadDoc(file.id)}
+                                style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.primary, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                              >
+                                Download
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCriterion8RemoveDoc(file.id)}
+                                style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
+                              >
+                                Remove
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>

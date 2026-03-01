@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Clock, Cog, Cpu, Database, Download, Eye, FileText, FlaskConical, Plus, Save, Sparkles, Trash2, Upload } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
+import AppendicesABLivePage from '../components/appendices/AppendicesABLivePage';
 import { colors, fontStack } from '../styles/theme';
-import { courses, facultyMembers } from '../data/sampleData';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
 
@@ -948,7 +948,7 @@ import { getActiveContext } from '../utils/activeContext';
 
   // Appendices Page
 
-  const AppendicesPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
+  const LegacyAppendicesPage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
   const { subtitle } = getActiveContext();
   return (
 
@@ -1161,5 +1161,7 @@ import { getActiveContext } from '../utils/activeContext';
 
   // Evidence Library Page
 
+
+const AppendicesPage = (props) => <AppendicesABLivePage {...props} />;
 
 export { AppendicesPage, AppendixCPage, AppendixDPage };

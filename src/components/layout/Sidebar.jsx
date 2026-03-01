@@ -698,6 +698,26 @@ const Sidebar = ({
     }
   };
 
+  const handleDownloadSoDocument = (docId) => {
+    try {
+      const doc = soDocuments.find((row) => row.id === docId);
+      if (!doc?.fileBlob) {
+        setSoDocStatus('Selected file is not available.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(doc.fileBlob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = doc.name || 'document';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      setSoDocStatus(error?.message || 'Unable to download document.');
+    }
+  };
+
   const handleCreateClo = async () => {
     const description = newCloDescription.trim();
     if (!description) {
@@ -841,6 +861,26 @@ const Sidebar = ({
       setCloDocStatus('Document removed.');
     } catch (error) {
       setCloDocStatus(error?.message || 'Unable to remove document.');
+    }
+  };
+
+  const handleDownloadCloDocument = (docId) => {
+    try {
+      const doc = cloDocuments.find((row) => row.id === docId);
+      if (!doc?.fileBlob) {
+        setCloDocStatus('Selected file is not available.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(doc.fileBlob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = doc.name || 'document';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      setCloDocStatus(error?.message || 'Unable to download document.');
     }
   };
 
@@ -990,6 +1030,26 @@ const Sidebar = ({
       setPeoDocStatus('Document removed.');
     } catch (error) {
       setPeoDocStatus(error?.message || 'Unable to remove document.');
+    }
+  };
+
+  const handleDownloadPeoDocument = (docId) => {
+    try {
+      const doc = peoDocuments.find((row) => row.id === docId);
+      if (!doc?.fileBlob) {
+        setPeoDocStatus('Selected file is not available.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(doc.fileBlob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = doc.name || 'document';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      setPeoDocStatus(error?.message || 'Unable to download document.');
     }
   };
 
@@ -2063,6 +2123,7 @@ const Sidebar = ({
 
             {coursesData.map((course) => {
               const courseId = Number(course.course_id || course.id);
+              const sectionCount = Array.isArray(course.sections) ? course.sections.length : 0;
               const draft = sectionDrafts[courseId] || { open: false, faculty_id: '', term: '' };
               const usedFacultyIds = new Set((course.sections || []).map((section) => Number(section.faculty_id || 0)).filter((id) => id > 0));
               const availableFacultyMembers = facultyMembers.filter((faculty) => !usedFacultyIds.has(Number(faculty.faculty_id || 0)));
@@ -2116,24 +2177,26 @@ const Sidebar = ({
 
                   {expandedCourse === courseId && (
                     <div style={{ marginTop: '8px', marginLeft: '16px', paddingLeft: '16px', borderLeft: `2px solid ${colors.border}` }}>
-                      <button
-                        type="button"
-                        disabled
-                        style={{
-                          width: '100%',
-                          padding: '8px',
-                          marginBottom: '8px',
-                          fontSize: '11px',
-                          backgroundColor: '#eceef2',
-                          color: colors.mediumGray,
-                          border: `1px solid ${colors.border}`,
-                          borderRadius: '4px',
-                          cursor: 'not-allowed',
-                          fontWeight: '700'
-                        }}
-                      >
-                        Generate Common Syllabus (Course Level)
-                      </button>
+                      {sectionCount > 1 ? (
+                        <button
+                          type="button"
+                          disabled
+                          style={{
+                            width: '100%',
+                            padding: '8px',
+                            marginBottom: '8px',
+                            fontSize: '11px',
+                            backgroundColor: '#eceef2',
+                            color: colors.mediumGray,
+                            border: `1px solid ${colors.border}`,
+                            borderRadius: '4px',
+                            cursor: 'not-allowed',
+                            fontWeight: '700'
+                          }}
+                        >
+                          Generate Common Syllabus (Course Level)
+                        </button>
+                      ) : null}
 
                       {(course.sections || []).map((section) => (
                         <div
@@ -2860,23 +2923,40 @@ const Sidebar = ({
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {file.name}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSoDocument(file.id)}
-                        style={{
-                          backgroundColor: 'white',
-                          border: `1px solid ${colors.border}`,
-                          color: colors.danger,
-                          borderRadius: '6px',
-                          padding: '4px 8px',
-                          fontSize: '12px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          flexShrink: 0
-                        }}
-                      >
-                        Remove
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadSoDocument(file.id)}
+                          style={{
+                            backgroundColor: 'white',
+                            border: `1px solid ${colors.border}`,
+                            color: colors.primary,
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSoDocument(file.id)}
+                          style={{
+                            backgroundColor: 'white',
+                            border: `1px solid ${colors.border}`,
+                            color: colors.danger,
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2962,23 +3042,40 @@ const Sidebar = ({
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {file.name}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCloDocument(file.id)}
-                        style={{
-                          backgroundColor: 'white',
-                          border: `1px solid ${colors.border}`,
-                          color: colors.danger,
-                          borderRadius: '6px',
-                          padding: '4px 8px',
-                          fontSize: '12px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          flexShrink: 0
-                        }}
-                      >
-                        Remove
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadCloDocument(file.id)}
+                          style={{
+                            backgroundColor: 'white',
+                            border: `1px solid ${colors.border}`,
+                            color: colors.primary,
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCloDocument(file.id)}
+                          style={{
+                            backgroundColor: 'white',
+                            border: `1px solid ${colors.border}`,
+                            color: colors.danger,
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -3067,23 +3164,40 @@ const Sidebar = ({
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {file.name}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePeoDocument(file.id)}
-                        style={{
-                          backgroundColor: 'white',
-                          border: `1px solid ${colors.border}`,
-                          color: colors.danger,
-                          borderRadius: '6px',
-                          padding: '4px 8px',
-                          fontSize: '12px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          flexShrink: 0
-                        }}
-                      >
-                        Remove
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadPeoDocument(file.id)}
+                          style={{
+                            backgroundColor: 'white',
+                            border: `1px solid ${colors.border}`,
+                            color: colors.primary,
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePeoDocument(file.id)}
+                          style={{
+                            backgroundColor: 'white',
+                            border: `1px solid ${colors.border}`,
+                            color: colors.danger,
+                            borderRadius: '6px',
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

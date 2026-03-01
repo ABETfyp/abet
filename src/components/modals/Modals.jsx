@@ -75,6 +75,16 @@ const deleteFacultyDocById = async (docId) => {
   });
 };
 
+const getFacultyDocById = async (docId) => {
+  const db = await openFacultyDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(FACULTY_DOCS_STORE, 'readonly');
+    const req = tx.objectStore(FACULTY_DOCS_STORE).get(docId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error('Unable to load CV document.'));
+  });
+};
+
   const SyllabusModal = ({ selectedInstructor, selectedCourse, syllabusMode, setSelectedInstructor, setSyllabusMode }) => {
 
     if (!selectedInstructor || !syllabusMode) return null;
@@ -1759,13 +1769,25 @@ const deleteFacultyDocById = async (docId) => {
       years_industry_government: '',
       years_at_institution: ''
     });
-    const [certifications, setCertifications] = useState(['']);
-    const [memberships, setMemberships] = useState(['']);
-    const [developmentActivities, setDevelopmentActivities] = useState(['']);
-    const [industryExperience, setIndustryExperience] = useState(['']);
-    const [honors, setHonors] = useState([{ title: '', year: '' }]);
-    const [services, setServices] = useState(['']);
-    const [publications, setPublications] = useState(['']);
+    const ENTRY_PREFIX = '__ABET_ENTRY__';
+    const MONTH_OPTIONS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const emptyProfileEntry = () => ({
+      title: '',
+      description: '',
+      month: '',
+      year: '',
+      from_month: '',
+      from_year: '',
+      to_month: '',
+      to_year: ''
+    });
+    const [certifications, setCertifications] = useState([emptyProfileEntry()]);
+    const [memberships, setMemberships] = useState([emptyProfileEntry()]);
+    const [developmentActivities, setDevelopmentActivities] = useState([emptyProfileEntry()]);
+    const [industryExperience, setIndustryExperience] = useState([emptyProfileEntry()]);
+    const [honors, setHonors] = useState([emptyProfileEntry()]);
+    const [services, setServices] = useState([emptyProfileEntry()]);
+    const [publications, setPublications] = useState([emptyProfileEntry()]);
     const [cvModalOpen, setCvModalOpen] = useState(false);
     const [cvFiles, setCvFiles] = useState([]);
     const [cvStatus, setCvStatus] = useState('');
@@ -1776,6 +1798,72 @@ const deleteFacultyDocById = async (docId) => {
     const [saveError, setSaveError] = useState('');
 
     const currentFacultyKey = `${resolvedProgramId || 'global'}:${profile.faculty_id || selectedFaculty?.email || 'new'}`;
+
+    const keepDigits = (value, maxDigits) => `${value ?? ''}`.replace(/\D/g, '').slice(0, maxDigits);
+    const parseProfileEntry = (rawValue) => {
+      const text = `${rawValue ?? ''}`.trim();
+      if (!text) return emptyProfileEntry();
+      if (text.startsWith(ENTRY_PREFIX)) {
+        try {
+          const parsed = JSON.parse(text.slice(ENTRY_PREFIX.length));
+          return {
+            title: `${parsed?.title ?? ''}`.trim(),
+            description: `${parsed?.description ?? ''}`.trim(),
+            month: `${parsed?.month ?? ''}`.trim(),
+            year: keepDigits(parsed?.year, 4),
+            from_month: `${parsed?.from_month ?? ''}`.trim(),
+            from_year: keepDigits(parsed?.from_year, 4),
+            to_month: `${parsed?.to_month ?? ''}`.trim(),
+            to_year: keepDigits(parsed?.to_year, 4)
+          };
+        } catch (error) {
+          // fall through to legacy parsing
+        }
+      }
+
+      const matched = text.match(/^(.*?)(?:\s*\(([^)]+)\))?$/);
+      const title = `${matched?.[1] || text}`.trim();
+      const suffix = `${matched?.[2] || ''}`.trim();
+      let month = '';
+      let year = '';
+      const suffixYear = suffix.match(/^(\d{4})$/);
+      const suffixMonthYear = suffix.match(/^([A-Za-z]+)\s+(\d{4})$/);
+      if (suffixYear) year = suffixYear[1];
+      if (suffixMonthYear) {
+        month = suffixMonthYear[1];
+        year = suffixMonthYear[2];
+      }
+      return { title, description: '', month, year, from_month: '', from_year: '', to_month: '', to_year: '' };
+    };
+    const toProfileEntryList = (rows) => {
+      const parsedRows = (Array.isArray(rows) ? rows : [])
+        .map((row) => parseProfileEntry(row))
+        .filter((row) => row.title || row.description || row.month || row.year);
+      return parsedRows.length > 0 ? parsedRows : [emptyProfileEntry()];
+    };
+    const serializeProfileEntry = (row) => {
+      const payload = {
+        title: `${row?.title ?? ''}`.trim(),
+        description: `${row?.description ?? ''}`.trim(),
+        month: `${row?.month ?? ''}`.trim(),
+        year: keepDigits(row?.year, 4),
+        from_month: `${row?.from_month ?? ''}`.trim(),
+        from_year: keepDigits(row?.from_year, 4),
+        to_month: `${row?.to_month ?? ''}`.trim(),
+        to_year: keepDigits(row?.to_year, 4)
+      };
+      if (
+        !payload.title &&
+        !payload.description &&
+        !payload.month &&
+        !payload.year &&
+        !payload.from_month &&
+        !payload.from_year &&
+        !payload.to_month &&
+        !payload.to_year
+      ) return '';
+      return `${ENTRY_PREFIX}${JSON.stringify(payload)}`;
+    };
 
     useEffect(() => {
       if (resolvedProgramId) return;
@@ -1795,31 +1883,20 @@ const deleteFacultyDocById = async (docId) => {
       apiRequest(`/faculty-members/${profile.faculty_id}/profile/?cycle_id=${cycleId}`, { method: 'GET' })
         .then((details) => {
           setQualification(details?.qualification || { degree_field: '', degree_institution: '', degree_year: '', years_industry_government: '', years_at_institution: '' });
-          setCertifications(Array.isArray(details?.certifications) && details.certifications.length ? details.certifications : ['']);
-          setMemberships(Array.isArray(details?.memberships) && details.memberships.length ? details.memberships : ['']);
-          setDevelopmentActivities(Array.isArray(details?.development_activities) && details.development_activities.length ? details.development_activities : ['']);
-          setIndustryExperience(Array.isArray(details?.industry_experience) && details.industry_experience.length ? details.industry_experience : ['']);
-          if (Array.isArray(details?.honors) && details.honors.length) {
-            setHonors(details.honors.map((value) => {
-              const text = `${value ?? ''}`.trim();
-              const matched = text.match(/^(.*?)(?:\s*\((\d{4})\))?$/);
-              return {
-                title: (matched?.[1] || text).trim(),
-                year: matched?.[2] || ''
-              };
-            }));
-          } else {
-            setHonors([{ title: '', year: '' }]);
-          }
-          setServices(Array.isArray(details?.services) && details.services.length ? details.services : ['']);
-          setPublications(Array.isArray(details?.publications) && details.publications.length ? details.publications : ['']);
+          setCertifications(toProfileEntryList(details?.certifications));
+          setMemberships(toProfileEntryList(details?.memberships));
+          setDevelopmentActivities(toProfileEntryList(details?.development_activities));
+          setIndustryExperience(toProfileEntryList(details?.industry_experience));
+          setHonors(toProfileEntryList(details?.honors));
+          setServices(toProfileEntryList(details?.services));
+          setPublications(toProfileEntryList(details?.publications));
         })
         .catch(() => {});
     }, [profile.faculty_id, cycleId]);
 
-    const updateListItem = (setter, index, value) => setter((prev) => prev.map((row, i) => (i === index ? value : row)));
-    const addListItem = (setter) => setter((prev) => [...prev, '']);
-    const removeListItem = (setter, index) => setter((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
+    const updateEntryItem = (setter, index, field, value) => setter((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+    const addEntryItem = (setter) => setter((prev) => [...prev, emptyProfileEntry()]);
+    const removeEntryItem = (setter, index) => setter((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
 
     const openCvModal = async () => {
       setCvStatus('');
@@ -1862,16 +1939,27 @@ const deleteFacultyDocById = async (docId) => {
       }
     };
 
-    const normalizedList = (rows) => rows.map((row) => `${row ?? ''}`.trim()).filter(Boolean);
-    const normalizedAwards = (rows) => rows
-      .map((row) => ({
-        title: `${row?.title ?? ''}`.trim(),
-        year: `${row?.year ?? ''}`.trim()
-      }))
-      .filter((row) => row.title !== '')
-      .map((row) => (row.year ? `${row.title} (${row.year})` : row.title));
+    const handleCvDownload = async (docId) => {
+      try {
+        const doc = await getFacultyDocById(docId);
+        if (!doc?.fileBlob) {
+          setCvStatus('Selected file is not available.');
+          return;
+        }
+        const objectUrl = URL.createObjectURL(doc.fileBlob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = doc.name || 'document';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      } catch (error) {
+        setCvStatus(error?.message || 'Unable to download document.');
+      }
+    };
 
-    const keepDigits = (value, maxDigits) => `${value ?? ''}`.replace(/\D/g, '').slice(0, maxDigits);
+    const normalizedEntryList = (rows) => rows.map((row) => serializeProfileEntry(row)).filter(Boolean);
 
     const handleSaveProfile = async () => {
       const name = `${profile.full_name ?? ''}`.trim();
@@ -1937,13 +2025,13 @@ const deleteFacultyDocById = async (docId) => {
           body: JSON.stringify({
             cycle_id: Number(cycleId),
             qualification,
-            certifications: normalizedList(certifications),
-            memberships: normalizedList(memberships),
-            development_activities: normalizedList(developmentActivities),
-            industry_experience: normalizedList(industryExperience),
-            honors: normalizedAwards(honors),
-            services: normalizedList(services),
-            publications: normalizedList(publications)
+            certifications: normalizedEntryList(certifications),
+            memberships: normalizedEntryList(memberships),
+            development_activities: normalizedEntryList(developmentActivities),
+            industry_experience: normalizedEntryList(industryExperience),
+            honors: normalizedEntryList(honors),
+            services: normalizedEntryList(services),
+            publications: normalizedEntryList(publications)
           })
         });
 
@@ -1985,35 +2073,109 @@ const deleteFacultyDocById = async (docId) => {
       }
     };
 
-    const renderSimpleList = (title, items, setter, placeholder) => (
+    const renderDetailedList = (title, items, setter, titlePlaceholder, descriptionPlaceholder, addLabel = 'Add', dateMode = 'single') => (
       <div style={{ marginBottom: '22px' }}>
         <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>{title}</label>
         {items.map((row, index) => (
-          <div key={`${title}-${index}`} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-            <input
-              type="text"
-              value={row}
-              onChange={(event) => updateListItem(setter, index, event.target.value)}
-              placeholder={placeholder}
-              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }}
+          <div key={`${title}-${index}`} style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', backgroundColor: 'white', padding: '10px', marginBottom: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px', marginBottom: '8px' }}>
+              <input
+                type="text"
+                value={row.title}
+                onChange={(event) => updateEntryItem(setter, index, 'title', event.target.value)}
+                placeholder={titlePlaceholder}
+                style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }}
+              />
+              <button type="button" onClick={() => removeEntryItem(setter, index)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '10px 12px', cursor: 'pointer' }}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+            {dateMode === 'range' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '8px' }}>
+                  <select
+                    value={row.from_month}
+                    onChange={(event) => updateEntryItem(setter, index, 'from_month', event.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: 'white' }}
+                  >
+                    {MONTH_OPTIONS.map((monthOption) => (
+                      <option key={`${title}-from-month-${monthOption || 'none'}`} value={monthOption}>
+                        {monthOption || 'From Month'}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={row.from_year}
+                    onChange={(event) => updateEntryItem(setter, index, 'from_year', keepDigits(event.target.value, 4))}
+                    placeholder="From Year"
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '8px' }}>
+                  <select
+                    value={row.to_month}
+                    onChange={(event) => updateEntryItem(setter, index, 'to_month', event.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: 'white' }}
+                  >
+                    {MONTH_OPTIONS.map((monthOption) => (
+                      <option key={`${title}-to-month-${monthOption || 'none'}`} value={monthOption}>
+                        {monthOption || 'Till Month'}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={row.to_year}
+                    onChange={(event) => updateEntryItem(setter, index, 'to_year', keepDigits(event.target.value, 4))}
+                    placeholder="Till Year"
+                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit' }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: '8px', marginBottom: '8px' }}>
+                <select
+                  value={row.month}
+                  onChange={(event) => updateEntryItem(setter, index, 'month', event.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: 'white' }}
+                >
+                  {MONTH_OPTIONS.map((monthOption) => (
+                    <option key={`${title}-month-${monthOption || 'none'}`} value={monthOption}>
+                      {monthOption || 'Month'}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={row.year}
+                  onChange={(event) => updateEntryItem(setter, index, 'year', keepDigits(event.target.value, 4))}
+                  placeholder="Year"
+                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit' }}
+                />
+              </div>
+            )}
+            <textarea
+              rows={2}
+              value={row.description}
+              onChange={(event) => updateEntryItem(setter, index, 'description', event.target.value)}
+              placeholder={descriptionPlaceholder}
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical' }}
             />
-            <button type="button" onClick={() => removeListItem(setter, index)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '10px 12px', cursor: 'pointer' }}>
-              <Trash2 size={14} />
-            </button>
           </div>
         ))}
-        <button type="button" onClick={() => addListItem(setter)} style={{ padding: '6px 12px', backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        <button type="button" onClick={() => addEntryItem(setter)} style={{ padding: '6px 12px', backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
           <Plus size={14} />
-          Add
+          {addLabel}
         </button>
       </div>
     );
-
-    const updateAward = (index, field, value) => {
-      setHonors((prev) => prev.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
-    };
-    const addAward = () => setHonors((prev) => [...prev, { title: '', year: '' }]);
-    const removeAward = (index) => setHonors((prev) => (prev.length <= 1 ? prev : prev.filter((_, rowIndex) => rowIndex !== index)));
 
     const profileTitle = useMemo(() => `${profile.full_name || 'Faculty Profile'}`, [profile.full_name]);
 
@@ -2072,42 +2234,13 @@ const deleteFacultyDocById = async (docId) => {
               </div>
             </div>
 
-            {renderSimpleList('Professional Certifications', certifications, setCertifications, 'e.g., PE License (2020)')}
-            {renderSimpleList('Professional Memberships', memberships, setMemberships, 'e.g., IEEE Senior Member')}
-            {renderSimpleList('Professional Development Activities', developmentActivities, setDevelopmentActivities, 'e.g., ABET workshop 2025')}
-            {renderSimpleList('Consulting or Work in Industry', industryExperience, setIndustryExperience, 'e.g., Technical Consultant at XYZ')}
-            <div style={{ marginBottom: '22px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>Honors and Awards</label>
-              {honors.map((row, index) => (
-                <div key={`award-${index}`} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '8px', marginBottom: '8px' }}>
-                  <input
-                    type="text"
-                    value={row.title}
-                    onChange={(event) => updateAward(index, 'title', event.target.value)}
-                    placeholder="Award title"
-                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }}
-                  />
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={row.year}
-                    onChange={(event) => updateAward(index, 'year', keepDigits(event.target.value, 4))}
-                    placeholder="Year"
-                    style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }}
-                  />
-                  <button type="button" onClick={() => removeAward(index)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '10px 12px', cursor: 'pointer' }}>
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-              <button type="button" onClick={addAward} style={{ padding: '6px 12px', backgroundColor: 'white', color: colors.primary, border: `1px dashed ${colors.primary}`, borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <Plus size={14} />
-                Add Award
-              </button>
-            </div>
-            {renderSimpleList('Service Activities', services, setServices, 'e.g., Curriculum committee member')}
-            {renderSimpleList('Publications', publications, setPublications, 'e.g., Author, Title, Venue, Year')}
+            {renderDetailedList('Professional Certifications', certifications, setCertifications, 'Certification title', 'Description of this certification', 'Add Certification')}
+            {renderDetailedList('Professional Memberships', memberships, setMemberships, 'Membership title', 'Description of role or contribution', 'Add Membership', 'range')}
+            {renderDetailedList('Professional Development Activities', developmentActivities, setDevelopmentActivities, 'Activity title', 'Description of training/workshop/seminar', 'Add Activity', 'range')}
+            {renderDetailedList('Consulting or Work in Industry', industryExperience, setIndustryExperience, 'Consulting / industry role', 'Description of the consulting/industry work', 'Add Experience', 'range')}
+            {renderDetailedList('Honors and Awards', honors, setHonors, 'Award title', 'Description of the award or recognition', 'Add Award')}
+            {renderDetailedList('Service Activities', services, setServices, 'Service activity title', 'Description of the service activity', 'Add Service')}
+            {renderDetailedList('Publications', publications, setPublications, 'Publication title', 'Description (authors, venue, details)', 'Add Publication')}
 
             {saveSuccess && (
               <div style={{ marginBottom: '12px', padding: '12px 16px', backgroundColor: '#d4edda', border: '1px solid #c3e6cb', borderRadius: '6px', color: '#155724', fontSize: '14px' }}>
@@ -2182,9 +2315,14 @@ const deleteFacultyDocById = async (docId) => {
                           <div style={{ color: colors.darkGray, fontWeight: '700', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
                           <div style={{ color: colors.mediumGray, fontSize: '12px' }}>{file.type || 'Unknown'} - {Math.max(1, Math.round((Number(file.size || 0) / 1024)))} KB</div>
                         </div>
-                        <button type="button" onClick={() => handleCvRemove(file.id)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>
-                          Remove
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button type="button" onClick={() => handleCvDownload(file.id)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.primary, borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>
+                            Download
+                          </button>
+                          <button type="button" onClick={() => handleCvRemove(file.id)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: '700', fontSize: '12px' }}>
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     ))
                   )}

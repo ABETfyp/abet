@@ -88,6 +88,16 @@ const deleteBackgroundDocById = async (docId) => {
   });
 };
 
+const getBackgroundDocById = async (docId) => {
+  const db = await openBackgroundDocsDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BG_DOCS_STORE, 'readonly');
+    const req = tx.objectStore(BG_DOCS_STORE).get(docId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error('Unable to load document.'));
+  });
+};
+
   const FullReportPage = ({ onToggleSidebar, onBack }) => {
     const { programName, cycleLabel } = getActiveContext();
 
@@ -461,6 +471,27 @@ const deleteBackgroundDocById = async (docId) => {
         });
     };
 
+    const handleDownloadDocument = async (docId) => {
+      if (!docId) return;
+      try {
+        const doc = await getBackgroundDocById(docId);
+        if (!doc?.fileBlob) {
+          setAiImportStatus('Selected file is not available.');
+          return;
+        }
+        const objectUrl = URL.createObjectURL(doc.fileBlob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = doc.name || 'document';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      } catch (error) {
+        setAiImportStatus(error?.message || 'Unable to download document.');
+      }
+    };
+
     const sectionActionButtonStyle = {
       backgroundColor: colors.primary,
       color: 'white',
@@ -717,23 +748,40 @@ const deleteBackgroundDocById = async (docId) => {
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {file.name}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveDocument(file.id)}
-                            style={{
-                              backgroundColor: 'white',
-                              border: `1px solid ${colors.border}`,
-                              color: colors.danger,
-                              borderRadius: '6px',
-                              padding: '4px 8px',
-                              fontSize: '12px',
-                              fontWeight: '700',
-                              cursor: 'pointer',
-                              flexShrink: 0
-                            }}
-                          >
-                            Remove
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadDocument(file.id)}
+                              style={{
+                                backgroundColor: 'white',
+                                border: `1px solid ${colors.border}`,
+                                color: colors.primary,
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Download
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDocument(file.id)}
+                              style={{
+                                backgroundColor: 'white',
+                                border: `1px solid ${colors.border}`,
+                                color: colors.danger,
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                fontWeight: '700',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

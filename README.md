@@ -51,3 +51,15 @@ Evaluators: View reports only
 Tracks all changes to accreditation data
 
 Ensures transparency and accountability
+
+Local DB setup (required on fresh clone)
+
+1. Create and activate your virtual environment.
+2. Install dependencies from `requirements.txt`.
+3. Run:
+
+```bash
+python manage.py setup_local_db
+```
+
+This command runs Django migrations, creates unmanaged legacy tables, and patches known missing legacy columns.

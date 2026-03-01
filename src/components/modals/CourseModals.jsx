@@ -78,6 +78,21 @@ const removeDoc = async (docId) => {
 
 const emptyAssessment = () => ({ assessment_type: '', weight_percentage: '' });
 const emptyMapping = () => ({ clo_id: '', so_id: '' });
+const emptyWeekTopic = () => ({ week: '', topic: '' });
+const emptyTextbook = () => ({ title_author_year: '', attribute: '' });
+const emptySupplement = () => ({ material_discription: '' });
+const emptyCourseCode = () => ({ course_code: '' });
+
+const toTrimmedLines = (text) => `${text || ''}`.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+const parseWeeklyTopics = (text) => {
+  const rows = toTrimmedLines(text).map((line, index) => {
+    const match = line.match(/^week\s*([0-9]+)\s*[:\-]\s*(.+)$/i);
+    if (match) return { week: match[1], topic: match[2].trim() };
+    return { week: String(index + 1), topic: line };
+  });
+  return rows.length > 0 ? rows : [emptyWeekTopic()];
+};
+const rowListOrEmpty = (rows, fallbackFactory) => (rows.length > 0 ? rows : [fallbackFactory()]);
 
 const mapPayloadToForm = (payload) => ({
   course: {
@@ -92,13 +107,28 @@ const mapPayloadToForm = (payload) => ({
   },
   syllabus: {
     catalog_description: payload?.syllabus?.catalog_description || '',
-    weekly_topics: payload?.syllabus?.weekly_topics || '',
+    weekly_topics_rows: parseWeeklyTopics(payload?.syllabus?.weekly_topics || ''),
     design_content_percentage: payload?.syllabus?.design_content_percentage ?? 0,
     software_or_labs_tools_used: payload?.syllabus?.software_or_labs_tools_used || '',
-    textbooks_text: (payload?.syllabus?.textbooks || []).map((row) => `${row.title_author_year || ''}${row.attribute ? ` | ${row.attribute}` : ''}`).join('\n'),
-    supplements_text: (payload?.syllabus?.supplements || []).map((row) => row.material_discription || '').join('\n'),
-    prerequisites_text: (payload?.syllabus?.prerequisites || []).map((row) => row.course_code || '').join(', '),
-    corequisites_text: (payload?.syllabus?.corequisites || []).map((row) => row.course_code || '').join(', '),
+    textbooks_rows: rowListOrEmpty(
+      (payload?.syllabus?.textbooks || []).map((row) => ({
+        title_author_year: row?.title_author_year || '',
+        attribute: row?.attribute || '',
+      })),
+      emptyTextbook
+    ),
+    supplements_rows: rowListOrEmpty(
+      (payload?.syllabus?.supplements || []).map((row) => ({ material_discription: row?.material_discription || '' })),
+      emptySupplement
+    ),
+    prerequisites_rows: rowListOrEmpty(
+      (payload?.syllabus?.prerequisites || []).map((row) => ({ course_code: `${row?.course_code || ''}`.toUpperCase() })),
+      emptyCourseCode
+    ),
+    corequisites_rows: rowListOrEmpty(
+      (payload?.syllabus?.corequisites || []).map((row) => ({ course_code: `${row?.course_code || ''}`.toUpperCase() })),
+      emptyCourseCode
+    ),
     assessments: (payload?.syllabus?.assessments || []).length > 0
       ? payload.syllabus.assessments.map((row) => ({ assessment_type: row.assessment_type || '', weight_percentage: row.weight_percentage ?? '' }))
       : [emptyAssessment()],
@@ -107,9 +137,6 @@ const mapPayloadToForm = (payload) => ({
       : [emptyMapping()]
   }
 });
-
-const asCodeList = (text) => text.split(/[,\n]/).map((value) => `${value}`.trim().toUpperCase()).filter(Boolean);
-const asLineList = (text) => text.split('\n').map((value) => `${value}`.trim()).filter(Boolean);
 const syllabusPath = ({ programId, courseId, syllabusId, cycleId }) => `/programs/${programId}/courses/${courseId}/sections/${syllabusId}/syllabus/?cycle_id=${cycleId}`;
 
 const FieldLabel = ({ children }) => (
@@ -187,6 +214,20 @@ const SyllabusModal = ({
   const setCourseField = (field, value) => setForm((prev) => ({ ...prev, course: { ...prev.course, [field]: value } }));
   const setSectionField = (field, value) => setForm((prev) => ({ ...prev, section: { ...prev.section, [field]: value } }));
   const setSyllabusField = (field, value) => setForm((prev) => ({ ...prev, syllabus: { ...prev.syllabus, [field]: value } }));
+  const setRowField = (field, index, key, value) => setForm((prev) => {
+    const rows = Array.isArray(prev?.syllabus?.[field]) ? [...prev.syllabus[field]] : [];
+    rows[index] = { ...rows[index], [key]: value };
+    return { ...prev, syllabus: { ...prev.syllabus, [field]: rows } };
+  });
+  const addRow = (field, factory) => setForm((prev) => {
+    const rows = Array.isArray(prev?.syllabus?.[field]) ? prev.syllabus[field] : [];
+    return { ...prev, syllabus: { ...prev.syllabus, [field]: [...rows, factory()] } };
+  });
+  const removeRow = (field, index, factory) => setForm((prev) => {
+    const rows = Array.isArray(prev?.syllabus?.[field]) ? prev.syllabus[field] : [];
+    const next = rows.length > 1 ? rows.filter((_, i) => i !== index) : [factory()];
+    return { ...prev, syllabus: { ...prev.syllabus, [field]: next } };
+  });
   const setAssessment = (index, patch) => setForm((prev) => {
     const rows = [...prev.syllabus.assessments];
     rows[index] = { ...rows[index], ...patch };
@@ -204,13 +245,27 @@ const SyllabusModal = ({
       setSaving(true);
       setError('');
       setSuccess('');
-      const textbooks = asLineList(form.syllabus.textbooks_text).map((line) => {
-        const [title, attr] = line.split('|');
-        return { title_author_year: `${title || ''}`.trim(), attribute: `${attr || ''}`.trim() };
-      }).filter((row) => row.title_author_year);
-      const supplements = asLineList(form.syllabus.supplements_text).map((line) => ({ material_discription: line }));
-      const prerequisites = asCodeList(form.syllabus.prerequisites_text).map((code) => ({ course_code: code }));
-      const corequisites = asCodeList(form.syllabus.corequisites_text).map((code) => ({ course_code: code }));
+      const weekly_topics = (Array.isArray(form.syllabus.weekly_topics_rows) ? form.syllabus.weekly_topics_rows : [])
+        .map((row, index) => {
+          const topic = `${row?.topic || ''}`.trim();
+          if (!topic) return '';
+          const weekLabel = `${row?.week || ''}`.trim() || String(index + 1);
+          return `Week ${weekLabel}: ${topic}`;
+        })
+        .filter(Boolean)
+        .join('\n');
+      const textbooks = (Array.isArray(form.syllabus.textbooks_rows) ? form.syllabus.textbooks_rows : [])
+        .map((row) => ({ title_author_year: `${row?.title_author_year || ''}`.trim(), attribute: `${row?.attribute || ''}`.trim() }))
+        .filter((row) => row.title_author_year);
+      const supplements = (Array.isArray(form.syllabus.supplements_rows) ? form.syllabus.supplements_rows : [])
+        .map((row) => ({ material_discription: `${row?.material_discription || ''}`.trim() }))
+        .filter((row) => row.material_discription);
+      const prerequisites = (Array.isArray(form.syllabus.prerequisites_rows) ? form.syllabus.prerequisites_rows : [])
+        .map((row) => ({ course_code: `${row?.course_code || ''}`.trim().toUpperCase() }))
+        .filter((row) => row.course_code);
+      const corequisites = (Array.isArray(form.syllabus.corequisites_rows) ? form.syllabus.corequisites_rows : [])
+        .map((row) => ({ course_code: `${row?.course_code || ''}`.trim().toUpperCase() }))
+        .filter((row) => row.course_code);
       const assessments = form.syllabus.assessments
         .map((row) => ({ assessment_type: `${row.assessment_type || ''}`.trim(), weight_percentage: Number(row.weight_percentage || 0) }))
         .filter((row) => row.assessment_type);
@@ -233,7 +288,7 @@ const SyllabusModal = ({
           },
           syllabus: {
             catalog_description: `${form.syllabus.catalog_description || ''}`,
-            weekly_topics: `${form.syllabus.weekly_topics || ''}`,
+            weekly_topics,
             design_content_percentage: Number(form.syllabus.design_content_percentage || 0),
             software_or_labs_tools_used: `${form.syllabus.software_or_labs_tools_used || ''}`,
             textbooks,
@@ -294,6 +349,26 @@ const SyllabusModal = ({
       setDocsStatus('Document removed.');
     } catch (e) {
       setDocsStatus(e?.message || 'Unable to remove file.');
+    }
+  };
+
+  const onDownloadFile = (docId) => {
+    try {
+      const doc = docs.find((row) => row.id === docId);
+      if (!doc?.fileBlob) {
+        setDocsStatus('Selected file is not available.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(doc.fileBlob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = doc.name || 'document';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (e) {
+      setDocsStatus(e?.message || 'Unable to download file.');
     }
   };
 
@@ -382,17 +457,32 @@ const SyllabusModal = ({
                   </div>
                   <div>
                     <FieldLabel>Weekly Topics</FieldLabel>
-                    <textarea rows={5} value={form.syllabus.weekly_topics} disabled={readOnly} onChange={(event) => setSyllabusField('weekly_topics', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                    <div style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', backgroundColor: '#f9fafb', borderBottom: `1px solid ${colors.border}`, padding: '8px 10px', fontSize: '11px', fontWeight: '700', color: colors.mediumGray, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        <span>Week</span>
+                        <span>Topic</span>
+                        <span>Action</span>
+                      </div>
+                      <div style={{ display: 'grid', gap: '8px', padding: '10px' }}>
+                        {form.syllabus.weekly_topics_rows.map((row, index) => (
+                          <div key={`weekly-topic-${index}`} style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', gap: '8px' }}>
+                            <input type="text" value={row.week} disabled={readOnly} onChange={(event) => setRowField('weekly_topics_rows', index, 'week', event.target.value)} placeholder="e.g., 1" style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                            <input type="text" value={row.topic} disabled={readOnly} onChange={(event) => setRowField('weekly_topics_rows', index, 'topic', event.target.value)} placeholder="Enter topic details" style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                            {!readOnly ? <button type="button" onClick={() => removeRow('weekly_topics_rows', index, emptyWeekTopic)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '8px', cursor: 'pointer' }}><Trash2 size={14} /></button> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {!readOnly ? (
+                      <button type="button" onClick={() => addRow('weekly_topics_rows', emptyWeekTopic)} style={{ width: 'fit-content', border: `1px dashed ${colors.primary}`, backgroundColor: 'white', color: colors.primary, borderRadius: '6px', padding: '6px 10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Plus size={14} />
+                        Add Topic Row
+                      </button>
+                    ) : null}
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px' }}>
-                    <div>
-                      <FieldLabel>Design Content %</FieldLabel>
-                      <input type="number" min="0" max="100" step="0.1" value={form.syllabus.design_content_percentage} disabled={readOnly} onChange={(event) => setSyllabusField('design_content_percentage', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
-                    </div>
-                    <div>
-                      <FieldLabel>Software / Lab Tools</FieldLabel>
-                      <input type="text" value={form.syllabus.software_or_labs_tools_used} disabled={readOnly} onChange={(event) => setSyllabusField('software_or_labs_tools_used', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
-                    </div>
+                  <div>
+                    <FieldLabel>Software / Lab Tools</FieldLabel>
+                    <input type="text" value={form.syllabus.software_or_labs_tools_used} disabled={readOnly} onChange={(event) => setSyllabusField('software_or_labs_tools_used', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
                   </div>
                 </div>
               </SectionCard>
@@ -400,21 +490,74 @@ const SyllabusModal = ({
               <SectionCard title="Materials And Requirements">
                 <div style={{ display: 'grid', gap: '12px' }}>
                   <div>
-                    <FieldLabel>Textbooks (one per line, optional "| Attribute")</FieldLabel>
-                    <textarea rows={4} value={form.syllabus.textbooks_text} disabled={readOnly} onChange={(event) => setSyllabusField('textbooks_text', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                    <FieldLabel>Textbooks</FieldLabel>
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      {form.syllabus.textbooks_rows.map((row, index) => (
+                        <div key={`textbook-${index}`} style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr auto', gap: '8px' }}>
+                          <input type="text" value={row.title_author_year} disabled={readOnly} onChange={(event) => setRowField('textbooks_rows', index, 'title_author_year', event.target.value)} placeholder="Title / Author / Year" style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                          <input type="text" value={row.attribute} disabled={readOnly} onChange={(event) => setRowField('textbooks_rows', index, 'attribute', event.target.value)} placeholder="Attribute (optional)" style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                          {!readOnly ? <button type="button" onClick={() => removeRow('textbooks_rows', index, emptyTextbook)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '8px', cursor: 'pointer' }}><Trash2 size={14} /></button> : null}
+                        </div>
+                      ))}
+                      {!readOnly ? (
+                        <button type="button" onClick={() => addRow('textbooks_rows', emptyTextbook)} style={{ width: 'fit-content', border: `1px dashed ${colors.primary}`, backgroundColor: 'white', color: colors.primary, borderRadius: '6px', padding: '6px 10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Plus size={14} />
+                          Add Textbook
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <div>
-                    <FieldLabel>Supplemental Materials (one per line)</FieldLabel>
-                    <textarea rows={3} value={form.syllabus.supplements_text} disabled={readOnly} onChange={(event) => setSyllabusField('supplements_text', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', resize: 'vertical', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                    <FieldLabel>Supplemental Materials</FieldLabel>
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                      {form.syllabus.supplements_rows.map((row, index) => (
+                        <div key={`supplement-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                          <input type="text" value={row.material_discription} disabled={readOnly} onChange={(event) => setRowField('supplements_rows', index, 'material_discription', event.target.value)} placeholder="Material description" style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                          {!readOnly ? <button type="button" onClick={() => removeRow('supplements_rows', index, emptySupplement)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '8px', cursor: 'pointer' }}><Trash2 size={14} /></button> : null}
+                        </div>
+                      ))}
+                      {!readOnly ? (
+                        <button type="button" onClick={() => addRow('supplements_rows', emptySupplement)} style={{ width: 'fit-content', border: `1px dashed ${colors.primary}`, backgroundColor: 'white', color: colors.primary, borderRadius: '6px', padding: '6px 10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Plus size={14} />
+                          Add Supplement
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
-                      <FieldLabel>Prerequisites (comma separated)</FieldLabel>
-                      <input type="text" value={form.syllabus.prerequisites_text} disabled={readOnly} onChange={(event) => setSyllabusField('prerequisites_text', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                      <FieldLabel>Prerequisites</FieldLabel>
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {form.syllabus.prerequisites_rows.map((row, index) => (
+                          <div key={`pre-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                            <input type="text" value={row.course_code} disabled={readOnly} onChange={(event) => setRowField('prerequisites_rows', index, 'course_code', event.target.value.toUpperCase())} placeholder="Course code" style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                            {!readOnly ? <button type="button" onClick={() => removeRow('prerequisites_rows', index, emptyCourseCode)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '8px', cursor: 'pointer' }}><Trash2 size={14} /></button> : null}
+                          </div>
+                        ))}
+                        {!readOnly ? (
+                          <button type="button" onClick={() => addRow('prerequisites_rows', emptyCourseCode)} style={{ width: 'fit-content', border: `1px dashed ${colors.primary}`, backgroundColor: 'white', color: colors.primary, borderRadius: '6px', padding: '6px 10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <Plus size={14} />
+                            Add Prerequisite
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                     <div>
-                      <FieldLabel>Corequisites (comma separated)</FieldLabel>
-                      <input type="text" value={form.syllabus.corequisites_text} disabled={readOnly} onChange={(event) => setSyllabusField('corequisites_text', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                      <FieldLabel>Corequisites</FieldLabel>
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {form.syllabus.corequisites_rows.map((row, index) => (
+                          <div key={`co-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                            <input type="text" value={row.course_code} disabled={readOnly} onChange={(event) => setRowField('corequisites_rows', index, 'course_code', event.target.value.toUpperCase())} placeholder="Course code" style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
+                            {!readOnly ? <button type="button" onClick={() => removeRow('corequisites_rows', index, emptyCourseCode)} style={{ border: `1px solid ${colors.border}`, backgroundColor: 'white', color: colors.mediumGray, borderRadius: '6px', padding: '8px', cursor: 'pointer' }}><Trash2 size={14} /></button> : null}
+                          </div>
+                        ))}
+                        {!readOnly ? (
+                          <button type="button" onClick={() => addRow('corequisites_rows', emptyCourseCode)} style={{ width: 'fit-content', border: `1px dashed ${colors.primary}`, backgroundColor: 'white', color: colors.primary, borderRadius: '6px', padding: '6px 10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <Plus size={14} />
+                            Add Corequisite
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -480,7 +623,10 @@ const SyllabusModal = ({
                 {docs.length === 0 ? <div style={{ fontSize: '13px', color: colors.mediumGray }}>No files selected.</div> : docs.map((file) => (
                   <div key={file.id} style={{ fontSize: '13px', color: colors.darkGray, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                    <button type="button" onClick={() => onRemoveFile(file.id)} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Remove</button>
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                      <button type="button" onClick={() => onDownloadFile(file.id)} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.primary, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Download</button>
+                      <button type="button" onClick={() => onRemoveFile(file.id)} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.danger, borderRadius: '6px', padding: '4px 8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Remove</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -517,12 +663,14 @@ const CourseSummaryModal = ({
           <button type="button" onClick={() => setSelectedCourse(null)} style={{ background: 'none', border: 'none', color: colors.mediumGray, cursor: 'pointer', padding: '6px' }}><X size={22} /></button>
         </div>
         <div style={{ padding: '22px', display: 'grid', gap: '14px' }}>
-          <SectionCard title="Common Syllabus Generation">
-            <button type="button" disabled style={{ backgroundColor: '#eceef2', color: colors.mediumGray, border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <Sparkles size={15} />
-              Generate Common Syllabus
-            </button>
-          </SectionCard>
+          {sections.length > 1 ? (
+            <SectionCard title="Common Syllabus Generation">
+              <button type="button" disabled style={{ backgroundColor: '#eceef2', color: colors.mediumGray, border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={15} />
+                Generate Common Syllabus
+              </button>
+            </SectionCard>
+          ) : null}
           <SectionCard title={`Instructor Sections (${sections.length})`}>
             {sections.length === 0 ? <div style={{ fontSize: '13px', color: colors.mediumGray }}>No sections yet. Add sections from Courses in the sidebar.</div> : (
               <div style={{ display: 'grid', gap: '10px' }}>
