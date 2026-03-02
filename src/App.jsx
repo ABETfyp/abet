@@ -7,7 +7,8 @@ import { LoginPage, RegisterPage } from './pages/AuthPages';
 import SelectionPage from './pages/SelectionPage';
 import ChecklistPage from './pages/ChecklistPage';
 import { BackgroundPage } from './pages/ReportPages';
-import { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criterion5Page, Criterion6Page, Criterion7Page, Criterion8Page } from './pages/CriterionPages';
+import { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criterion5Page, Criterion7Page, Criterion8Page } from './pages/CriterionPages';
+import Criterion6Page from './pages/Criterion6Page';
 import { AppendicesPage, AppendixCPage, AppendixDPage } from './pages/AppendixPages';
 import EvidencePage from './pages/EvidencePage';
 import Sidebar from './components/layout/Sidebar';
@@ -95,21 +96,25 @@ const AUBAccreditationSystem = () => {
   }, [location.pathname, currentPage]);
 
   useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+    const nextPage = pathToPage[location.pathname];
+    const hasSelectedCycle = Boolean(localStorage.getItem('currentCycleId'));
+
     if (firstLoadRef.current) {
       firstLoadRef.current = false;
-      const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
-      if (!isAuthPage) {
+      if (!token && !isAuthPage) {
         navigate('/login', { replace: true });
         return;
       }
     }
 
-    const token = localStorage.getItem('accessToken');
-    const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
-    const nextPage = pathToPage[location.pathname];
-    const hasSelectedCycle = Boolean(localStorage.getItem('currentCycleId'));
     if (!token && !isAuthPage) {
       navigate('/login', { replace: true });
+      return;
+    }
+    if (token && isAuthPage) {
+      navigate(hasSelectedCycle ? '/checklist' : '/selection', { replace: true });
       return;
     }
     if (token && cycleRequiredPages.has(nextPage) && !hasSelectedCycle) {

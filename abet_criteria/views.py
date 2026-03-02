@@ -46,11 +46,14 @@ from .models import (
     ServiceActivity,
     Publication,
     Criterion6Faculty,
+    FacultyQualificationRow,
+    FacultyWorkloadRow,
 )
 from .serializers import (
     Criterion1StudentsSerializer,
     Criterion2PeosSerializer,
     Criterion5CurriculumSerializer,
+    Criterion6FacultySerializer,
     AppendixCEquipmentSerializer,
     EquipmentItemSerializer,
     Criterion7FacilitiesSerializer,
@@ -624,6 +627,482 @@ def cycle_criterion5(request, cycle_id):
     payload = serializer.data
     payload['checklist_item_id'] = item.item_id
     return Response(payload)
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _criterion6_faculty_options(program_id):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            '''
+            SELECT f.Faculty_ID, COALESCE(f.Full_Name, ''), COALESCE(f.Academic_Rank, ''), COALESCE(f.Appointment_Type, '')
+            FROM FACULTY_MEMBER f
+            INNER JOIN ASSIGNED_TO a ON a.Faculty_ID = f.Faculty_ID
+            WHERE a.program_id = %s
+            ORDER BY f.Full_Name, f.Faculty_ID
+            ''',
+            [program_id]
+        )
+        rows = cursor.fetchall()
+
+    return [
+        {
+            'faculty_id': int(row[0]),
+            'full_name': row[1] or '',
+            'academic_rank': row[2] or '',
+            'appointment_type': row[3] or '',
+        }
+        for row in rows
+    ]
+
+
+def _ensure_program_faculty_assignment(program_id, faculty_id):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT 1 FROM ASSIGNED_TO WHERE program_id = %s AND Faculty_ID = %s',
+            [program_id, faculty_id]
+        )
+        if cursor.fetchone():
+            return
+        cursor.execute(
+            'INSERT INTO ASSIGNED_TO (program_id, Faculty_ID) VALUES (%s, %s)',
+            [program_id, faculty_id]
+        )
+
+
+def _resolve_or_create_criterion6_faculty(cycle, row, row_label):
+    provided_faculty_id = _safe_int(row.get('faculty_id'), 0)
+    if provided_faculty_id > 0:
+        if not FacultyMember.objects.filter(faculty_id=provided_faculty_id).exists():
+            return None, Response({'detail': f'{row_label}: faculty member not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        _ensure_program_faculty_assignment(cycle.program_id, provided_faculty_id)
+        return provided_faculty_id, None
+
+    faculty_name = f'{row.get("faculty_name", "")}'.strip()
+    if not faculty_name:
+        return None, Response(
+            {'detail': f'{row_label}: faculty name or faculty_id is required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    matched = FacultyMember.objects.filter(full_name__iexact=faculty_name).order_by('faculty_id').first()
+    if matched:
+        _ensure_program_faculty_assignment(cycle.program_id, int(matched.faculty_id))
+        return int(matched.faculty_id), None
+
+    next_faculty_id = int(FacultyMember.objects.aggregate(max_id=Max('faculty_id')).get('max_id') or 0) + 1
+    academic_rank = f'{row.get("academic_rank", "")}'.strip()
+    appointment_type = f'{row.get("academic_appointment", "")}'.strip()
+    slug = re.sub(r'[^a-z0-9]+', '', faculty_name.lower()) or 'faculty'
+    email = f'{slug}-{next_faculty_id}@criterion6.local'
+    suffix = 1
+    while FacultyMember.objects.filter(email__iexact=email).exists():
+        email = f'{slug}-{next_faculty_id}-{suffix}@criterion6.local'
+        suffix += 1
+
+    created = FacultyMember.objects.create(
+        faculty_id=next_faculty_id,
+        full_name=faculty_name,
+        academic_rank=academic_rank,
+        appointment_type=appointment_type,
+        email=email,
+        office_hours='',
+    )
+    _ensure_program_faculty_assignment(cycle.program_id, int(created.faculty_id))
+    return int(created.faculty_id), None
+
+
+def _get_or_create_criterion6(cycle):
+    item = ChecklistItem.objects.filter(
+        checklist=cycle.checklist,
+        item_name__icontains='Criterion 6'
+    ).order_by('-item_id').first()
+    if not item:
+        item = ChecklistItem.objects.create(
+            checklist=cycle.checklist,
+            item_name=CRITERION_ITEMS[6],
+            status=0,
+            completion_percentage=0,
+        )
+
+    criterion6 = Criterion6Faculty.objects.filter(cycle=cycle).order_by('-criterion6_id').first()
+    if not criterion6:
+        criterion6 = _ensure_criterion6_for_cycle(cycle.cycle_id)
+
+    if item.criterion6_id != criterion6.criterion6_id:
+        item.criterion6 = criterion6
+        item.save(update_fields=['criterion6'])
+
+    return criterion6, item
+
+
+def _criterion6_default_course_id(cycle_id):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT Course_ID FROM COURSE WHERE Cycle_ID = %s ORDER BY Course_ID LIMIT 1',
+            [cycle_id]
+        )
+        row = cursor.fetchone()
+        if row and row[0] is not None:
+            return int(row[0])
+
+        cursor.execute('SELECT Course_ID FROM COURSE ORDER BY Course_ID LIMIT 1')
+        row = cursor.fetchone()
+        if row and row[0] is not None:
+            return int(row[0])
+
+    return 0
+
+
+def _serialize_criterion6_payload(cycle, criterion6, item):
+    faculty_options = _criterion6_faculty_options(cycle.program_id)
+    faculty_name_lookup = {int(row['faculty_id']): row.get('full_name', '') for row in faculty_options}
+
+    qualification_rows = []
+    for row in (
+        FacultyQualificationRow.objects
+        .filter(criterion6_id=criterion6.criterion6_id)
+        .select_related('faculty')
+        .order_by('faculty_qualification_row_id')
+    ):
+        faculty_id = _safe_int(getattr(row, 'faculty_id', None), 0)
+        qualification_rows.append({
+            'faculty_qualification_row_id': row.faculty_qualification_row_id,
+            'faculty_id': faculty_id,
+            'faculty_name': getattr(row.faculty, 'full_name', '') if getattr(row, 'faculty_id', None) else '',
+            'highest_degree_field': row.highest_degree_field or '',
+            'highest_degree_year': row.highest_degree_year,
+            'academic_rank': row.academic_rank or '',
+            'academic_appointment': row.academic_appointment or '',
+            'full_time_or_part_time': row.full_time_or_part_time or '',
+            'years_gov_industry': row.years_gov_industry,
+            'years_teaching': row.years_teaching,
+            'years_at_institution': row.years_at_institution,
+            'professional_registration': row.professional_registration or '',
+        })
+
+    workload_rows = []
+    for row in (
+        FacultyWorkloadRow.objects
+        .filter(criterion6_id=criterion6.criterion6_id)
+        .select_related('faculty')
+        .order_by('faculty_workload_row_id')
+    ):
+        faculty_id = _safe_int(getattr(row, 'faculty_id', None), 0)
+        workload_rows.append({
+            'faculty_workload_row_id': row.faculty_workload_row_id,
+            'faculty_id': faculty_id,
+            'faculty_name': getattr(row.faculty, 'full_name', '') if getattr(row, 'faculty_id', None) else '',
+            'fill_tie_or_part_time': row.fill_tie_or_part_time or '',
+            'classes_taught_description': row.classes_taught_description or '',
+            'term': row.term or '',
+            'year': row.year,
+            'course_id': getattr(row, 'course_id', None),
+        })
+
+    pd_map = {}
+    for row in (
+        ProfessionalDevelopment.objects
+        .filter(criterion6_id=criterion6.criterion6_id)
+        .select_related('faculty')
+        .order_by('faculty_id', 'development_id')
+    ):
+        faculty_id = _safe_int(getattr(row, 'faculty_id', None), 0)
+        if faculty_id <= 0:
+            continue
+        if faculty_id not in pd_map:
+            pd_map[faculty_id] = {
+                'faculty_id': faculty_id,
+                'faculty_name': getattr(row.faculty, 'full_name', '') if getattr(row, 'faculty_id', None) else '',
+                'activities': []
+            }
+        activity_text = (row.activity_description or '').strip()
+        if activity_text:
+            pd_map[faculty_id]['activities'].append(activity_text)
+
+    for option in faculty_options:
+        option_faculty_id = int(option['faculty_id'])
+        if option_faculty_id not in pd_map:
+            pd_map[option_faculty_id] = {
+                'faculty_id': option_faculty_id,
+                'faculty_name': option.get('full_name', ''),
+                'activities': []
+            }
+        elif not pd_map[option_faculty_id].get('faculty_name'):
+            pd_map[option_faculty_id]['faculty_name'] = option.get('full_name', '')
+
+    professional_development_rows = sorted(
+        list(pd_map.values()),
+        key=lambda row: (row.get('faculty_name') or '').lower()
+    )
+
+    return {
+        'criterion6_id': criterion6.criterion6_id,
+        'faculty_composition_narrative': criterion6.faculty_composition_narrative or '',
+        'faculty_worklaod_expectations_description': criterion6.faculty_worklaod_expectations_description or '',
+        'workload_expectations_desciption': criterion6.workload_expectations_desciption or '',
+        'faculty_size_adequacy_description': criterion6.faculty_size_adequacy_description or '',
+        'advising_and_student_interaction_description': criterion6.advising_and_student_interaction_description or '',
+        'service_and_industry_engagement_description': criterion6.service_and_industry_engagement_description or '',
+        'course_creation_role_description': criterion6.course_creation_role_description or '',
+        'peo_ro_role_description': criterion6.peo_ro_role_description or '',
+        'leadership_roles_description': criterion6.leadership_roles_description or '',
+        'cycle': cycle.cycle_id,
+        'item': item.item_id if item else None,
+        'faculty_options': faculty_options,
+        'faculty_name_lookup': faculty_name_lookup,
+        'qualification_rows': qualification_rows,
+        'workload_rows': workload_rows,
+        'professional_development_rows': professional_development_rows,
+    }
+
+
+@api_view(['GET', 'PUT'])
+def cycle_criterion6(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    criterion6, item = _get_or_create_criterion6(cycle)
+
+    if request.method == 'GET':
+        return Response(_serialize_criterion6_payload(cycle, criterion6, item))
+
+    qualification_rows = request.data.get('qualification_rows', [])
+    workload_rows = request.data.get('workload_rows', [])
+    professional_development_rows = request.data.get('professional_development_rows', [])
+
+    if not isinstance(qualification_rows, list):
+        return Response({'detail': 'qualification_rows must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(workload_rows, list):
+        return Response({'detail': 'workload_rows must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(professional_development_rows, list):
+        return Response({'detail': 'professional_development_rows must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    workload_description = (
+        f'{request.data.get("workload_expectations_desciption", "")}'.strip()
+        or f'{request.data.get("faculty_worklaod_expectations_description", "")}'.strip()
+    )
+
+    scalar_payload = {
+        'faculty_composition_narrative': f'{request.data.get("faculty_composition_narrative", "")}'.strip(),
+        'faculty_worklaod_expectations_description': workload_description,
+        'workload_expectations_desciption': workload_description,
+        'faculty_size_adequacy_description': f'{request.data.get("faculty_size_adequacy_description", "")}'.strip(),
+        'advising_and_student_interaction_description': f'{request.data.get("advising_and_student_interaction_description", "")}'.strip(),
+        'service_and_industry_engagement_description': f'{request.data.get("service_and_industry_engagement_description", "")}'.strip(),
+        'course_creation_role_description': f'{request.data.get("course_creation_role_description", "")}'.strip(),
+        'peo_ro_role_description': f'{request.data.get("peo_ro_role_description", "")}'.strip(),
+        'leadership_roles_description': f'{request.data.get("leadership_roles_description", "")}'.strip(),
+        'cycle': cycle.cycle_id,
+    }
+
+    prepared_qualification_rows = []
+    for index, row in enumerate(qualification_rows, start=1):
+        if not isinstance(row, dict):
+            continue
+
+        faculty_id = _safe_int(row.get('faculty_id'), 0)
+        faculty_name = f'{row.get("faculty_name", "")}'.strip()
+        row_has_text = any(
+            f'{row.get(field, "")}'.strip()
+            for field in [
+                'faculty_name',
+                'highest_degree_field',
+                'academic_rank',
+                'academic_appointment',
+                'full_time_or_part_time',
+                'professional_registration',
+            ]
+        )
+        row_has_numeric = any(
+            f'{row.get(field, "")}'.strip()
+            for field in [
+                'highest_degree_year',
+                'years_gov_industry',
+                'years_teaching',
+                'years_at_institution',
+            ]
+        )
+        if not (faculty_id or row_has_text or row_has_numeric):
+            continue
+
+        resolved_faculty_id, faculty_error = _resolve_or_create_criterion6_faculty(
+            cycle,
+            row,
+            f'Qualification row {index}'
+        )
+        if faculty_error:
+            return faculty_error
+
+        prepared_qualification_rows.append({
+            'faculty_id': resolved_faculty_id,
+            'faculty_name': faculty_name,
+            'highest_degree_field': f'{row.get("highest_degree_field", "")}'.strip(),
+            'highest_degree_year': _safe_int(row.get('highest_degree_year'), 0),
+            'academic_rank': f'{row.get("academic_rank", "")}'.strip(),
+            'academic_appointment': f'{row.get("academic_appointment", "")}'.strip(),
+            'full_time_or_part_time': f'{row.get("full_time_or_part_time", "")}'.strip(),
+            'years_gov_industry': _safe_int(row.get('years_gov_industry'), 0),
+            'years_teaching': _safe_int(row.get('years_teaching'), 0),
+            'years_at_institution': _safe_int(row.get('years_at_institution'), 0),
+            'professional_registration': f'{row.get("professional_registration", "")}'.strip(),
+        })
+
+    default_course_id = _criterion6_default_course_id(cycle.cycle_id)
+    prepared_workload_rows = []
+    for index, row in enumerate(workload_rows, start=1):
+        if not isinstance(row, dict):
+            continue
+
+        faculty_id = _safe_int(row.get('faculty_id'), 0)
+        faculty_name = f'{row.get("faculty_name", "")}'.strip()
+        row_has_text = any(
+            f'{row.get(field, "")}'.strip()
+            for field in ['faculty_name', 'fill_tie_or_part_time', 'classes_taught_description', 'term']
+        )
+        row_has_year = f'{row.get("year", "")}'.strip() != ''
+        if not (faculty_id or row_has_text or row_has_year):
+            continue
+
+        if faculty_id <= 0:
+            resolved_faculty_id, faculty_error = _resolve_or_create_criterion6_faculty(
+                cycle,
+                row,
+                f'Workload row {index}'
+            )
+            if faculty_error:
+                return faculty_error
+            faculty_id = resolved_faculty_id
+        elif not FacultyMember.objects.filter(faculty_id=faculty_id).exists():
+            return Response({'detail': f'Workload row {index}: faculty member not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        course_id = _safe_int(row.get('course_id'), default_course_id)
+        if course_id <= 0:
+            course_id = default_course_id
+        if course_id <= 0:
+            return Response(
+                {'detail': f'Workload row {index}: no course is available. Add at least one course before saving workload rows.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        resolved_year = _safe_int(row.get('year'), 0)
+        if resolved_year <= 0:
+            resolved_year = int(cycle.end_year or cycle.start_year or timezone.now().year)
+
+        prepared_workload_rows.append({
+            'faculty_id': faculty_id,
+            'fill_tie_or_part_time': f'{row.get("fill_tie_or_part_time", "")}'.strip(),
+            'classes_taught_description': f'{row.get("classes_taught_description", "")}'.strip(),
+            'term': f'{row.get("term", "")}'.strip(),
+            'year': resolved_year,
+            'course_id': course_id,
+        })
+
+    prepared_pd_rows = []
+    for row in professional_development_rows:
+        if not isinstance(row, dict):
+            continue
+        faculty_id = _safe_int(row.get('faculty_id'), 0)
+        if faculty_id <= 0:
+            continue
+        if not FacultyMember.objects.filter(faculty_id=faculty_id).exists():
+            return Response({'detail': f'Professional development: faculty {faculty_id} not found.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        activities_payload = row.get('activities')
+        if isinstance(activities_payload, list):
+            activities = [f'{value}'.strip() for value in activities_payload if f'{value}'.strip()]
+        else:
+            activities_text = f'{row.get("activities_text", "")}'.strip()
+            if not activities_text:
+                activities_text = f'{row.get("activity_description", "")}'.strip()
+            activities = [
+                line.strip('- ').strip()
+                for line in activities_text.splitlines()
+                if line.strip('- ').strip()
+            ]
+
+        for activity in activities:
+            prepared_pd_rows.append({
+                'faculty_id': faculty_id,
+                'activity_description': activity
+            })
+
+    with transaction.atomic():
+        serializer = Criterion6FacultySerializer(criterion6, data=scalar_payload, partial=True)
+        serializer.is_valid(raise_exception=True)
+        saved_criterion6 = serializer.save(cycle=cycle)
+
+        if item and item.criterion6_id != saved_criterion6.criterion6_id:
+            item.criterion6 = saved_criterion6
+            item.save(update_fields=['criterion6'])
+
+        FacultyQualificationRow.objects.filter(criterion6_id=saved_criterion6.criterion6_id).delete()
+        next_q_id = (FacultyQualificationRow.objects.aggregate(max_id=Max('faculty_qualification_row_id')).get('max_id') or 0) + 1
+        qualification_objects = []
+        for row in prepared_qualification_rows:
+            qualification_objects.append(
+                FacultyQualificationRow(
+                    faculty_qualification_row_id=next_q_id,
+                    highest_degree_field=row['highest_degree_field'],
+                    highest_degree_year=row['highest_degree_year'],
+                    academic_rank=row['academic_rank'],
+                    academic_appointment=row['academic_appointment'],
+                    full_time_or_part_time=row['full_time_or_part_time'],
+                    years_gov_industry=row['years_gov_industry'],
+                    years_teaching=row['years_teaching'],
+                    years_at_institution=row['years_at_institution'],
+                    professional_registration=row['professional_registration'],
+                    criterion6_id=saved_criterion6.criterion6_id,
+                    faculty_id=row['faculty_id'],
+                )
+            )
+            next_q_id += 1
+        if qualification_objects:
+            FacultyQualificationRow.objects.bulk_create(qualification_objects)
+
+        FacultyWorkloadRow.objects.filter(criterion6_id=saved_criterion6.criterion6_id).delete()
+        next_w_id = (FacultyWorkloadRow.objects.aggregate(max_id=Max('faculty_workload_row_id')).get('max_id') or 0) + 1
+        workload_objects = []
+        for row in prepared_workload_rows:
+            workload_objects.append(
+                FacultyWorkloadRow(
+                    faculty_workload_row_id=next_w_id,
+                    fill_tie_or_part_time=row['fill_tie_or_part_time'],
+                    classes_taught_description=row['classes_taught_description'],
+                    term=row['term'],
+                    year=row['year'],
+                    criterion6_id=saved_criterion6.criterion6_id,
+                    faculty_id=row['faculty_id'],
+                    course_id=row['course_id'],
+                )
+            )
+            next_w_id += 1
+        if workload_objects:
+            FacultyWorkloadRow.objects.bulk_create(workload_objects)
+
+        ProfessionalDevelopment.objects.filter(criterion6_id=saved_criterion6.criterion6_id).delete()
+        next_pd_id = (ProfessionalDevelopment.objects.aggregate(max_id=Max('development_id')).get('max_id') or 0) + 1
+        pd_objects = []
+        for row in prepared_pd_rows:
+            pd_objects.append(
+                ProfessionalDevelopment(
+                    development_id=next_pd_id,
+                    activity_description=row['activity_description'],
+                    faculty_id=row['faculty_id'],
+                    criterion6_id=saved_criterion6.criterion6_id,
+                )
+            )
+            next_pd_id += 1
+        if pd_objects:
+            ProfessionalDevelopment.objects.bulk_create(pd_objects)
+
+    return Response(_serialize_criterion6_payload(cycle, saved_criterion6, item))
 
 
 def _get_or_create_appendixc(cycle):

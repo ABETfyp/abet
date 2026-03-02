@@ -3,6 +3,10 @@ from .models import (
     Criterion1Students,
     Criterion2Peos,
     Criterion5Curriculum,
+    Criterion6Faculty,
+    FacultyQualificationRow,
+    FacultyWorkloadRow,
+    ProfessionalDevelopment,
     AppendixCEquipment,
     EquipmentItem,
     Criterion7Facilities,
@@ -64,6 +68,41 @@ class Criterion5CurriculumSerializer(serializers.ModelSerializer):
             'curricular_paths': {'required': False, 'allow_blank': True},
             'table_5_1_rows': {'required': False},
             'design_project_rows': {'required': False},
+        }
+
+
+class FacultyQualificationRowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FacultyQualificationRow
+        fields = '__all__'
+
+
+class FacultyWorkloadRowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FacultyWorkloadRow
+        fields = '__all__'
+
+
+class ProfessionalDevelopmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProfessionalDevelopment
+        fields = '__all__'
+
+
+class Criterion6FacultySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Criterion6Faculty
+        fields = '__all__'
+        extra_kwargs = {
+            'faculty_composition_narrative': {'required': False, 'allow_blank': True},
+            'faculty_worklaod_expectations_description': {'required': False, 'allow_blank': True},
+            'workload_expectations_desciption': {'required': False, 'allow_blank': True},
+            'faculty_size_adequacy_description': {'required': False, 'allow_blank': True},
+            'advising_and_student_interaction_description': {'required': False, 'allow_blank': True},
+            'service_and_industry_engagement_description': {'required': False, 'allow_blank': True},
+            'course_creation_role_description': {'required': False, 'allow_blank': True},
+            'peo_ro_role_description': {'required': False, 'allow_blank': True},
+            'leadership_roles_description': {'required': False, 'allow_blank': True},
         }
 
 
