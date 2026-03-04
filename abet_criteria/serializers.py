@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Criterion1Students,
     Criterion2Peos,
+    BackgroundInfo,
     Criterion5Curriculum,
     Criterion6Faculty,
     FacultyQualificationRow,
@@ -68,6 +69,22 @@ class Criterion5CurriculumSerializer(serializers.ModelSerializer):
             'curricular_paths': {'required': False, 'allow_blank': True},
             'table_5_1_rows': {'required': False},
             'design_project_rows': {'required': False},
+        }
+
+
+class BackgroundInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BackgroundInfo
+        fields = '__all__'
+        extra_kwargs = {
+            'program_contact_name': {'required': False, 'allow_blank': True},
+            'contact_title': {'required': False, 'allow_blank': True},
+            'office_location': {'required': False, 'allow_blank': True},
+            'phone_number': {'required': False, 'allow_blank': True},
+            'email_address': {'required': False, 'allow_blank': True},
+            'year_implemented': {'required': False},
+            'last_general_review_date': {'required': False},
+            'summary_of_major_changes': {'required': False, 'allow_blank': True},
         }
 
 

@@ -131,12 +131,12 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar }) => {
       }
     });
 
-    const completedCount = Array.from(targetCriteria).filter((criterionNumber) => {
+    const totalPercentage = Array.from(targetCriteria).reduce((sum, criterionNumber) => {
       const completionValue = bestByCriterion.get(criterionNumber) ?? 0;
-      return completionValue >= 100;
-    }).length;
+      return sum + completionValue;
+    }, 0);
 
-    return Math.round((completedCount / targetCriteria.size) * 100);
+    return Math.round(totalPercentage / targetCriteria.size);
   };
 
   if (!cycleId) {
