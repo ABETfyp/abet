@@ -432,7 +432,6 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
               <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Document faculty credentials, workload, size, professional development, and governance responsibilities.</p>
             </div>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ backgroundColor: colors.lightGray, border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '10px 12px', fontSize: '12px', fontWeight: '800', color: isComplete ? '#1e7e34' : colors.mediumGray }}>{isComplete ? 'Complete' : 'In Progress'}</div>
               <button type="button" onClick={() => saveCriterion6()} disabled={saving} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', borderRadius: '8px', padding: '10px 14px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}><Save size={15} />{saving ? 'Saving...' : 'Save Draft'}</button>
             </div>
           </div>
