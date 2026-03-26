@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight } from 'lucide-react';
+import GlobalHeader from '../components/layout/GlobalHeader';
 import { apiRequest } from '../utils/api';
 import { colors } from '../styles/theme';
 import { getActiveContext } from '../utils/activeContext';
@@ -10,7 +11,7 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar }) => {
   const [error, setError] = useState(null);
   
   const cycleId = localStorage.getItem('currentCycleId');
-  const { programName, cycleLabel } = getActiveContext();
+  const { programName, cycleLabel, subtitle } = getActiveContext();
 
   useEffect(() => {
     if (!cycleId) return;
@@ -214,12 +215,19 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar }) => {
       backgroundColor: '#f5f5f5',
       fontFamily: 'inherit'
     }}>
+      <GlobalHeader
+        title="ABET Criteria Checklist"
+        subtitle={subtitle}
+        showBackButton={true}
+        onToggleSidebar={onToggleSidebar}
+        onBack={() => setCurrentPage('selection')}
+      />
       {/* HEADER - Burgundy bar */}
       <div style={{
         backgroundColor: '#8b1538',
         color: 'white',
         padding: '16px 32px',
-        display: 'flex',
+        display: 'none',
         alignItems: 'center',
         gap: '16px',
         boxShadow: '0 1px 3px rgba(0,0,0,0.1)'

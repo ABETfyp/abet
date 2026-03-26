@@ -9,11 +9,13 @@ from django.utils import timezone
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from datetime import datetime
+import json
 import re
 import jwt
 from datetime import timedelta
 from .models import (
     Criterion1Students,
+    Criterion4,
     Criterion5Curriculum,
     BackgroundInfo,
     AppendixCEquipment,
@@ -739,6 +741,230 @@ def cycle_criterion2(request, cycle_id):
     serializer.is_valid(raise_exception=True)
     serializer.save()
     return Response(serializer.data)
+
+
+def _get_or_create_criterion4(cycle):
+    item = ChecklistItem.objects.filter(
+        checklist=cycle.checklist,
+        item_name__icontains='Criterion 4'
+    ).order_by('-item_id').first()
+    if not item:
+        item = ChecklistItem.objects.create(
+            checklist=cycle.checklist,
+            item_name=CRITERION_ITEMS[4],
+            status=0,
+            completion_percentage=0,
+        )
+
+    criterion4 = Criterion4.objects.filter(cycle=cycle).order_by('-criterion4_id').first()
+    if not criterion4:
+        next_criterion4_id = (Criterion4.objects.aggregate(max_id=Max('criterion4_id')).get('max_id') or 0) + 1
+        criterion4 = Criterion4.objects.create(
+            criterion4_id=next_criterion4_id,
+            assessment_processes_description='',
+            assessment_frequency_description='',
+            documentation_storage_description='',
+            ci_process_description='',
+            recent_changes_description='',
+            future_improvement_plans_description='',
+            assessment_instruments_available='',
+            meeting_minutes_available='',
+            advisory_board_recommendations_available='',
+            disaggregated_data_available='',
+            onsite_review_notes='',
+            cycle=cycle,
+            item=item,
+        )
+
+    if criterion4.item_id != item.item_id:
+        criterion4.item = item
+        criterion4.save(update_fields=['item'])
+
+    return criterion4, item
+
+
+def _parse_criterion4_state(raw_value):
+    text = f'{raw_value or ""}'.strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _criterion4_course_rows(program_id, cycle_id):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            '''
+            SELECT Course_ID, Course_Code, Credits, Contact_Hours, Course_Type
+            FROM COURSE
+            WHERE Cycle_ID = %s
+            ORDER BY Course_Code, Course_ID
+            ''',
+            [cycle_id]
+        )
+        rows = cursor.fetchall()
+
+    return [_serialize_course_row(row) for row in rows]
+
+
+def _resolve_criterion4_program_id(cycle, request):
+    raw_program_id = request.query_params.get('program_id') or request.data.get('program_id')
+    if raw_program_id not in (None, ''):
+        try:
+            parsed_program_id = int(raw_program_id)
+        except (TypeError, ValueError):
+            return None, Response({'detail': 'program_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not Program.objects.filter(program_id=parsed_program_id).exists():
+            return None, Response({'detail': 'Program not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return parsed_program_id, None
+    return cycle.program_id, None
+
+
+def _default_criterion4_state(cycle, program_id):
+    so_rows = [_serialize_so(row) for row in _program_so_rows(program_id)]
+    course_rows = _criterion4_course_rows(cycle.program_id, cycle.cycle_id)
+    sos = [
+        {
+            'id': row.get('display_code') or row.get('so_code') or f'SO{index + 1}',
+            'so_id': row.get('so_id'),
+            'label': row.get('so_discription') or '',
+            'narrative': '',
+        }
+        for index, row in enumerate(so_rows)
+    ]
+    courses = [
+        {
+            'id': row.get('id'),
+            'course_id': row.get('course_id'),
+            'code': row.get('code') or '',
+            'name': row.get('name') or '',
+        }
+        for row in course_rows
+    ]
+    return {
+        'programNarrative': '',
+        'recordsMaintenance': '',
+        'programNarrativeStatus': 'not_started',
+        'recordsMaintenanceStatus': 'not_started',
+        'sos': sos,
+        'courses': courses,
+        'pis': [],
+        'results': [],
+        'mapping': {},
+        'loops': [],
+        'meetings': [],
+        'instruments': [],
+        'instrumentOptions': [],
+        'frequencyOptions': [],
+    }
+
+
+def _serialize_criterion4_payload(cycle, criterion4, item, program_id):
+    payload = _default_criterion4_state(cycle, program_id)
+    stored_state = _parse_criterion4_state(criterion4.assessment_processes_description)
+    if stored_state:
+        saved_sos = stored_state.get('sos') if isinstance(stored_state.get('sos'), list) else []
+        saved_sos_by_id = {
+            f'{row.get("id") or ""}': row
+            for row in saved_sos
+            if isinstance(row, dict)
+        }
+        payload['sos'] = [
+            {
+                **so,
+                'narrative': f'{saved_sos_by_id.get(f"{so.get('id')}", {}).get("narrative", so.get("narrative", ""))}',
+            }
+            for so in payload['sos']
+        ]
+        payload.update({
+            'programNarrative': stored_state.get('programNarrative') if isinstance(stored_state.get('programNarrative'), str) else payload['programNarrative'],
+            'recordsMaintenance': stored_state.get('recordsMaintenance') if isinstance(stored_state.get('recordsMaintenance'), str) else payload['recordsMaintenance'],
+            'programNarrativeStatus': stored_state.get('programNarrativeStatus') if isinstance(stored_state.get('programNarrativeStatus'), str) else payload['programNarrativeStatus'],
+            'recordsMaintenanceStatus': stored_state.get('recordsMaintenanceStatus') if isinstance(stored_state.get('recordsMaintenanceStatus'), str) else payload['recordsMaintenanceStatus'],
+            'pis': stored_state.get('pis') if isinstance(stored_state.get('pis'), list) else payload['pis'],
+            'results': stored_state.get('results') if isinstance(stored_state.get('results'), list) else payload['results'],
+            'mapping': stored_state.get('mapping') if isinstance(stored_state.get('mapping'), dict) else payload['mapping'],
+            'loops': stored_state.get('loops') if isinstance(stored_state.get('loops'), list) else payload['loops'],
+            'meetings': stored_state.get('meetings') if isinstance(stored_state.get('meetings'), list) else payload['meetings'],
+            'instruments': stored_state.get('instruments') if isinstance(stored_state.get('instruments'), list) else payload['instruments'],
+            'instrumentOptions': stored_state.get('instrumentOptions') if isinstance(stored_state.get('instrumentOptions'), list) else payload['instrumentOptions'],
+            'frequencyOptions': stored_state.get('frequencyOptions') if isinstance(stored_state.get('frequencyOptions'), list) else payload['frequencyOptions'],
+        })
+    payload.update({
+        'criterion4_id': criterion4.criterion4_id,
+        'item': item.item_id,
+        'cycle': cycle.cycle_id,
+    })
+    return payload
+
+
+@api_view(['GET', 'PUT'])
+def cycle_criterion4(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    program_id, program_error = _resolve_criterion4_program_id(cycle, request)
+    if program_error:
+        return program_error
+
+    criterion4, item = _get_or_create_criterion4(cycle)
+
+    if request.method == 'GET':
+        return Response(_serialize_criterion4_payload(cycle, criterion4, item, program_id))
+
+    payload = {
+        'programNarrative': request.data.get('programNarrative', ''),
+        'recordsMaintenance': request.data.get('recordsMaintenance', ''),
+        'programNarrativeStatus': request.data.get('programNarrativeStatus', 'not_started'),
+        'recordsMaintenanceStatus': request.data.get('recordsMaintenanceStatus', 'not_started'),
+        'sos': request.data.get('sos', []),
+        'courses': request.data.get('courses', []),
+        'pis': request.data.get('pis', []),
+        'results': request.data.get('results', []),
+        'mapping': request.data.get('mapping', {}),
+        'loops': request.data.get('loops', []),
+        'meetings': request.data.get('meetings', []),
+        'instruments': request.data.get('instruments', []),
+        'instrumentOptions': request.data.get('instrumentOptions', []),
+        'frequencyOptions': request.data.get('frequencyOptions', []),
+    }
+
+    if not isinstance(payload['programNarrative'], str):
+        return Response({'detail': 'programNarrative must be a string.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(payload['recordsMaintenance'], str):
+        return Response({'detail': 'recordsMaintenance must be a string.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(payload['programNarrativeStatus'], str):
+        return Response({'detail': 'programNarrativeStatus must be a string.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(payload['recordsMaintenanceStatus'], str):
+        return Response({'detail': 'recordsMaintenanceStatus must be a string.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    list_fields = ['sos', 'courses', 'pis', 'results', 'loops', 'meetings', 'instruments', 'instrumentOptions', 'frequencyOptions']
+    for field in list_fields:
+        if not isinstance(payload[field], list):
+            return Response({'detail': f'{field} must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(payload['mapping'], dict):
+        return Response({'detail': 'mapping must be an object.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    criterion4.assessment_processes_description = json.dumps(payload)
+    criterion4.assessment_frequency_description = ''
+    criterion4.documentation_storage_description = ''
+    criterion4.ci_process_description = ''
+    criterion4.recent_changes_description = ''
+    criterion4.future_improvement_plans_description = ''
+    criterion4.assessment_instruments_available = ''
+    criterion4.meeting_minutes_available = ''
+    criterion4.advisory_board_recommendations_available = ''
+    criterion4.disaggregated_data_available = ''
+    criterion4.onsite_review_notes = ''
+    criterion4.cycle = cycle
+    criterion4.item = item
+    criterion4.save()
+
+    return Response(_serialize_criterion4_payload(cycle, criterion4, item, program_id))
 
 
 def _get_or_create_criterion5(cycle):

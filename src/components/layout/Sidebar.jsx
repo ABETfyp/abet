@@ -12,6 +12,18 @@ const CLO_DOCS_STORE = 'documents';
 const PEO_DOCS_DB_NAME = 'abet-peo-documents';
 const PEO_DOCS_STORE = 'documents';
 
+const soTitleMap = {
+  SO1: 'Problem Solving',
+  SO2: 'Engineering Design',
+  SO3: 'Communication',
+  SO4: 'Ethics & Responsibility',
+  SO5: 'Teamwork',
+  SO6: 'Experimentation & Data Analysis',
+  SO7: 'Lifelong Learning',
+};
+
+const getSoShortTitle = (row) => soTitleMap[row?.display_code || row?.so_code] || '';
+
 const openSoDocsDb = () => new Promise((resolve, reject) => {
   const request = window.indexedDB.open(SO_DOCS_DB_NAME, 1);
   request.onupgradeneeded = () => {
@@ -263,10 +275,6 @@ const Sidebar = ({
   const [studentOutcomes, setStudentOutcomes] = useState([]);
   const [soLoading, setSoLoading] = useState(false);
   const [soError, setSoError] = useState('');
-  const [newSoDescription, setNewSoDescription] = useState('');
-  const [editingSoId, setEditingSoId] = useState(null);
-  const [editingSoDescription, setEditingSoDescription] = useState('');
-  const [deleteSoConfirm, setDeleteSoConfirm] = useState({ open: false, soId: null, label: '' });
   const [soSearchTerm, setSoSearchTerm] = useState('');
   const [soDocsModalOpen, setSoDocsModalOpen] = useState(false);
   const [soDocuments, setSoDocuments] = useState([]);
@@ -547,86 +555,6 @@ const Sidebar = ({
       email: '',
       office_hours: ''
     });
-  };
-
-  const handleCreateSo = async () => {
-    const description = newSoDescription.trim();
-    if (!description) {
-      setSoError('SO description cannot be blank.');
-      return;
-    }
-    try {
-      setSoLoading(true);
-      setSoError('');
-      const resolvedProgramId = programId ? Number(programId) : await resolveProgramId();
-      if (!resolvedProgramId) {
-        setSoError('No program selected');
-        return;
-      }
-      const created = await apiRequest(`/programs/${resolvedProgramId}/student-outcomes/`, {
-        method: 'POST',
-        body: JSON.stringify({ so_discription: description })
-      });
-      setStudentOutcomes((prev) => [...prev, created]);
-      window.dispatchEvent(new CustomEvent('so-peo-updated'));
-      setNewSoDescription('');
-    } catch (error) {
-      setSoError(error?.message || 'Unable to create SO.');
-    } finally {
-      setSoLoading(false);
-    }
-  };
-
-  const handleSaveSoEdit = async () => {
-    const description = editingSoDescription.trim();
-    if (!editingSoId) return;
-    if (!description) {
-      setSoError('SO description cannot be blank.');
-      return;
-    }
-    try {
-      setSoLoading(true);
-      setSoError('');
-      const resolvedProgramId = programId ? Number(programId) : await resolveProgramId();
-      if (!resolvedProgramId) {
-        setSoError('No program selected');
-        return;
-      }
-      const updated = await apiRequest(`/programs/${resolvedProgramId}/student-outcomes/${editingSoId}/`, {
-        method: 'PUT',
-        body: JSON.stringify({ so_discription: description })
-      });
-      setStudentOutcomes((prev) => prev.map((row) => (Number(row.so_id) === Number(editingSoId) ? updated : row)));
-      window.dispatchEvent(new CustomEvent('so-peo-updated'));
-      setEditingSoId(null);
-      setEditingSoDescription('');
-    } catch (error) {
-      setSoError(error?.message || 'Unable to update SO.');
-    } finally {
-      setSoLoading(false);
-    }
-  };
-
-  const handleDeleteSo = async () => {
-    try {
-      const soId = deleteSoConfirm.soId;
-      if (!soId) return;
-      setSoLoading(true);
-      setSoError('');
-      const resolvedProgramId = programId ? Number(programId) : await resolveProgramId();
-      if (!resolvedProgramId) {
-        setSoError('No program selected');
-        return;
-      }
-      await apiRequest(`/programs/${resolvedProgramId}/student-outcomes/${soId}/`, { method: 'DELETE' });
-      setStudentOutcomes((prev) => prev.filter((row) => Number(row.so_id) !== Number(soId)));
-      window.dispatchEvent(new CustomEvent('so-peo-updated'));
-      setDeleteSoConfirm({ open: false, soId: null, label: '' });
-    } catch (error) {
-      setSoError(error?.message || 'Unable to delete SO.');
-    } finally {
-      setSoLoading(false);
-    }
   };
 
   const openSoDocsModal = async () => {
@@ -1331,31 +1259,6 @@ const Sidebar = ({
             <div style={{ fontSize: '12px', color: colors.mediumGray, marginBottom: '8px' }}>{soSubtitle}</div>
             <div style={{ border: `1px solid ${colors.border}`, borderRadius: '10px', backgroundColor: 'white', padding: '12px', marginBottom: '12px' }}>
               <div style={{ display: 'grid', gap: '8px' }}>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'stretch' }}>
-                  <button
-                    type="button"
-                    onClick={openSoDocsModal}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      backgroundColor: colors.primary,
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: '700',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    <Upload size={13} />
-                    Upload Documents
-                  </button>
-                </div>
                 <div style={{ position: 'relative' }}>
                   <Search size={14} color={colors.mediumGray} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
                   <input
@@ -1373,47 +1276,6 @@ const Sidebar = ({
                     }}
                   />
                 </div>
-                <div style={{ display: 'grid', gap: '8px' }}>
-                  <textarea
-                    value={newSoDescription}
-                    onChange={(event) => setNewSoDescription(event.target.value)}
-                    placeholder="Write a student outcome description, then click Add SO."
-                    rows={3}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: '6px',
-                      fontSize: '13px',
-                      fontFamily: 'inherit',
-                      resize: 'vertical'
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCreateSo}
-                    disabled={!newSoDescription.trim()}
-                    style={{
-                      width: '100%',
-                      padding: '8px',
-                      backgroundColor: 'white',
-                      color: colors.primary,
-                      border: `2px dashed ${colors.primary}`,
-                      borderRadius: '6px',
-                      cursor: !newSoDescription.trim() ? 'not-allowed' : 'pointer',
-                      fontSize: '12px',
-                      fontWeight: '700',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      opacity: !newSoDescription.trim() ? 0.6 : 1
-                    }}
-                  >
-                    <Plus size={14} />
-                    Add SO
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -1426,7 +1288,6 @@ const Sidebar = ({
             <div style={{ maxHeight: '360px', overflowY: 'auto', paddingRight: '2px' }}>
               {filteredStudentOutcomes.map((soRow) => {
               const rowId = Number(soRow.so_id);
-              const isEditing = Number(editingSoId) === rowId;
               return (
                 <div
                   key={rowId}
@@ -1441,113 +1302,12 @@ const Sidebar = ({
                   <div style={{ fontSize: '12px', fontWeight: '800', color: colors.primary, marginBottom: '6px' }}>
                     {soRow.display_code || soRow.so_code}
                   </div>
-                  {isEditing ? (
-                    <div style={{ display: 'grid', gap: '8px' }}>
-                      <textarea
-                        value={editingSoDescription}
-                        onChange={(event) => setEditingSoDescription(event.target.value)}
-                        rows={3}
-                        style={{
-                          width: '100%',
-                          padding: '8px 10px',
-                          border: `1px solid ${colors.border}`,
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          fontFamily: 'inherit',
-                          resize: 'vertical'
-                        }}
-                      />
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={handleSaveSoEdit}
-                          disabled={!editingSoDescription.trim()}
-                          style={{
-                            flex: 1,
-                            padding: '6px',
-                            backgroundColor: colors.primary,
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: !editingSoDescription.trim() ? 'not-allowed' : 'pointer',
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            opacity: !editingSoDescription.trim() ? 0.6 : 1
-                          }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingSoId(null);
-                            setEditingSoDescription('');
-                          }}
-                          style={{
-                            flex: 1,
-                            padding: '6px',
-                            backgroundColor: 'white',
-                            color: colors.mediumGray,
-                            border: `1px solid ${colors.border}`,
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            fontWeight: '700'
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
+                  {getSoShortTitle(soRow) ? (
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: colors.darkGray, marginBottom: '6px' }}>
+                      {getSoShortTitle(soRow)}
                     </div>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: '12px', color: colors.darkGray, marginBottom: '8px' }}>{soRow.so_discription}</div>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingSoId(rowId);
-                            setEditingSoDescription(soRow.so_discription || '');
-                          }}
-                          style={{
-                            flex: 1,
-                            padding: '6px',
-                            backgroundColor: 'white',
-                            color: colors.primary,
-                            border: `1px solid ${colors.primary}`,
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            fontWeight: '700'
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeleteSoConfirm({ open: true, soId: rowId, label: soRow.display_code || soRow.so_code })}
-                          style={{
-                            flex: 1,
-                            padding: '6px',
-                            backgroundColor: 'white',
-                            color: '#b42318',
-                            border: '1px solid #ef9a9a',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <Trash2 size={12} />
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
+                  ) : null}
+                  <div style={{ fontSize: '12px', color: colors.darkGray, lineHeight: 1.5 }}>{soRow.so_discription}</div>
                 </div>
               );
             })}
@@ -2524,73 +2284,6 @@ const Sidebar = ({
         </button>
       </div>
     </div>
-
-    {deleteSoConfirm.open && (
-      <div
-        onClick={() => setDeleteSoConfirm({ open: false, soId: null, label: '' })}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(20, 25, 35, 0.52)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-          zIndex: 1800
-        }}
-      >
-        <div
-          onClick={(event) => event.stopPropagation()}
-          style={{
-            width: '100%',
-            maxWidth: '420px',
-            borderRadius: '12px',
-            backgroundColor: 'white',
-            boxShadow: '0 24px 60px rgba(0,0,0,0.3)',
-            padding: '20px'
-          }}
-        >
-          <div style={{ fontSize: '18px', fontWeight: '800', color: colors.darkGray, marginBottom: '8px' }}>
-            Delete {deleteSoConfirm.label}?
-          </div>
-          <div style={{ fontSize: '14px', color: colors.mediumGray, marginBottom: '18px' }}>
-            This action cannot be undone.
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button
-              type="button"
-              onClick={() => setDeleteSoConfirm({ open: false, soId: null, label: '' })}
-              style={{
-                backgroundColor: 'white',
-                border: `1px solid ${colors.border}`,
-                color: colors.mediumGray,
-                borderRadius: '8px',
-                padding: '10px 14px',
-                fontWeight: '700',
-                cursor: 'pointer'
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleDeleteSo}
-              style={{
-                backgroundColor: '#b42318',
-                border: 'none',
-                color: 'white',
-                borderRadius: '8px',
-                padding: '10px 14px',
-                fontWeight: '700',
-                cursor: 'pointer'
-              }}
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
 
     {deleteCloConfirm.open && (
       <div

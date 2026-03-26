@@ -5,6 +5,7 @@ import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
 import EvidenceLibraryImport from '../components/shared/EvidenceLibraryImport';
+import Criterion4PageImpl from './Criterion4Page';
 import Criterion5PageImpl from './Criterion5Page';
 
 const C1_DOCS_DB_NAME = 'abet-criterion1-documents';
@@ -2097,7 +2098,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
 
   // Criterion 4 Page
 
-  const Criterion4Page = ({ onToggleSidebar, onBack }) => (
+  const LegacyCriterion4Page = ({ onToggleSidebar, onBack }) => (
 
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
 
@@ -2504,6 +2505,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   );
 
 
+
+  const Criterion4Page = (props) => <Criterion4PageImpl {...props} />;
 
   const PageTitleCard = ({ title, subtitle }) => (
 
