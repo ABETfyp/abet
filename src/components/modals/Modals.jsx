@@ -1749,6 +1749,30 @@ const getFacultyDocById = async (docId) => {
     );
 
   };  // Faculty Profile Modal
+  const FACULTY_RANK_OPTIONS = [
+    { value: 'Professor', label: 'Professor' },
+    { value: 'ASC', label: 'ASC - Associate Prof' },
+    { value: 'AST', label: 'AST - Assistant Prof' },
+    { value: 'I', label: 'I - Instructor' },
+    { value: 'A', label: 'A - Adjunct' },
+    { value: 'O', label: 'O - Other' },
+  ];
+  const FACULTY_APPOINTMENT_OPTIONS = [
+    { value: 'TT', label: 'TT - Tenure-Track' },
+    { value: 'T', label: 'T - Tenured' },
+    { value: 'OA', label: 'OA - Other Academic Appointment' },
+  ];
+  const normalizeFacultyAppointmentValue = (value) => {
+    const text = `${value ?? ''}`.trim();
+    const upper = text.toUpperCase();
+    const lower = text.toLowerCase();
+    if (!text) return '';
+    if (upper === 'TT' || lower.includes('tenure-track') || lower.includes('tenure track')) return 'TT';
+    if (upper === 'T' || lower.includes('tenured')) return 'T';
+    if (upper === 'OA' || lower.includes('other academic') || lower === 'other') return 'OA';
+    return text;
+  };
+
   const FacultyProfileModal = ({ selectedFaculty, setSelectedFaculty }) => {
     if (!selectedFaculty) return null;
 
@@ -1758,7 +1782,7 @@ const getFacultyDocById = async (docId) => {
       faculty_id: selectedFaculty?.faculty_id ?? null,
       full_name: selectedFaculty?.full_name ?? selectedFaculty?.name ?? '',
       academic_rank: selectedFaculty?.academic_rank ?? selectedFaculty?.rank ?? '',
-      appointment_type: selectedFaculty?.appointment_type ?? '',
+      appointment_type: normalizeFacultyAppointmentValue(selectedFaculty?.appointment_type ?? ''),
       email: selectedFaculty?.email ?? '',
       office_hours: selectedFaculty?.office_hours ?? ''
     });
@@ -2215,8 +2239,18 @@ const getFacultyDocById = async (docId) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                 <input type="text" value={profile.full_name} onChange={(event) => setProfile((prev) => ({ ...prev, full_name: event.target.value }))} placeholder="Full name" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
                 <input type="email" value={profile.email} onChange={(event) => setProfile((prev) => ({ ...prev, email: event.target.value }))} placeholder="Email" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-                <input type="text" value={profile.academic_rank} onChange={(event) => setProfile((prev) => ({ ...prev, academic_rank: event.target.value }))} placeholder="Academic rank" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
-                <input type="text" value={profile.appointment_type} onChange={(event) => setProfile((prev) => ({ ...prev, appointment_type: event.target.value }))} placeholder="Appointment type" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
+                <select value={profile.academic_rank} onChange={(event) => setProfile((prev) => ({ ...prev, academic_rank: event.target.value }))} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit', backgroundColor: 'white' }}>
+                  <option value="">Select rank</option>
+                  {FACULTY_RANK_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <select value={profile.appointment_type} onChange={(event) => setProfile((prev) => ({ ...prev, appointment_type: event.target.value }))} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit', backgroundColor: 'white' }}>
+                  <option value="">Select appointment type</option>
+                  {FACULTY_APPOINTMENT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
                 <input type="text" value={profile.office_hours} onChange={(event) => setProfile((prev) => ({ ...prev, office_hours: event.target.value }))} placeholder="Office hours" style={{ gridColumn: '1 / -1', width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '14px', fontFamily: 'inherit' }} />
               </div>
             </div>

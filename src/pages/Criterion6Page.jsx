@@ -24,6 +24,11 @@ const RANK_OPTIONS = [
   { value: 'A', label: 'A - Adjunct' },
   { value: 'O', label: 'O - Other' },
 ];
+const APPOINTMENT_OPTIONS = [
+  { value: 'TT', label: 'TT - Tenure-Track' },
+  { value: 'T', label: 'T - Tenured' },
+  { value: 'OA', label: 'OA - Other Academic Appointment' },
+];
 
 const FT_PT_OPTIONS = ['FT', 'PT'];
 const ROW_BATCH_SIZE = 5;
@@ -36,7 +41,12 @@ const toInt = (value, fallback = 0) => {
 const splitActivities = (text) => (
   `${text ?? ''}`
     .split(/\r?\n/)
-    .map((line) => line.trim().replace(/^-+\s*/, ''))
+    .flatMap((line) => {
+      const normalizedLine = line.trim().replace(/^-+\s*/, '');
+      if (!normalizedLine) return [];
+      const extractedTitles = extractProfileEntryTitles(normalizedLine);
+      return extractedTitles.length > 0 ? extractedTitles : [normalizedLine];
+    })
     .filter(Boolean)
 );
 const calculateCompletion = (payload, { qualificationRows = [], workloadRows = [], pdRows = [] }) => {
@@ -101,6 +111,244 @@ const pdRow = (seed = {}) => ({
   faculty_name: seed.faculty_name ?? '',
   activities_text: seed.activities_text ?? '',
 });
+
+const PROFILE_ENTRY_PREFIX = '__ABET_ENTRY__';
+
+const extractProfileEntryTitles = (value) => {
+  const text = `${value ?? ''}`.trim();
+  if (!text) return [];
+
+  const prefixedMatches = [...text.matchAll(/__ABET_ENTRY__\{.*?\}(?=,\s*__ABET_ENTRY__|$)/g)].map((match) => match[0]);
+  if (prefixedMatches.length > 0) {
+    return prefixedMatches.map((entry) => {
+      try {
+        const parsed = JSON.parse(entry.slice(PROFILE_ENTRY_PREFIX.length));
+        return `${parsed?.title ?? ''}`.trim();
+      } catch (_error) {
+        return '';
+      }
+    }).filter(Boolean);
+  }
+
+  if (text.startsWith(PROFILE_ENTRY_PREFIX)) {
+    try {
+      const parsed = JSON.parse(text.slice(PROFILE_ENTRY_PREFIX.length));
+      const title = `${parsed?.title ?? ''}`.trim();
+      return title ? [title] : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  return text
+    .split(/\r?\n|,\s*/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const normalizeRegistrationText = (value) => {
+  const titles = extractProfileEntryTitles(value);
+  return titles.join(', ');
+};
+
+const normalizeRankValue = (value) => {
+  const text = `${value ?? ''}`.trim();
+  const lower = text.toLowerCase();
+  if (!text) return '';
+  if (text === 'ASC' || lower.includes('associate')) return 'ASC';
+  if (text === 'AST' || lower.includes('assistant')) return 'AST';
+  if (text === 'A' || lower.includes('adjunct')) return 'A';
+  if (text === 'I' || lower.includes('instructor')) return 'I';
+  if (lower.includes('professor')) return 'Professor';
+  if (text === 'O') return 'O';
+  return text;
+};
+
+const normalizeAppointmentValue = (value) => {
+  const text = `${value ?? ''}`.trim();
+  const upper = text.toUpperCase();
+  const lower = text.toLowerCase();
+  if (!text) return '';
+  if (upper === 'TT' || lower.includes('tenure-track') || lower.includes('tenure track')) return 'TT';
+  if (upper === 'T' || lower === 'tenured' || lower.includes('tenured')) return 'T';
+  if (upper === 'OA' || lower.includes('other academic') || lower === 'other') return 'OA';
+  return text;
+};
+
+const inferFtPtValue = (appointmentType, existingValue = '') => {
+  const current = `${existingValue ?? ''}`.trim().toUpperCase();
+  if (current === 'FT' || current === 'PT') return current;
+  const text = `${appointmentType ?? ''}`.trim().toLowerCase();
+  if (!text) return '';
+  if (text === 'tt' || text === 't') return 'FT';
+  if (text.includes('adjunct') || text.includes('part-time') || text.includes('part time')) return 'PT';
+  if (text.includes('full-time') || text.includes('full time') || text.includes('tenure') || text.includes('track')) return 'FT';
+  return '';
+};
+
+const extractYearFromTerm = (term, fallbackYear) => {
+  const match = `${term ?? ''}`.match(/(19|20)\d{2}/);
+  if (match) return match[0];
+  return `${fallbackYear ?? ''}`.trim();
+};
+
+const buildCourseLabel = (course) => {
+  const code = `${course?.code ?? ''}`.trim();
+  const name = `${course?.name ?? ''}`.trim();
+  const credits = Number(course?.credits || 0);
+  const base = [code, name && name !== code ? name : ''].filter(Boolean).join(' - ');
+  return credits > 0 ? `${base || code} (${credits} cr)` : (base || code);
+};
+
+const mergeQualificationRows = (existingRows = [], facultyOptions = [], facultyProfiles = {}) => {
+  const existingByFacultyId = new Map(
+    existingRows
+      .filter((row) => Number(row?.faculty_id || 0) > 0)
+      .map((row) => [Number(row.faculty_id), row])
+  );
+  const sidebarFacultyIds = new Set((facultyOptions || []).map((option) => Number(option?.faculty_id || 0)).filter((value) => value > 0));
+
+  const syncedRows = (facultyOptions || []).map((option) => {
+    const facultyId = Number(option?.faculty_id || 0);
+    const existing = existingByFacultyId.get(facultyId) || {};
+    const profile = facultyProfiles?.[facultyId] || {};
+    const qualification = profile?.qualification || {};
+    const certifications = Array.isArray(profile?.certifications) ? profile.certifications.filter(Boolean) : [];
+    return qualificationRow({
+      ...existing,
+      faculty_id: facultyId,
+      faculty_name: option?.full_name || existing?.faculty_name || '',
+      highest_degree_field: `${existing?.highest_degree_field ?? ''}`.trim() || `${qualification?.degree_field ?? ''}`.trim(),
+      highest_degree_year: `${existing?.highest_degree_year ?? ''}`.trim() || `${qualification?.degree_year ?? ''}`.trim(),
+      academic_rank: normalizeRankValue(existing?.academic_rank || option?.academic_rank || ''),
+      academic_appointment: normalizeAppointmentValue(`${existing?.academic_appointment ?? ''}`.trim() || `${option?.appointment_type ?? ''}`.trim()),
+      full_time_or_part_time: inferFtPtValue(option?.appointment_type, existing?.full_time_or_part_time),
+      years_gov_industry: `${existing?.years_gov_industry ?? ''}`.trim() || `${qualification?.years_industry_government ?? ''}`.trim(),
+      years_teaching: `${existing?.years_teaching ?? ''}`.trim(),
+      years_at_institution: `${existing?.years_at_institution ?? ''}`.trim() || `${qualification?.years_at_institution ?? ''}`.trim(),
+      professional_registration: normalizeRegistrationText(`${existing?.professional_registration ?? ''}`.trim()) || certifications.flatMap((item) => extractProfileEntryTitles(item)).join(', '),
+    });
+  });
+
+  const manualRows = (existingRows || [])
+    .filter((row) => {
+      const facultyId = Number(row?.faculty_id || 0);
+      return facultyId <= 0 || !sidebarFacultyIds.has(facultyId);
+    })
+    .map((row) => qualificationRow(row));
+
+  const mergedRows = [...syncedRows, ...manualRows];
+  return mergedRows.length > 0 ? mergedRows : [qualificationRow()];
+};
+
+const mergeWorkloadRows = (existingRows = [], qualificationRows = [], courses = [], fallbackYear = '') => {
+  const qualificationByFacultyId = new Map(
+    (qualificationRows || [])
+      .filter((row) => Number(row?.faculty_id || 0) > 0)
+      .map((row) => [Number(row.faculty_id), row])
+  );
+  const existingByKey = new Map();
+  (existingRows || []).forEach((row) => {
+    const facultyId = Number(row?.faculty_id || 0);
+    const courseId = Number(row?.course_id || 0);
+    const term = `${row?.term ?? ''}`.trim();
+    if (facultyId > 0 && courseId > 0) {
+      existingByKey.set(`${facultyId}::${courseId}::${term}`, row);
+    }
+  });
+
+  const syncedKeys = new Set();
+  const syncedRows = [];
+  (courses || []).forEach((course) => {
+    const courseId = Number(course?.course_id || course?.id || 0);
+    const courseLabel = buildCourseLabel(course);
+    (Array.isArray(course?.sections) ? course.sections : []).forEach((section) => {
+      const facultyId = Number(section?.faculty_id || 0);
+      if (facultyId <= 0) return;
+      const term = `${section?.term ?? ''}`.trim();
+      const key = `${facultyId}::${courseId}::${term}`;
+      syncedKeys.add(key);
+      const existing = existingByKey.get(key) || {};
+      const qualification = qualificationByFacultyId.get(facultyId) || {};
+      syncedRows.push(workloadRow({
+        ...existing,
+        faculty_id: facultyId,
+        faculty_name: section?.faculty_name || qualification?.faculty_name || existing?.faculty_name || '',
+        fill_tie_or_part_time: `${existing?.fill_tie_or_part_time ?? ''}`.trim() || `${qualification?.full_time_or_part_time ?? ''}`.trim(),
+        classes_taught_description: `${existing?.classes_taught_description ?? ''}`.trim() || courseLabel,
+        term: term || `${existing?.term ?? ''}`.trim(),
+        year: `${existing?.year ?? ''}`.trim() || extractYearFromTerm(term, fallbackYear),
+        course_id: courseId,
+      }));
+    });
+  });
+
+  const manualRows = (existingRows || [])
+    .filter((row) => {
+      const facultyId = Number(row?.faculty_id || 0);
+      const courseId = Number(row?.course_id || 0);
+      const term = `${row?.term ?? ''}`.trim();
+      if (facultyId > 0 && courseId > 0) {
+        return !syncedKeys.has(`${facultyId}::${courseId}::${term}`);
+      }
+      return true;
+    })
+    .map((row) => workloadRow(row));
+
+  const mergedRows = [...syncedRows, ...manualRows];
+  return mergedRows.length > 0 ? mergedRows : [workloadRow()];
+};
+
+const groupWorkloadRowsForDisplay = (rows = []) => {
+  const grouped = [];
+  const groupedIndexByFaculty = new Map();
+
+  (rows || []).forEach((row) => {
+    const facultyId = Number(row?.faculty_id || 0);
+    const facultyName = `${row?.faculty_name ?? ''}`.trim();
+    const isSynced = facultyId > 0 && Number(row?.course_id || 0) > 0;
+    const groupKey = isSynced ? `faculty:${facultyId || facultyName}` : `row:${row?.local_id || row?.faculty_workload_row_id || id('c6wg')}`;
+
+    if (!isSynced || !groupedIndexByFaculty.has(groupKey)) {
+      const line = `${row?.classes_taught_description ?? ''}`.trim();
+      groupedIndexByFaculty.set(groupKey, grouped.length);
+      grouped.push({
+        key: groupKey,
+        row,
+        isGroupedSynced: isSynced,
+        displayClasses: line,
+        displayTerm: `${row?.term ?? ''}`.trim(),
+        displayYear: `${row?.year ?? ''}`.trim(),
+      });
+      return;
+    }
+
+    const target = grouped[groupedIndexByFaculty.get(groupKey)];
+    const line = [
+      `${row?.classes_taught_description ?? ''}`.trim(),
+      `${row?.term ?? ''}`.trim(),
+      `${row?.year ?? ''}`.trim(),
+    ].filter(Boolean).join(' - ');
+    const currentLines = target.displayClasses ? target.displayClasses.split('\n').map((value) => value.trim()).filter(Boolean) : [];
+    if (line && !currentLines.includes(line)) {
+      target.displayClasses = [...currentLines, line].join('\n');
+    }
+    const termValue = `${row?.term ?? ''}`.trim();
+    const yearValue = `${row?.year ?? ''}`.trim();
+    if (termValue && target.displayTerm && target.displayTerm !== termValue) {
+      target.displayTerm = 'Multiple';
+    } else if (termValue && !target.displayTerm) {
+      target.displayTerm = termValue;
+    }
+    if (yearValue && target.displayYear && target.displayYear !== yearValue) {
+      target.displayYear = 'Multiple';
+    } else if (yearValue && !target.displayYear) {
+      target.displayYear = yearValue;
+    }
+  });
+
+  return grouped;
+};
 
 const syncWorkloadRowsWithQualifications = (qualificationRows, existingWorkloadRows = []) => {
   if (!Array.isArray(qualificationRows) || qualificationRows.length === 0) {
@@ -168,6 +416,7 @@ const AddRowButton = ({ label, onClick, disabled = false }) => {
 
 const Criterion6Page = ({ onToggleSidebar, onBack }) => {
   const cycleId = localStorage.getItem('currentCycleId') || 1;
+  const programId = localStorage.getItem('currentProgramId') || 1;
   const [data, setData] = useState({
     criterion6_id: null,
     faculty_composition_narrative: '',
@@ -182,6 +431,8 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
     item: null,
   });
   const [facultyOptions, setFacultyOptions] = useState([]);
+  const [sidebarCourses, setSidebarCourses] = useState([]);
+  const [facultyProfiles, setFacultyProfiles] = useState({});
   const [qualificationRows, setQualificationRows] = useState([qualificationRow()]);
   const [workloadRows, setWorkloadRows] = useState([workloadRow()]);
   const [pdRows, setPdRows] = useState([pdRow()]);
@@ -194,9 +445,20 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
   const [isComplete, setIsComplete] = useState(false);
 
   const findFaculty = (facultyId) => facultyOptions.find((option) => Number(option?.faculty_id) === Number(facultyId));
+  const isSidebarFacultyRow = (facultyId) => facultyOptions.some((option) => Number(option?.faculty_id || 0) === Number(facultyId || 0));
+  const isSyncedWorkloadRow = (row) => Number(row?.faculty_id || 0) > 0 && Number(row?.course_id || 0) > 0;
+  const currentAcademicYear = (() => {
+    const cycleLabel = `${localStorage.getItem('currentCycleLabel') || ''}`;
+    const match = cycleLabel.match(/(19|20)\d{2}/);
+    return match ? match[0] : `${new Date().getFullYear()}`;
+  })();
 
-  const hydrate = (payload) => {
-    const options = Array.isArray(payload?.faculty_options) ? payload.faculty_options : [];
+  const hydrate = (payload, sourceFacultyOptions = null, sourceCourses = null, sourceProfiles = null) => {
+    const options = Array.isArray(sourceFacultyOptions)
+      ? sourceFacultyOptions
+      : (Array.isArray(payload?.faculty_options) ? payload.faculty_options : []);
+    const courses = Array.isArray(sourceCourses) ? sourceCourses : sidebarCourses;
+    const profiles = sourceProfiles && typeof sourceProfiles === 'object' ? sourceProfiles : facultyProfiles;
     setFacultyOptions(options);
     setData({
       criterion6_id: payload?.criterion6_id ?? null,
@@ -224,10 +486,13 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
               }))
             : [qualificationRow()])
     );
-    setQualificationRows(resolvedQRows);
-    setWorkloadRows(syncWorkloadRowsWithQualifications(
-      resolvedQRows,
-      incomingW.map((row) => workloadRow(row))
+    const mergedQualificationRows = mergeQualificationRows(resolvedQRows, options, profiles);
+    setQualificationRows(mergedQualificationRows);
+    setWorkloadRows(mergeWorkloadRows(
+      incomingW.map((row) => workloadRow(row)),
+      mergedQualificationRows,
+      courses,
+      currentAcademicYear,
     ));
     setVisibleQualificationRows(ROW_BATCH_SIZE);
     setVisibleWorkloadRows(ROW_BATCH_SIZE);
@@ -237,10 +502,16 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
     incomingPd.forEach((row) => {
       const facultyId = toInt(row?.faculty_id, 0);
       if (facultyId <= 0) return;
+      const decodedActivities = Array.isArray(row?.activities)
+        ? row.activities.flatMap((value) => {
+            const titles = extractProfileEntryTitles(value);
+            return titles.length > 0 ? titles : [`${value ?? ''}`.trim()].filter(Boolean);
+          })
+        : [];
       incomingByFaculty.set(facultyId, pdRow({
         faculty_id: facultyId,
         faculty_name: row?.faculty_name ?? '',
-        activities_text: Array.isArray(row?.activities) ? row.activities.join('\n') : '',
+        activities_text: decodedActivities.join('\n'),
       }));
     });
     const mergedPd = options.map((option) => {
@@ -253,11 +524,49 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
       setPdRows(incomingPd.map((row) => pdRow({
         faculty_id: row?.faculty_id ?? '',
         faculty_name: row?.faculty_name ?? '',
-        activities_text: Array.isArray(row?.activities) ? row.activities.join('\n') : '',
+        activities_text: (Array.isArray(row?.activities) ? row.activities : [])
+          .flatMap((value) => {
+            const titles = extractProfileEntryTitles(value);
+            return titles.length > 0 ? titles : [`${value ?? ''}`.trim()].filter(Boolean);
+          })
+          .join('\n'),
       })));
     } else {
       setPdRows([pdRow()]);
     }
+  };
+
+  const loadSidebarContext = async () => {
+    const resolvedProgramId = Number(programId || 0);
+    if (!resolvedProgramId) {
+      return { facultyRows: [], courseRows: [], profileMap: {} };
+    }
+
+    const [facultyRows, courseRows] = await Promise.all([
+      apiRequest(`/programs/${resolvedProgramId}/faculty-members/`, { method: 'GET' }),
+      apiRequest(`/programs/${resolvedProgramId}/courses/?cycle_id=${cycleId}`, { method: 'GET' }),
+    ]);
+
+    const normalizedFacultyRows = Array.isArray(facultyRows) ? facultyRows : [];
+    const normalizedCourseRows = Array.isArray(courseRows) ? courseRows : [];
+    const profileEntries = await Promise.all(
+      normalizedFacultyRows.map(async (faculty) => {
+        const facultyId = Number(faculty?.faculty_id || 0);
+        if (facultyId <= 0) return [facultyId, null];
+        try {
+          const profile = await apiRequest(`/faculty-members/${facultyId}/profile/?cycle_id=${cycleId}`, { method: 'GET' });
+          return [facultyId, profile];
+        } catch (_error) {
+          return [facultyId, null];
+        }
+      })
+    );
+
+    return {
+      facultyRows: normalizedFacultyRows,
+      courseRows: normalizedCourseRows,
+      profileMap: Object.fromEntries(profileEntries.filter(([facultyId]) => facultyId > 0)),
+    };
   };
 
   useEffect(() => {
@@ -265,9 +574,14 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
     const load = async () => {
       setLoading(true);
       try {
-        const payload = await apiRequest(`/cycles/${cycleId}/criterion6/`, { method: 'GET' });
+        const [payload, sidebarContext] = await Promise.all([
+          apiRequest(`/cycles/${cycleId}/criterion6/`, { method: 'GET' }),
+          loadSidebarContext(),
+        ]);
         if (!mounted) return;
-        hydrate(payload);
+        setSidebarCourses(sidebarContext.courseRows);
+        setFacultyProfiles(sidebarContext.profileMap);
+        hydrate(payload, sidebarContext.facultyRows, sidebarContext.courseRows, sidebarContext.profileMap);
         if (payload?.item) {
           const checklistItem = await apiRequest(`/checklist-items/${payload.item}/`, { method: 'GET' });
           if (!mounted) return;
@@ -280,19 +594,24 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
       }
     };
     load();
-    return () => { mounted = false; };
-  }, [cycleId]);
+    const handleSidebarDataUpdated = () => {
+      load();
+    };
+    window.addEventListener('faculty-updated', handleSidebarDataUpdated);
+    window.addEventListener('courses-updated', handleSidebarDataUpdated);
+    return () => {
+      mounted = false;
+      window.removeEventListener('faculty-updated', handleSidebarDataUpdated);
+      window.removeEventListener('courses-updated', handleSidebarDataUpdated);
+    };
+  }, [cycleId, programId]);
 
   const updateSection = (field) => (event) => setData((prev) => ({ ...prev, [field]: event.target.value }));
   const updateQualification = (index, field) => (event) => {
     const nextValue = event.target.value;
-    setQualificationRows((prev) => {
-      const nextQualificationRows = prev.map((row, rowIndex) => (
-        rowIndex === index ? { ...row, [field]: nextValue } : row
-      ));
-      setWorkloadRows((prevWorkloadRows) => syncWorkloadRowsWithQualifications(nextQualificationRows, prevWorkloadRows));
-      return nextQualificationRows;
-    });
+    setQualificationRows((prev) => prev.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, [field]: nextValue } : row
+    )));
   };
   const updateWorkload = (index, field) => (event) => setWorkloadRows((prev) => prev.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: event.target.value } : row)));
   const updatePd = (index, field) => (event) => {
@@ -308,26 +627,17 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
   };
 
   const addSyncedFacultyRow = () => {
-    setQualificationRows((prevQualificationRows) => {
-      const nextQualificationRows = [...prevQualificationRows, qualificationRow()];
-      setWorkloadRows((prevWorkloadRows) => syncWorkloadRowsWithQualifications(nextQualificationRows, prevWorkloadRows));
-      return nextQualificationRows;
-    });
+    setQualificationRows((prevQualificationRows) => [...prevQualificationRows, qualificationRow()]);
   };
 
-  const removeQualificationRow = (localId) => {
-    setQualificationRows((prevQualificationRows) => {
-      if (prevQualificationRows.length <= 1) return prevQualificationRows;
-      const removedIndex = prevQualificationRows.findIndex((row) => row.local_id === localId);
-      if (removedIndex < 0) return prevQualificationRows;
+  const addWorkloadRow = () => setWorkloadRows((prev) => [...prev, workloadRow()]);
 
-      const nextQualificationRows = prevQualificationRows.filter((row) => row.local_id !== localId);
-      setWorkloadRows((prevWorkloadRows) => {
-        const trimmedWorkloadRows = prevWorkloadRows.filter((_, index) => index !== removedIndex);
-        return syncWorkloadRowsWithQualifications(nextQualificationRows, trimmedWorkloadRows);
-      });
-      return nextQualificationRows;
-    });
+  const removeQualificationRow = (localId) => {
+    setQualificationRows((prevQualificationRows) => (
+      prevQualificationRows.length <= 1
+        ? prevQualificationRows
+        : prevQualificationRows.filter((row) => row.local_id !== localId)
+    ));
   };
 
   const saveCriterion6 = async ({ markComplete = false } = {}) => {
@@ -388,7 +698,7 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
       };
 
       const result = await apiRequest(`/cycles/${cycleId}/criterion6/`, { method: 'PUT', body: JSON.stringify(payload) });
-      hydrate(result);
+      hydrate(result, facultyOptions, sidebarCourses, facultyProfiles);
 
       const completion = markComplete ? 100 : calculateCompletion(payload, { qualificationRows: normalizedQ, workloadRows: normalizedW, pdRows: normalizedPd });
       const resolvedItemId = result?.item ?? checklistItemId;
@@ -417,9 +727,10 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
   }
 
   const displayedQualificationRows = qualificationRows.slice(0, visibleQualificationRows);
-  const displayedWorkloadRows = workloadRows.slice(0, visibleWorkloadRows);
+  const groupedWorkloadRows = groupWorkloadRowsForDisplay(workloadRows);
+  const displayedWorkloadRows = groupedWorkloadRows.slice(0, visibleWorkloadRows);
   const canViewMoreQualifications = qualificationRows.length > displayedQualificationRows.length;
-  const canViewMoreWorkload = workloadRows.length > displayedWorkloadRows.length;
+  const canViewMoreWorkload = groupedWorkloadRows.length > displayedWorkloadRows.length;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: colors.lightGray, fontFamily: fontStack }}>
@@ -440,10 +751,13 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
         </div>
 
         <div style={box}>
-          <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>A. Faculty Qualifications</h3>
+          <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>A Faculty Qualifications</h3>
           <p style={{ color: colors.mediumGray, margin: '6px 0 12px 0', fontSize: '14px' }}>Describe faculty credentials and coverage of curricular areas. Complete Table 6-1 below and include resumes in Appendix B.</p>
-          <div style={{ fontSize: '12px', color: colors.mediumGray, marginBottom: '8px' }}>
+          <div style={{ fontSize: '12px', color: colors.mediumGray, marginBottom: '6px' }}>
             Rank codes: Professor, ASC (Associate Professor), AST (Assistant Professor), I (Instructor), A (Adjunct), O (Other).
+          </div>
+          <div style={{ fontSize: '12px', color: colors.mediumGray, marginBottom: '8px' }}>
+            Appointment codes: TT = Tenure-Track, T = Tenured, OA = Other Academic Appointment.
           </div>
           <textarea value={data.faculty_composition_narrative} onChange={updateSection('faculty_composition_narrative')} placeholder="Narrative on faculty composition, size, credentials, and experience adequacy for the curriculum and program criteria." style={{ ...textAreaStyle, minHeight: '130px' }} />
           <div style={{ marginTop: '12px', overflowX: 'auto' }}>
@@ -473,8 +787,9 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
                       <input
                         value={row.faculty_name}
                         onChange={updateQualification(index, 'faculty_name')}
-                        placeholder="e.g., Dr. Lina Saab"
-                        style={inputStyle}
+                        readOnly={isSidebarFacultyRow(row.faculty_id)}
+                        placeholder={isSidebarFacultyRow(row.faculty_id) ? 'Synced from Faculty sidebar' : 'e.g., Dr. Lina Saab'}
+                        style={{ ...inputStyle, backgroundColor: isSidebarFacultyRow(row.faculty_id) ? '#f9fafb' : 'white' }}
                       />
                     </td>
                     <td style={{ border: `1px solid ${colors.border}`, padding: '8px', minWidth: '190px' }}>
@@ -489,7 +804,12 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
                         {RANK_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </td>
-                    <td style={{ border: `1px solid ${colors.border}`, padding: '8px' }}><input value={row.academic_appointment} onChange={updateQualification(index, 'academic_appointment')} placeholder="e.g., TT / T / OA" style={inputStyle} /></td>
+                    <td style={{ border: `1px solid ${colors.border}`, padding: '8px' }}>
+                      <select value={row.academic_appointment} onChange={updateQualification(index, 'academic_appointment')} style={{ ...inputStyle, backgroundColor: 'white' }}>
+                        <option value="">Select appointment</option>
+                        {APPOINTMENT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </td>
                     <td style={{ border: `1px solid ${colors.border}`, padding: '8px', minWidth: '100px' }}>
                       <select value={row.full_time_or_part_time} onChange={updateQualification(index, 'full_time_or_part_time')} style={inputStyle}>
                         <option value="">Select</option>
@@ -504,7 +824,7 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
                       <button
                         type="button"
                         onClick={() => removeQualificationRow(row.local_id)}
-                        disabled={qualificationRows.length <= 1}
+                        disabled={qualificationRows.length <= 1 || isSidebarFacultyRow(row.faculty_id)}
                         style={{
                           width: '100%',
                           padding: '8px 10px',
@@ -513,8 +833,8 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
                           backgroundColor: 'white',
                           color: colors.mediumGray,
                           fontWeight: '700',
-                          cursor: qualificationRows.length <= 1 ? 'not-allowed' : 'pointer',
-                          opacity: qualificationRows.length <= 1 ? 0.6 : 1,
+                          cursor: qualificationRows.length <= 1 || isSidebarFacultyRow(row.faculty_id) ? 'not-allowed' : 'pointer',
+                          opacity: qualificationRows.length <= 1 || isSidebarFacultyRow(row.faculty_id) ? 0.6 : 1,
                         }}
                       >
                         Delete
@@ -547,7 +867,6 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
           ) : null}
           <div style={{ marginTop: '10px', display: 'flex', gap: '8px' }}>
             <AddRowButton label="Add Faculty Row" onClick={addSyncedFacultyRow} />
-            <button type="button" disabled style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', borderRadius: '6px', padding: '8px 10px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.65 }}><Sparkles size={14} />AI Populate</button>
           </div>
         </div>
 
@@ -559,31 +878,41 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead><tr style={{ backgroundColor: colors.lightGray }}>{['Faculty', 'PT/FT', 'Classes Taught + Term/Year'].map((h) => <th key={h} style={{ border: `1px solid ${colors.border}`, padding: '8px', textAlign: 'left' }}>{h}</th>)}</tr></thead>
               <tbody>
-                {displayedWorkloadRows.map((row, index) => (
-                  <tr key={row.faculty_workload_row_id || row.local_id}>
+                {displayedWorkloadRows.map(({ key, row, isGroupedSynced, displayClasses, displayTerm, displayYear }) => {
+                  const rowIndex = workloadRows.findIndex((workloadRowItem) => workloadRowItem.local_id === row.local_id);
+                  return (
+                  <tr key={key}>
                     <td style={{ border: `1px solid ${colors.border}`, padding: '8px', minWidth: '190px' }}>
                       <input
                         value={row.faculty_name}
-                        readOnly
-                        placeholder="Auto-filled from Table 6.1"
-                        style={{ ...inputStyle, backgroundColor: '#f9fafb' }}
+                        readOnly={isGroupedSynced || isSyncedWorkloadRow(row)}
+                        onChange={rowIndex >= 0 ? updateWorkload(rowIndex, 'faculty_name') : undefined}
+                        placeholder={isGroupedSynced || isSyncedWorkloadRow(row) ? 'Synced from Courses sidebar' : 'Faculty name'}
+                        style={{ ...inputStyle, backgroundColor: isGroupedSynced || isSyncedWorkloadRow(row) ? '#f9fafb' : 'white' }}
                       />
                     </td>
                     <td style={{ border: `1px solid ${colors.border}`, padding: '8px', minWidth: '110px' }}>
-                      <select value={row.fill_tie_or_part_time} onChange={updateWorkload(index, 'fill_tie_or_part_time')} style={inputStyle}>
+                      <select value={row.fill_tie_or_part_time} onChange={rowIndex >= 0 ? updateWorkload(rowIndex, 'fill_tie_or_part_time') : undefined} style={inputStyle}>
                         <option value="">Select</option>
                         {FT_PT_OPTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
                       </select>
                     </td>
                     <td style={{ border: `1px solid ${colors.border}`, padding: '8px', minWidth: '280px' }}>
-                      <textarea value={row.classes_taught_description} onChange={updateWorkload(index, 'classes_taught_description')} style={{ ...inputStyle, minHeight: '70px', resize: 'vertical' }} />
-                      <div style={{ marginTop: '6px', display: 'grid', gridTemplateColumns: '1fr 130px', gap: '6px' }}>
-                        <input value={row.term} onChange={updateWorkload(index, 'term')} placeholder="Term" style={inputStyle} />
-                        <input value={row.year} onChange={updateWorkload(index, 'year')} placeholder="Year" style={inputStyle} />
-                      </div>
+                      <textarea value={isGroupedSynced ? displayClasses : row.classes_taught_description} readOnly={isGroupedSynced || isSyncedWorkloadRow(row)} onChange={rowIndex >= 0 ? updateWorkload(rowIndex, 'classes_taught_description') : undefined} style={{ ...inputStyle, minHeight: '70px', resize: 'vertical', backgroundColor: isGroupedSynced || isSyncedWorkloadRow(row) ? '#f9fafb' : 'white' }} />
+                      {isGroupedSynced ? (
+                        <div style={{ marginTop: '6px', display: 'grid', gridTemplateColumns: '1fr 130px', gap: '6px' }}>
+                          <input value={displayTerm} readOnly placeholder="Term" style={{ ...inputStyle, backgroundColor: '#f9fafb' }} />
+                          <input value={displayYear} readOnly placeholder="Year" style={{ ...inputStyle, backgroundColor: '#f9fafb' }} />
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: '6px', display: 'grid', gridTemplateColumns: '1fr 130px', gap: '6px' }}>
+                          <input value={row.term} readOnly={isSyncedWorkloadRow(row)} onChange={rowIndex >= 0 ? updateWorkload(rowIndex, 'term') : undefined} placeholder="Term" style={{ ...inputStyle, backgroundColor: isSyncedWorkloadRow(row) ? '#f9fafb' : 'white' }} />
+                          <input value={row.year} readOnly={isSyncedWorkloadRow(row)} onChange={rowIndex >= 0 ? updateWorkload(rowIndex, 'year') : undefined} placeholder="Year" style={{ ...inputStyle, backgroundColor: isSyncedWorkloadRow(row) ? '#f9fafb' : 'white' }} />
+                        </div>
+                      )}
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
@@ -608,7 +937,7 @@ const Criterion6Page = ({ onToggleSidebar, onBack }) => {
             </div>
           ) : null}
           <div style={{ marginTop: '10px' }}>
-            <AddRowButton label="Add Workload Row" onClick={addSyncedFacultyRow} />
+            <AddRowButton label="Add Workload Row" onClick={addWorkloadRow} />
           </div>
         </div>
 

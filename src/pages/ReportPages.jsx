@@ -5,6 +5,7 @@ import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
 import EvidenceLibraryImport from '../components/shared/EvidenceLibraryImport';
+import { buildTextboxAiStatus, extractTextboxSectionWithLocalAi } from '../utils/textboxAi';
 
 const BG_DOCS_DB_NAME = 'abet-background-documents';
 const BG_DOCS_STORE = 'documents';
@@ -96,6 +97,11 @@ const getBackgroundDocById = async (docId) => {
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error || new Error('Unable to load document.'));
   });
+};
+
+const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
+  'A. Contact Information': ['contactName', 'positionTitle', 'officeLocation', 'phoneNumber', 'emailAddress'],
+  'B. Program History': ['yearImplemented', 'lastReviewDate', 'majorChanges'],
 };
 
   const FullReportPage = ({ onToggleSidebar, onBack }) => {
@@ -337,6 +343,7 @@ const getBackgroundDocById = async (docId) => {
     const [aiImportModal, setAiImportModal] = useState({ open: false, sectionTitle: '' });
     const [selectedDocuments, setSelectedDocuments] = useState([]);
     const [aiImportStatus, setAiImportStatus] = useState('');
+    const [aiImportLoading, setAiImportLoading] = useState(false);
     const [formData, setFormData] = useState({
       contactName: '',
       positionTitle: '',
@@ -417,13 +424,13 @@ const getBackgroundDocById = async (docId) => {
     };
 
     const validateBackgroundForm = () => {
-      const currentYear = new Date().getFullYear();
+      const today = new Date();
 
       const yearText = `${formData.yearImplemented || ''}`.trim();
       if (yearText && !/^\d{4}$/.test(yearText)) {
         return 'Year Implemented must be a 4-digit number.';
       }
-      if (yearText && Number(yearText) > currentYear) {
+      if (yearText && Number(yearText) > today.getFullYear()) {
         return 'Year Implemented cannot be in the future.';
       }
 
@@ -436,18 +443,17 @@ const getBackgroundDocById = async (docId) => {
       }
 
       const reviewDateText = `${formData.lastReviewDate || ''}`.trim();
-      if (!reviewDateText) {
-        return 'Date of Last General Review is required.';
-      }
-      const parsedReviewDate = parseValidDate(reviewDateText);
-      if (!parsedReviewDate) {
-        return 'Date of Last General Review must be a valid date (YYYY-MM-DD, YYYY/MM/DD, or MM/DD/YYYY).';
-      }
-      if (parsedReviewDate.getFullYear() >= currentYear) {
-        return 'Date of Last General Review must be before the current year.';
-      }
-      if (yearText && Number(yearText) > parsedReviewDate.getFullYear()) {
-        return 'Year Implemented cannot be after Date of Last General Review.';
+      if (reviewDateText) {
+        const parsedReviewDate = parseValidDate(reviewDateText);
+        if (!parsedReviewDate) {
+          return 'Date of Last General Review must be a valid date (YYYY-MM-DD, YYYY/MM/DD, or MM/DD/YYYY).';
+        }
+        if (parsedReviewDate > today) {
+          return 'Date of Last General Review cannot be in the future.';
+        }
+        if (yearText && Number(yearText) > parsedReviewDate.getFullYear()) {
+          return 'Year Implemented cannot be after Date of Last General Review.';
+        }
       }
 
       return '';
@@ -518,6 +524,7 @@ const getBackgroundDocById = async (docId) => {
       setAiImportModal({ open: false, sectionTitle: '' });
       setSelectedDocuments([]);
       setAiImportStatus('');
+      setAiImportLoading(false);
     };
 
     const handleStoreSectionDocuments = async (files) => {
@@ -581,6 +588,51 @@ const getBackgroundDocById = async (docId) => {
         setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
       } catch (error) {
         setAiImportStatus(error?.message || 'Unable to download document.');
+      }
+    };
+
+    const handleExtractWithAi = async () => {
+      if (aiImportLoading) return;
+      const eligibleFields = BACKGROUND_TEXTBOX_SECTION_FIELDS[aiImportModal.sectionTitle];
+      if (!eligibleFields) {
+        setAiImportStatus('Local AI extraction is not enabled for this section.');
+        return;
+      }
+      if (selectedDocuments.length === 0) {
+        setAiImportStatus('Upload at least one document before running Extract with AI.');
+        return;
+      }
+
+      try {
+        setAiImportLoading(true);
+        setAiImportStatus('Reading the selected documents and extracting ABET-relevant information for this section...');
+
+        const currentFields = eligibleFields.reduce((accumulator, field) => ({
+          ...accumulator,
+          [field]: `${formData?.[field] ?? ''}`,
+        }), {});
+
+        const result = await extractTextboxSectionWithLocalAi({
+          cycleId,
+          pageKey: 'background',
+          sectionTitle: aiImportModal.sectionTitle,
+          currentFields,
+          selectedDocuments,
+          loadStoredDocById: getBackgroundDocById,
+        });
+
+        setFormData((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            eligibleFields.map((field) => [field, `${result?.mergedFields?.[field] ?? prev?.[field] ?? ''}`])
+          ),
+        }));
+
+        setAiImportStatus(buildTextboxAiStatus(result, 'AI extraction completed.'));
+      } catch (error) {
+        setAiImportStatus(error?.message || 'AI extraction failed.');
+      } finally {
+        setAiImportLoading(false);
       }
     };
 
@@ -881,7 +933,7 @@ const getBackgroundDocById = async (docId) => {
                 </div>
 
                 {aiImportStatus ? (
-                  <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700' }}>
+                  <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '700', whiteSpace: 'pre-line' }}>
                     {aiImportStatus}
                   </div>
                 ) : null}
@@ -891,8 +943,21 @@ const getBackgroundDocById = async (docId) => {
                 <button type="button" onClick={closeAiImportModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
                   Cancel
                 </button>
-                <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
-                  Extract with AI
+                  <button
+                    type="button"
+                    onClick={handleExtractWithAi}
+                    disabled={aiImportLoading || selectedDocuments.length === 0 || !BACKGROUND_TEXTBOX_SECTION_FIELDS[aiImportModal.sectionTitle]}
+                    style={{
+                      backgroundColor: aiImportLoading || selectedDocuments.length === 0 || !BACKGROUND_TEXTBOX_SECTION_FIELDS[aiImportModal.sectionTitle] ? '#d8d8dd' : colors.primary,
+                      border: 'none',
+                      color: aiImportLoading || selectedDocuments.length === 0 || !BACKGROUND_TEXTBOX_SECTION_FIELDS[aiImportModal.sectionTitle] ? '#6c757d' : 'white',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      fontWeight: '700',
+                      cursor: aiImportLoading || selectedDocuments.length === 0 || !BACKGROUND_TEXTBOX_SECTION_FIELDS[aiImportModal.sectionTitle] ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                  {aiImportLoading ? 'Extracting...' : 'Extract with AI'}
                 </button>
               </div>
             </div>

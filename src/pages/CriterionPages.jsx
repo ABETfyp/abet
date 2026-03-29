@@ -5,6 +5,12 @@ import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
 import EvidenceLibraryImport from '../components/shared/EvidenceLibraryImport';
+import {
+  buildStructuredAiStatus,
+  buildTextboxAiStatus,
+  extractStructuredSectionWithLocalAi,
+  extractTextboxSectionWithLocalAi
+} from '../utils/textboxAi';
 import Criterion4PageImpl from './Criterion4Page';
 import Criterion5PageImpl from './Criterion5Page';
 
@@ -123,6 +129,35 @@ const calculateCriterion1Completion = (payload) => {
   return Math.round((completed / C1_TRACKED_FIELDS.length) * 100);
 };
 
+const sanitizeNumericText = (value) => `${value ?? ''}`.replace(/\D/g, '');
+
+const sanitizeDecimalText = (value) => {
+  const normalized = `${value ?? ''}`.replace(/[^\d.]/g, '');
+  const [whole = '', ...fractionParts] = normalized.split('.');
+  if (fractionParts.length === 0) {
+    return whole;
+  }
+  return `${whole}.${fractionParts.join('')}`;
+};
+
+const normalizeCriterion1Data = (payload) => {
+  if (!payload) return payload;
+  const creditsValue = Number(payload.minimum_required_credits);
+  return {
+    ...payload,
+    minimum_required_credits: Number.isFinite(creditsValue) && creditsValue > 0 ? `${creditsValue}` : '',
+    required_gpa_or_standing: `${payload.required_gpa_or_standing ?? ''}`.trim(),
+  };
+};
+
+const buildCriterion1SavePayload = (payload) => ({
+  ...payload,
+  minimum_required_credits: sanitizeNumericText(payload?.minimum_required_credits) === ''
+    ? 0
+    : Number(sanitizeNumericText(payload?.minimum_required_credits)),
+  required_gpa_or_standing: sanitizeDecimalText(payload?.required_gpa_or_standing).replace(/\.$/, ''),
+});
+
 const C2_TRACKED_FIELDS = [
   'institutional_mission_statement',
   'program_mission_statement',
@@ -223,6 +258,88 @@ const calculateCriterion8Completion = (payload) => {
   return Math.round((completed / C8_TRACKED_FIELDS.length) * 100);
 };
 
+const CRITERION1_TEXTBOX_SECTION_FIELDS = {
+  'A. Student Admissions': ['admission_requirements', 'admission_process_summary', 'transfer_pathways'],
+  'B. Evaluating Student Performance': ['pperformance_evaluation_process', 'prerequisite_verification_method', 'prerequisite_not_met_action'],
+  'C. Transfer Students and Transfer Courses': ['transfer_policy_summary', 'transfer_credit_evaluation_process', 'articulation_agreements'],
+  'D. Advising and Career Guidance': ['advising_providers', 'advising_frequency', 'career_guidance_description'],
+  'E. Work in Lieu of Courses': ['work_in_lieu_policies', 'work_in_lieu_approval_process'],
+  'F. Graduation Requirements': ['minimum_required_credits', 'required_gpa_or_standing', 'essential_courses_categories', 'degree_name'],
+  'G. Transcripts of Recent Graduates': ['transcript_format_explanation', 'program_name_on_transcript'],
+};
+
+const CRITERION2_TEXTBOX_SECTION_FIELDS = {
+  'A. Mission Statement': ['institutional_mission_statement', 'program_mission_statement', 'mission_source_link'],
+  'C. Consistency of PEOs with Institutional Mission': ['peos_mission_alignment_explanation'],
+  'D. Program Constituencies': ['constituencies_list', 'constituencies_contribution_description'],
+  'E. Process for Review of PEOs': ['peo_review_frequency', 'peo_review_participants', 'feedback_collection_and_decision_process', 'changes_since_last_peo_review'],
+};
+
+const CRITERION7_TEXTBOX_SECTION_FIELDS = {
+  'C. Guidance': ['guidance_description', 'responsible_faculty_name'],
+  'E. Library Services': ['technical_collections_and_journals', 'electronic_databases_and_eresources', 'faculty_book_request_process', 'library_access_hours_and_systems'],
+  'F. Overall Comments': ['facilities_support_student_outcomes', 'safety_and_inspection_processes', 'compliance_with_university_policy'],
+};
+
+const CRITERION8_TEXTBOX_SECTION_FIELDS = {
+  'A. Leadership': ['leadership_structure_description', 'leadership_adequacy_description', 'leadership_participation_description'],
+  'B. Program Budget and Financial Support': ['budget_process_continuity', 'teaching_support_description', 'infrastructure_funding_description', 'resource_adequacy_description'],
+  'D. Faculty Hiring and Retention': ['hiring_process_description', 'retention_strategies_description'],
+  'E. Support of Faculty Professional Development': ['professional_development_support_types', 'professional_development_request_process', 'professional_development_funding_details'],
+};
+
+const CRITERION7_STRUCTURED_SECTION_FIELDS = {
+  'A. Offices': ['total_number_of_offices', 'average_workspace_size', 'student_availability_details'],
+  'A. Classrooms': [],
+  'A. Laboratories': [],
+  'B. Computing Resources': [],
+  'D. Maintenance and Upgrading': ['maintenance_policy_description'],
+};
+
+const CRITERION8_STRUCTURED_SECTION_FIELDS = {
+  'C. Staffing': ['additional_narrative_on_staffing'],
+};
+
+const normalizeAiKeyPart = (value) => `${value ?? ''}`.trim().toLowerCase();
+
+const appendUniqueAiRows = (existingRows, incomingRows, keyBuilder, rowFactory) => {
+  const nextRows = [...(existingRows || [])];
+  const seenKeys = new Set(
+    (existingRows || [])
+      .map((row) => keyBuilder(row))
+      .filter(Boolean)
+  );
+  let added = 0;
+  for (const row of incomingRows || []) {
+    const key = keyBuilder(row);
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    nextRows.push(rowFactory(row));
+    added += 1;
+  }
+  return { rows: nextRows, added };
+};
+
+const mergeEmptyStringFields = (currentObject, extractedFields, fieldNames) => {
+  const mergedFields = {};
+  let addedFields = 0;
+  let preservedFields = 0;
+  (fieldNames || []).forEach((fieldName) => {
+    const existingValue = `${currentObject?.[fieldName] ?? ''}`;
+    const incomingValue = `${extractedFields?.[fieldName] ?? ''}`;
+    if (existingValue.trim() !== '') {
+      mergedFields[fieldName] = existingValue;
+      preservedFields += 1;
+    } else {
+      mergedFields[fieldName] = incomingValue;
+      if (incomingValue.trim() !== '') {
+        addedFields += 1;
+      }
+    }
+  });
+  return { mergedFields, addedFields, preservedFields };
+};
+
 const DEFAULT_CRITERION8_STAFFING_ROWS = [
   {
     staffing_row_id: null,
@@ -270,6 +387,7 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
   const [docModal, setDocModal] = useState({ open: false, sectionTitle: '' });
   const [selectedDocs, setSelectedDocs] = useState([]);
   const [docStatus, setDocStatus] = useState('');
+  const [docExtractLoading, setDocExtractLoading] = useState(false);
   
   // Get cycle ID from localStorage or default to 1
   const cycleId = localStorage.getItem('currentCycleId') || 1;
@@ -285,7 +403,7 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
     
     try {
       const result = await apiRequest(`/cycles/${cycleId}/criterion1/`);
-      setData(result);
+      setData(normalizeCriterion1Data(result));
     } catch (err) {
       setError(err.message);
       console.error('Failed to fetch Criterion 1 data:', err);
@@ -302,7 +420,7 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
     try {
       const result = await apiRequest(`/cycles/${cycleId}/criterion1/`, {
         method: 'PUT',
-        body: JSON.stringify(data)
+        body: JSON.stringify(buildCriterion1SavePayload(data))
       });
 
       const completionPercentage = calculateCriterion1Completion(result);
@@ -325,7 +443,7 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
         });
       }
 
-      setData(result);
+      setData(normalizeCriterion1Data(result));
       setSuccess(true);
       
       localStorage.setItem('checklistNeedsRefresh', 'true');
@@ -409,6 +527,49 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
       setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
     } catch (err) {
       setDocStatus(err?.message || 'Unable to download document.');
+    }
+  };
+
+  const handleExtractCriterion1WithAi = async () => {
+    if (docExtractLoading) return;
+    const eligibleFields = CRITERION1_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle];
+    if (!eligibleFields) {
+      setDocStatus('Local AI extraction is not enabled for this section.');
+      return;
+    }
+    if (selectedDocs.length === 0) {
+      setDocStatus('Upload at least one document before running Extract with AI.');
+      return;
+    }
+
+    try {
+      setDocExtractLoading(true);
+      setDocStatus('Reading the selected documents and extracting ABET-relevant information for this section...');
+      const currentFields = eligibleFields.reduce((accumulator, field) => ({
+        ...accumulator,
+        [field]: `${data?.[field] ?? ''}`,
+      }), {});
+
+      const result = await extractTextboxSectionWithLocalAi({
+        cycleId,
+        pageKey: 'criterion1',
+        sectionTitle: docModal.sectionTitle,
+        currentFields,
+        selectedDocuments: selectedDocs,
+        loadStoredDocById: getCriterion1DocById,
+      });
+
+      setData((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          eligibleFields.map((field) => [field, `${result?.mergedFields?.[field] ?? prev?.[field] ?? ''}`])
+        ),
+      }));
+      setDocStatus(buildTextboxAiStatus(result, 'AI extraction completed.'));
+    } catch (err) {
+      setDocStatus(err?.message || 'AI extraction failed.');
+    } finally {
+      setDocExtractLoading(false);
     }
   };
 
@@ -691,10 +852,9 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '20px' }}>
           <FormField
             label="Minimum required credits"
-            value={data?.minimum_required_credits || 0}
+            value={data?.minimum_required_credits ?? ''}
             onChange={(value) => {
-              const digitsOnly = `${value ?? ''}`.replace(/\D/g, '');
-              handleChange('minimum_required_credits', digitsOnly === '' ? 0 : Number(digitsOnly));
+              handleChange('minimum_required_credits', sanitizeNumericText(value));
             }}
             type="text"
             inputMode="numeric"
@@ -703,7 +863,9 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
           <FormField
             label="Required GPA or standing"
             value={data?.required_gpa_or_standing || ''}
-            onChange={(value) => handleChange('required_gpa_or_standing', value)}
+            onChange={(value) => handleChange('required_gpa_or_standing', sanitizeDecimalText(value))}
+            type="text"
+            inputMode="decimal"
             placeholder="Required GPA or standing"
           />
           <FormField
@@ -838,8 +1000,21 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
               <button type="button" onClick={closeDocModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
                 Cancel
               </button>
-              <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
-                Extract with AI
+              <button
+                type="button"
+                onClick={handleExtractCriterion1WithAi}
+                disabled={docExtractLoading || selectedDocs.length === 0 || !CRITERION1_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle]}
+                style={{
+                  backgroundColor: docExtractLoading || selectedDocs.length === 0 || !CRITERION1_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle] ? '#d8d8dd' : colors.primary,
+                  border: 'none',
+                  color: docExtractLoading || selectedDocs.length === 0 || !CRITERION1_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle] ? '#6c757d' : 'white',
+                  borderRadius: '8px',
+                  padding: '10px 16px',
+                  fontWeight: '700',
+                  cursor: docExtractLoading || selectedDocs.length === 0 || !CRITERION1_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle] ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {docExtractLoading ? 'Extracting...' : 'Extract with AI'}
               </button>
             </div>
           </div>
@@ -925,28 +1100,30 @@ const Section = ({ letter, title, purpose, sectionTitle, onOpenUpload, children 
         </p>
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button
-            type="button"
-            onClick={() => onOpenUpload?.(sectionTitle)}
-            style={{
-            padding: '8px 12px',
-            backgroundColor: colors.primary,
-            border: 'none',
-            borderRadius: '6px',
-            color: 'white',
-            fontSize: '13px',
-            fontWeight: '700',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px'
-          }}>
-            <Upload size={14} />
-            Upload Documents
-          </button>
-          
-        </div>
+        {onOpenUpload ? (
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button
+              type="button"
+              onClick={() => onOpenUpload(sectionTitle)}
+              style={{
+                padding: '8px 12px',
+                backgroundColor: colors.primary,
+                border: 'none',
+                borderRadius: '6px',
+                color: 'white',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <Upload size={14} />
+              Upload Documents
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Section Content */}
@@ -1014,6 +1191,7 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
   const [docModal, setDocModal] = useState({ open: false, sectionTitle: '' });
   const [criterion2Docs, setCriterion2Docs] = useState([]);
   const [criterion2DocStatus, setCriterion2DocStatus] = useState('');
+  const [criterion2DocLoading, setCriterion2DocLoading] = useState(false);
   const [linkedPeos, setLinkedPeos] = useState([]);
   const [linkedPeosLoading, setLinkedPeosLoading] = useState(false);
   const [linkedPeosError, setLinkedPeosError] = useState('');
@@ -1160,6 +1338,49 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
       setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
     } catch (err) {
       setCriterion2DocStatus(err?.message || 'Unable to download document.');
+    }
+  };
+
+  const handleExtractCriterion2WithAi = async () => {
+    if (criterion2DocLoading) return;
+    const eligibleFields = CRITERION2_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle];
+    if (!eligibleFields) {
+      setCriterion2DocStatus('Local AI extraction is not enabled for this section.');
+      return;
+    }
+    if (criterion2Docs.length === 0) {
+      setCriterion2DocStatus('Upload at least one document before running Extract with AI.');
+      return;
+    }
+
+    try {
+      setCriterion2DocLoading(true);
+      setCriterion2DocStatus('Reading the selected documents and extracting ABET-relevant information for this section...');
+      const currentFields = eligibleFields.reduce((accumulator, field) => ({
+        ...accumulator,
+        [field]: `${data?.[field] ?? ''}`,
+      }), {});
+
+      const result = await extractTextboxSectionWithLocalAi({
+        cycleId,
+        pageKey: 'criterion2',
+        sectionTitle: docModal.sectionTitle,
+        currentFields,
+        selectedDocuments: criterion2Docs,
+        loadStoredDocById: getCriterion1DocById,
+      });
+
+      setData((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          eligibleFields.map((field) => [field, `${result?.mergedFields?.[field] ?? prev?.[field] ?? ''}`])
+        ),
+      }));
+      setCriterion2DocStatus(buildTextboxAiStatus(result, 'AI extraction completed.'));
+    } catch (err) {
+      setCriterion2DocStatus(err?.message || 'AI extraction failed.');
+    } finally {
+      setCriterion2DocLoading(false);
     }
   };
 
@@ -1371,7 +1592,6 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
           title="Program Educational Objectives (PEOs)"
           purpose="list long-term objectives and where they are published."
           sectionTitle="B. Program Educational Objectives (PEOs)"
-          onOpenUpload={openCriterion2UploadModal}
         >
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
             <div>
@@ -1610,8 +1830,21 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
                   <button type="button" onClick={closeCriterion2UploadModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
                     Close
                   </button>
-                  <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
-                    Extract with AI
+                  <button
+                    type="button"
+                    onClick={handleExtractCriterion2WithAi}
+                    disabled={criterion2DocLoading || criterion2Docs.length === 0 || !CRITERION2_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle]}
+                    style={{
+                      backgroundColor: criterion2DocLoading || criterion2Docs.length === 0 || !CRITERION2_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle] ? '#d8d8dd' : colors.primary,
+                      border: 'none',
+                      color: criterion2DocLoading || criterion2Docs.length === 0 || !CRITERION2_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle] ? '#6c757d' : 'white',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      fontWeight: '700',
+                      cursor: criterion2DocLoading || criterion2Docs.length === 0 || !CRITERION2_TEXTBOX_SECTION_FIELDS[docModal.sectionTitle] ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {criterion2DocLoading ? 'Extracting...' : 'Extract with AI'}
                   </button>
                 </div>
               </div>
@@ -3657,6 +3890,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   const [criterion7DocModal, setCriterion7DocModal] = useState({ open: false, sectionTitle: '' });
   const [criterion7Docs, setCriterion7Docs] = useState([]);
   const [criterion7DocStatus, setCriterion7DocStatus] = useState('');
+  const [criterion7DocLoading, setCriterion7DocLoading] = useState(false);
 
   useEffect(() => {
     const loadCriterion7 = async () => {
@@ -3941,27 +4175,13 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
 
       for (let i = 0; i < rowsToSave.length; i += 1) {
         const row = rowsToSave[i];
-        const rowNumber = i + 1;
-        const required = [
-          'classroom_room',
-          'classroom_capacity',
-          'classroom_multimedia',
-          'classroom_internet_access',
-          'classroom_typical_use',
-          'classroom_adequacy_comments'
-        ];
-        const hasMissing = required.some((field) => `${row[field]}`.trim() === '');
-        if (hasMissing) {
-          throw new Error(`Classroom row ${rowNumber}: fill all columns before saving.`);
-        }
-
         const classroomPayload = {
-          classroom_room: row.classroom_room,
-          classroom_capacity: Number(row.classroom_capacity),
-          classroom_multimedia: row.classroom_multimedia,
-          classroom_internet_access: row.classroom_internet_access,
-          classroom_typical_use: row.classroom_typical_use,
-          classroom_adequacy_comments: row.classroom_adequacy_comments,
+          classroom_room: row.classroom_room || '',
+          classroom_capacity: Number(row.classroom_capacity || 0),
+          classroom_multimedia: row.classroom_multimedia || '',
+          classroom_internet_access: row.classroom_internet_access || '',
+          classroom_typical_use: row.classroom_typical_use || '',
+          classroom_adequacy_comments: row.classroom_adequacy_comments || '',
           criterion7: criterion7Id
         };
 
@@ -3997,29 +4217,14 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
 
       for (let i = 0; i < labsToSave.length; i += 1) {
         const row = labsToSave[i];
-        const rowNumber = i + 1;
-        const required = [
-          'lab_name',
-          'lab_room',
-          'lab_category',
-          'lab_hardware_list',
-          'lab_software_list',
-          'lab_open_hours',
-          'lab_courses_using_lab'
-        ];
-        const hasMissing = required.some((field) => `${row[field]}`.trim() === '');
-        if (hasMissing) {
-          throw new Error(`Laboratory row ${rowNumber}: fill all columns before saving.`);
-        }
-
         const laboratoryPayload = {
-          lab_name: row.lab_name,
-          lab_room: row.lab_room,
-          lab_category: row.lab_category,
-          lab_hardware_list: row.lab_hardware_list,
-          lab_software_list: row.lab_software_list,
-          lab_open_hours: row.lab_open_hours,
-          lab_courses_using_lab: row.lab_courses_using_lab,
+          lab_name: row.lab_name || '',
+          lab_room: row.lab_room || '',
+          lab_category: row.lab_category || '',
+          lab_hardware_list: row.lab_hardware_list || '',
+          lab_software_list: row.lab_software_list || '',
+          lab_open_hours: row.lab_open_hours || '',
+          lab_courses_using_lab: row.lab_courses_using_lab || '',
           criterion7: criterion7Id
         };
 
@@ -4052,25 +4257,12 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
 
       for (let i = 0; i < computingRowsToSave.length; i += 1) {
         const row = computingRowsToSave[i];
-        const rowNumber = i + 1;
-        const required = [
-          'computing_resource_name',
-          'computing_resource_location',
-          'computing_access_type',
-          'computing_hours_available',
-          'computing_adequacy_notes'
-        ];
-        const hasMissing = required.some((field) => `${row[field]}`.trim() === '');
-        if (hasMissing) {
-          throw new Error(`Computing resource row ${rowNumber}: fill all columns before saving.`);
-        }
-
         const computingPayload = {
-          computing_resource_name: row.computing_resource_name,
-          computing_resource_location: row.computing_resource_location,
-          computing_access_type: row.computing_access_type,
-          computing_hours_available: row.computing_hours_available,
-          computing_adequacy_notes: row.computing_adequacy_notes,
+          computing_resource_name: row.computing_resource_name || '',
+          computing_resource_location: row.computing_resource_location || '',
+          computing_access_type: row.computing_access_type || '',
+          computing_hours_available: row.computing_hours_available || '',
+          computing_adequacy_notes: row.computing_adequacy_notes || '',
           criterion7: criterion7Id
         };
 
@@ -4112,20 +4304,18 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
           'facility_name',
           'last_upgrade_date',
           'next_scheduled_upgrade',
-          'responsible_staff',
-          'maintenance_notes'
         ];
         const hasMissing = required.some((field) => `${row[field]}`.trim() === '');
         if (hasMissing) {
-          throw new Error(`Maintenance row ${rowNumber}: fill all columns before saving.`);
+          throw new Error(`Maintenance row ${rowNumber}: facility name and both dates are required before saving.`);
         }
 
         const upgradingPayload = {
-          facility_name: row.facility_name,
+          facility_name: row.facility_name || '',
           last_upgrade_date: row.last_upgrade_date,
           next_scheduled_upgrade: row.next_scheduled_upgrade,
-          responsible_staff: row.responsible_staff,
-          maintenance_notes: row.maintenance_notes,
+          responsible_staff: row.responsible_staff || '',
+          maintenance_notes: row.maintenance_notes || '',
           criterion7: criterion7Id
         };
 
@@ -4251,6 +4441,198 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
       setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
     } catch (err) {
       setCriterion7DocStatus(err?.message || 'Unable to download document.');
+    }
+  };
+
+  const applyCriterion7StructuredExtraction = (sectionTitle, result) => {
+    let addedRows = 0;
+    let addedFields = 0;
+    let preservedFields = 0;
+
+    if (sectionTitle === 'A. Offices') {
+      const mergeResult = mergeEmptyStringFields(
+        criterion7Data,
+        result?.extractedFields,
+        CRITERION7_STRUCTURED_SECTION_FIELDS[sectionTitle]
+      );
+      addedFields = mergeResult.addedFields;
+      preservedFields = mergeResult.preservedFields;
+      setCriterion7Data((prev) => ({ ...prev, ...mergeResult.mergedFields }));
+      return { addedRows, addedFields, preservedFields };
+    }
+
+    if (sectionTitle === 'A. Classrooms') {
+      const mergeResult = appendUniqueAiRows(
+        classroomRows,
+        result?.rows,
+        (row) => normalizeAiKeyPart(row?.classroom_room),
+        (row) => ({
+          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          classroom_id: null,
+          classroom_room: `${row?.classroom_room ?? ''}`,
+          classroom_capacity: `${row?.classroom_capacity ?? ''}`,
+          classroom_multimedia: `${row?.classroom_multimedia ?? ''}`,
+          classroom_internet_access: `${row?.classroom_internet_access ?? ''}`,
+          classroom_typical_use: `${row?.classroom_typical_use ?? ''}`,
+          classroom_adequacy_comments: `${row?.classroom_adequacy_comments ?? ''}`,
+        })
+      );
+      addedRows = mergeResult.added;
+      setClassroomRows(mergeResult.rows);
+      return { addedRows, addedFields, preservedFields };
+    }
+
+    if (sectionTitle === 'A. Laboratories') {
+      const mergeResult = appendUniqueAiRows(
+        laboratoryRows,
+        result?.rows,
+        (row) => `${normalizeAiKeyPart(row?.lab_name)}||${normalizeAiKeyPart(row?.lab_room)}`,
+        (row) => ({
+          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          lab_id: null,
+          lab_name: `${row?.lab_name ?? ''}`,
+          lab_room: `${row?.lab_room ?? ''}`,
+          lab_category: `${row?.lab_category ?? ''}`,
+          lab_hardware_list: `${row?.lab_hardware_list ?? ''}`,
+          lab_software_list: `${row?.lab_software_list ?? ''}`,
+          lab_open_hours: `${row?.lab_open_hours ?? ''}`,
+          lab_courses_using_lab: `${row?.lab_courses_using_lab ?? ''}`,
+        })
+      );
+      addedRows = mergeResult.added;
+      setLaboratoryRows(mergeResult.rows);
+      return { addedRows, addedFields, preservedFields };
+    }
+
+    if (sectionTitle === 'B. Computing Resources') {
+      const mergeResult = appendUniqueAiRows(
+        computingResourceRows,
+        result?.rows,
+        (row) => `${normalizeAiKeyPart(row?.computing_resource_name)}||${normalizeAiKeyPart(row?.computing_resource_location)}`,
+        (row) => ({
+          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          computing_resources_id: null,
+          computing_resource_name: `${row?.computing_resource_name ?? ''}`,
+          computing_resource_location: `${row?.computing_resource_location ?? ''}`,
+          computing_access_type: `${row?.computing_access_type ?? ''}`,
+          computing_hours_available: `${row?.computing_hours_available ?? ''}`,
+          computing_adequacy_notes: `${row?.computing_adequacy_notes ?? ''}`,
+        })
+      );
+      addedRows = mergeResult.added;
+      setComputingResourceRows(mergeResult.rows);
+      return { addedRows, addedFields, preservedFields };
+    }
+
+    if (sectionTitle === 'D. Maintenance and Upgrading') {
+      const mergeFields = mergeEmptyStringFields(
+        criterion7Data,
+        result?.extractedFields,
+        CRITERION7_STRUCTURED_SECTION_FIELDS[sectionTitle]
+      );
+      addedFields = mergeFields.addedFields;
+      preservedFields = mergeFields.preservedFields;
+      setCriterion7Data((prev) => ({ ...prev, ...mergeFields.mergedFields }));
+
+      const mergeRows = appendUniqueAiRows(
+        upgradingFacilityRows,
+        result?.rows,
+        (row) => normalizeAiKeyPart(row?.facility_name),
+        (row) => ({
+          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          facility_id: null,
+          facility_name: `${row?.facility_name ?? ''}`,
+          last_upgrade_date: `${row?.last_upgrade_date ?? ''}`,
+          next_scheduled_upgrade: `${row?.next_scheduled_upgrade ?? ''}`,
+          responsible_staff: `${row?.responsible_staff ?? ''}`,
+          maintenance_notes: `${row?.maintenance_notes ?? ''}`,
+        })
+      );
+      addedRows = mergeRows.added;
+      setUpgradingFacilityRows(mergeRows.rows);
+      return { addedRows, addedFields, preservedFields };
+    }
+
+    return { addedRows, addedFields, preservedFields };
+  };
+
+  const handleExtractCriterion7WithAi = async () => {
+    if (criterion7DocLoading) return;
+    const eligibleFields = CRITERION7_TEXTBOX_SECTION_FIELDS[criterion7DocModal.sectionTitle];
+    const structuredFields = CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle];
+    const isStructuredSection = Boolean(structuredFields);
+    if (!eligibleFields && !isStructuredSection) {
+      setCriterion7DocStatus('Local AI extraction is not enabled for this section yet because it includes unsupported fields.');
+      return;
+    }
+    if (criterion7Docs.length === 0) {
+      setCriterion7DocStatus('Upload at least one document before running Extract with AI.');
+      return;
+    }
+
+    try {
+      setCriterion7DocLoading(true);
+      setCriterion7DocStatus('Reading the selected documents and extracting ABET-relevant information for this section...');
+      if (isStructuredSection) {
+        const currentState = {
+          fields: Object.fromEntries(
+            (structuredFields || []).map((field) => [field, `${criterion7Data?.[field] ?? ''}`])
+          ),
+          rows:
+            criterion7DocModal.sectionTitle === 'A. Classrooms'
+              ? classroomRows
+              : criterion7DocModal.sectionTitle === 'A. Laboratories'
+                ? laboratoryRows
+                : criterion7DocModal.sectionTitle === 'B. Computing Resources'
+                  ? computingResourceRows
+                  : criterion7DocModal.sectionTitle === 'D. Maintenance and Upgrading'
+                    ? upgradingFacilityRows
+                    : [],
+        };
+
+        const result = await extractStructuredSectionWithLocalAi({
+          cycleId,
+          pageKey: 'criterion7',
+          sectionTitle: criterion7DocModal.sectionTitle,
+          currentState,
+          selectedDocuments: criterion7Docs,
+          loadStoredDocById: getCriterion1DocById,
+        });
+
+        const mergeSummary = applyCriterion7StructuredExtraction(criterion7DocModal.sectionTitle, result);
+        setCriterion7DocStatus(buildStructuredAiStatus({
+          addedRows: mergeSummary.addedRows,
+          addedFields: mergeSummary.addedFields,
+          preservedFields: mergeSummary.preservedFields,
+          notes: result?.confidenceNotes,
+        }));
+      } else {
+        const currentFields = eligibleFields.reduce((accumulator, field) => ({
+          ...accumulator,
+          [field]: `${criterion7Data?.[field] ?? ''}`,
+        }), {});
+
+        const result = await extractTextboxSectionWithLocalAi({
+          cycleId,
+          pageKey: 'criterion7',
+          sectionTitle: criterion7DocModal.sectionTitle,
+          currentFields,
+          selectedDocuments: criterion7Docs,
+          loadStoredDocById: getCriterion1DocById,
+        });
+
+        setCriterion7Data((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            eligibleFields.map((field) => [field, `${result?.mergedFields?.[field] ?? prev?.[field] ?? ''}`])
+          ),
+        }));
+        setCriterion7DocStatus(buildTextboxAiStatus(result, 'AI extraction completed.'));
+      }
+    } catch (err) {
+      setCriterion7DocStatus(err?.message || 'AI extraction failed.');
+    } finally {
+      setCriterion7DocLoading(false);
     }
   };
 
@@ -4718,8 +5100,21 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                 <button type="button" onClick={closeCriterion7UploadModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
                   Cancel
                 </button>
-                <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
-                  Extract with AI
+                <button
+                  type="button"
+                  onClick={handleExtractCriterion7WithAi}
+                  disabled={criterion7DocLoading || criterion7Docs.length === 0 || (!CRITERION7_TEXTBOX_SECTION_FIELDS[criterion7DocModal.sectionTitle] && !CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle])}
+                  style={{
+                    backgroundColor: criterion7DocLoading || criterion7Docs.length === 0 || (!CRITERION7_TEXTBOX_SECTION_FIELDS[criterion7DocModal.sectionTitle] && !CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle]) ? '#d8d8dd' : colors.primary,
+                    border: 'none',
+                    color: criterion7DocLoading || criterion7Docs.length === 0 || (!CRITERION7_TEXTBOX_SECTION_FIELDS[criterion7DocModal.sectionTitle] && !CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle]) ? '#6c757d' : 'white',
+                    borderRadius: '8px',
+                    padding: '10px 16px',
+                    fontWeight: '700',
+                    cursor: criterion7DocLoading || criterion7Docs.length === 0 || (!CRITERION7_TEXTBOX_SECTION_FIELDS[criterion7DocModal.sectionTitle] && !CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle]) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {criterion7DocLoading ? 'Extracting...' : 'Extract with AI'}
                 </button>
               </div>
             </div>
@@ -4762,11 +5157,12 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
     const [criterion8SaveError, setCriterion8SaveError] = useState('');
     const [isCriterion8Complete, setIsCriterion8Complete] = useState(false);
     const [criterion8Dirty, setCriterion8Dirty] = useState(false);
-    const criterion8ReadyRef = useRef(false);
-    const [criterion8DocModal, setCriterion8DocModal] = useState({ open: false, sectionTitle: '' });
-    const [criterion8Docs, setCriterion8Docs] = useState([]);
-    const [criterion8DocStatus, setCriterion8DocStatus] = useState('');
-    const [staffingRows, setStaffingRows] = useState(DEFAULT_CRITERION8_STAFFING_ROWS);
+      const criterion8ReadyRef = useRef(false);
+      const [criterion8DocModal, setCriterion8DocModal] = useState({ open: false, sectionTitle: '' });
+      const [criterion8Docs, setCriterion8Docs] = useState([]);
+      const [criterion8DocStatus, setCriterion8DocStatus] = useState('');
+      const [criterion8DocLoading, setCriterion8DocLoading] = useState(false);
+      const [staffingRows, setStaffingRows] = useState(DEFAULT_CRITERION8_STAFFING_ROWS);
 
     useEffect(() => {
       const loadCriterion8 = async () => {
@@ -4906,11 +5302,11 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
         .catch((err) => setCriterion8DocStatus(err?.message || 'Unable to remove document.'));
     };
 
-    const handleCriterion8DownloadDoc = async (docId) => {
-      try {
-        const doc = await getCriterion1DocById(docId);
-        if (!doc?.fileBlob) {
-          setCriterion8DocStatus('Selected file is not available.');
+      const handleCriterion8DownloadDoc = async (docId) => {
+        try {
+          const doc = await getCriterion1DocById(docId);
+          if (!doc?.fileBlob) {
+            setCriterion8DocStatus('Selected file is not available.');
           return;
         }
         const objectUrl = URL.createObjectURL(doc.fileBlob);
@@ -4921,10 +5317,113 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
         anchor.click();
         anchor.remove();
         setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-      } catch (err) {
-        setCriterion8DocStatus(err?.message || 'Unable to download document.');
-      }
-    };
+        } catch (err) {
+          setCriterion8DocStatus(err?.message || 'Unable to download document.');
+        }
+      };
+
+      const applyCriterion8StructuredExtraction = (sectionTitle, result) => {
+        let addedRows = 0;
+        let addedFields = 0;
+        let preservedFields = 0;
+
+        if (sectionTitle === 'C. Staffing') {
+          const mergeFields = mergeEmptyStringFields(
+            criterion8Data,
+            result?.extractedFields,
+            CRITERION8_STRUCTURED_SECTION_FIELDS[sectionTitle]
+          );
+          addedFields = mergeFields.addedFields;
+          preservedFields = mergeFields.preservedFields;
+          setCriterion8Data((prev) => ({ ...prev, ...mergeFields.mergedFields }));
+
+          const mergeRows = appendUniqueAiRows(
+            staffingRows,
+            result?.rows,
+            (row) => `${normalizeAiKeyPart(row?.category)}||${normalizeAiKeyPart(row?.primary_role)}`,
+            (row) => ({
+              staffing_row_id: null,
+              category: `${row?.category ?? ''}`,
+              number_of_staff: `${row?.number_of_staff ?? ''}`,
+              primary_role: `${row?.primary_role ?? ''}`,
+              training_retention_practices: `${row?.training_retention_practices ?? ''}`,
+            })
+          );
+          addedRows = mergeRows.added;
+          setStaffingRows(mergeRows.rows);
+          setCriterion8Dirty(true);
+        }
+
+        return { addedRows, addedFields, preservedFields };
+      };
+
+      const handleExtractCriterion8WithAi = async () => {
+        if (criterion8DocLoading) return;
+        const eligibleFields = CRITERION8_TEXTBOX_SECTION_FIELDS[criterion8DocModal.sectionTitle];
+        const structuredFields = CRITERION8_STRUCTURED_SECTION_FIELDS[criterion8DocModal.sectionTitle];
+        if (!eligibleFields && !structuredFields) {
+          setCriterion8DocStatus('Local AI extraction is not enabled for this section yet because it includes unsupported fields.');
+          return;
+        }
+        if (criterion8Docs.length === 0) {
+          setCriterion8DocStatus('Upload at least one document before running Extract with AI.');
+          return;
+        }
+
+        try {
+          setCriterion8DocLoading(true);
+          setCriterion8DocStatus('Reading the selected documents and extracting ABET-relevant information for this section...');
+          if (structuredFields) {
+            const result = await extractStructuredSectionWithLocalAi({
+              cycleId,
+              pageKey: 'criterion8',
+              sectionTitle: criterion8DocModal.sectionTitle,
+              currentState: {
+                fields: Object.fromEntries(
+                  (structuredFields || []).map((field) => [field, `${criterion8Data?.[field] ?? ''}`])
+                ),
+                rows: staffingRows,
+              },
+              selectedDocuments: criterion8Docs,
+              loadStoredDocById: getCriterion1DocById,
+            });
+
+            const mergeSummary = applyCriterion8StructuredExtraction(criterion8DocModal.sectionTitle, result);
+            setCriterion8DocStatus(buildStructuredAiStatus({
+              addedRows: mergeSummary.addedRows,
+              addedFields: mergeSummary.addedFields,
+              preservedFields: mergeSummary.preservedFields,
+              notes: result?.confidenceNotes,
+            }));
+          } else {
+            const currentFields = eligibleFields.reduce((accumulator, field) => ({
+              ...accumulator,
+              [field]: `${criterion8Data?.[field] ?? ''}`,
+            }), {});
+
+            const result = await extractTextboxSectionWithLocalAi({
+              cycleId,
+              pageKey: 'criterion8',
+              sectionTitle: criterion8DocModal.sectionTitle,
+              currentFields,
+              selectedDocuments: criterion8Docs,
+              loadStoredDocById: getCriterion1DocById,
+            });
+
+            setCriterion8Data((prev) => ({
+              ...prev,
+              ...Object.fromEntries(
+                eligibleFields.map((field) => [field, `${result?.mergedFields?.[field] ?? prev?.[field] ?? ''}`])
+              ),
+            }));
+            setCriterion8DocStatus(buildTextboxAiStatus(result, 'AI extraction completed.'));
+          }
+        } catch (err) {
+          setCriterion8DocStatus(err?.message || 'AI extraction failed.');
+        } finally {
+          setCriterion8DocLoading(false);
+        }
+      };
 
     const saveCriterion8 = async ({ markComplete = false, silent = false } = {}) => {
       try {
@@ -5439,8 +5938,21 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                   <button type="button" onClick={closeCriterion8UploadModal} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>
                     Cancel
                   </button>
-                  <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>
-                    Extract with AI
+                  <button
+                    type="button"
+                    onClick={handleExtractCriterion8WithAi}
+                    disabled={criterion8DocLoading || criterion8Docs.length === 0 || (!CRITERION8_TEXTBOX_SECTION_FIELDS[criterion8DocModal.sectionTitle] && !CRITERION8_STRUCTURED_SECTION_FIELDS[criterion8DocModal.sectionTitle])}
+                    style={{
+                      backgroundColor: criterion8DocLoading || criterion8Docs.length === 0 || (!CRITERION8_TEXTBOX_SECTION_FIELDS[criterion8DocModal.sectionTitle] && !CRITERION8_STRUCTURED_SECTION_FIELDS[criterion8DocModal.sectionTitle]) ? '#d8d8dd' : colors.primary,
+                      border: 'none',
+                      color: criterion8DocLoading || criterion8Docs.length === 0 || (!CRITERION8_TEXTBOX_SECTION_FIELDS[criterion8DocModal.sectionTitle] && !CRITERION8_STRUCTURED_SECTION_FIELDS[criterion8DocModal.sectionTitle]) ? '#6c757d' : 'white',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      fontWeight: '700',
+                      cursor: criterion8DocLoading || criterion8Docs.length === 0 || (!CRITERION8_TEXTBOX_SECTION_FIELDS[criterion8DocModal.sectionTitle] && !CRITERION8_STRUCTURED_SECTION_FIELDS[criterion8DocModal.sectionTitle]) ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {criterion8DocLoading ? 'Extracting...' : 'Extract with AI'}
                   </button>
                 </div>
               </div>

@@ -742,17 +742,6 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                 prerequisite flowchart, and curriculum evidence.
               </p>
             </div>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => openCriterion5UploadModal(C5_FLOWCHART_SECTION)}
-                className="criterion5-action-button"
-                style={sectionUploadButtonStyle}
-              >
-                <Upload size={16} />
-                Upload & AI Auto-fill
-              </button>
-            </div>
           </div>
 
           <div style={{ marginTop: "16px", display: "grid", gap: "10px" }}>
@@ -918,25 +907,6 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
               <div style={requirementHintStyle}>
                 Recommended schedule by term, course offerings, credits, and
                 maximum section enrollment for recent terms.
-              </div>
-              <div
-                style={{
-                  marginTop: "8px",
-                  marginBottom: "8px",
-                  display: "flex",
-                  gap: "8px",
-                  flexWrap: "wrap",
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => openCriterion5UploadModal(C5_TABLE_SECTION)}
-                  className="criterion5-action-button"
-                  style={sectionUploadButtonStyle}
-                >
-                  <Upload size={16} />
-                  Upload & AI Auto-fill
-                </button>
               </div>
             </div>
             <table
@@ -1309,24 +1279,6 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
             >
               <Plus size={14} />
               Add Course Row
-            </button>
-          </div>
-          <div
-            style={{
-              marginTop: "10px",
-              display: "flex",
-              gap: "8px",
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => openCriterion5UploadModal(C5_ALIGNMENT_SECTION)}
-              className="criterion5-action-button"
-              style={sectionUploadButtonStyle}
-            >
-              <Upload size={16} />
-              Upload & AI Auto-fill
             </button>
           </div>
           <div
@@ -1721,17 +1673,6 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                   A7. Culminating Major Design Experience
                 </div>
               </div>
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => openCriterion5UploadModal(C5_DESIGN_SECTION)}
-                  className="criterion5-action-button"
-                  style={sectionUploadButtonStyle}
-                >
-                  <Upload size={16} />
-                  Upload & AI Auto-fill
-                </button>
-              </div>
             </div>
             <textarea
               value={data.culminating_design_experience}
@@ -1972,17 +1913,6 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
               gap: "12px",
             }}
           >
-            <div style={{ gridColumn: "1 / -1", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => openCriterion5UploadModal(C5_SUPPORTING_SECTION)}
-                className="criterion5-action-button"
-                style={sectionUploadButtonStyle}
-              >
-                <Upload size={16} />
-                Upload & AI Auto-fill
-              </button>
-            </div>
             <div style={{ display: "grid", gap: "6px" }}>
               <span style={requirementBadgeStyle}>Requirement 8</span>
               <div style={requirementHintStyle}>
@@ -2228,21 +2158,6 @@ const Criterion5PageImpl = ({ onToggleSidebar, onBack }) => {
                     }}
                   >
                     Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    style={{
-                      backgroundColor: "#d8d8dd",
-                      border: "none",
-                      color: "#6c757d",
-                      borderRadius: "8px",
-                      padding: "10px 16px",
-                      fontWeight: "700",
-                      cursor: "not-allowed",
-                    }}
-                  >
-                    Extract with AI
                   </button>
                 </div>
               </div>

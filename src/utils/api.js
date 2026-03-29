@@ -4,10 +4,11 @@ export const API_BASE = rawApiBase.replace(/\/$/, '');
 export const apiRequest = async (path, options = {}) => {
   const token = localStorage.getItem('accessToken');
   const { headers: customHeaders = {}, skipAuthRedirect = false, ...restOptions } = options;
+  const isFormDataBody = typeof FormData !== 'undefined' && restOptions.body instanceof FormData;
 
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
-      'Content-Type': 'application/json',
+      ...(!isFormDataBody ? { 'Content-Type': 'application/json' } : {}),
       ...(token && { Authorization: `Bearer ${token}` }),
       ...customHeaders,
     },

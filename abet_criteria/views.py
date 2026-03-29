@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from django.db import IntegrityError
 from django.db import connection
@@ -8,11 +9,17 @@ from django.db.models import Max
 from django.utils import timezone
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
-from datetime import datetime
+from django.http import HttpResponse
+from datetime import date, datetime
 import json
+import html
 import re
+import zipfile
+import zlib
 import jwt
 from datetime import timedelta
+from io import BytesIO
+from .textbox_ai import extract_ai_section, _run_ollama_command
 from .models import (
     Criterion1Students,
     Criterion4,
@@ -57,6 +64,9 @@ from .models import (
     EnrollmentRecord,
     PersonnelRecord,
 )
+
+
+BACKGROUND_EMPTY_REVIEW_DATE = date(1900, 1, 1)
 from .serializers import (
     Criterion1StudentsSerializer,
     Criterion2PeosSerializer,
@@ -202,6 +212,29 @@ def _ensure_cycle(cycle_id):
         return AccreditationCycle.objects.get(pk=cycle_id)
     except AccreditationCycle.DoesNotExist:
         return None
+
+
+def _get_request_user(request):
+    auth_header = request.headers.get('Authorization') or request.META.get('HTTP_AUTHORIZATION') or ''
+    if not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header.split(' ', 1)[1].strip()
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=['HS256'],
+            options={'verify_sub': False},
+        )
+    except jwt.PyJWTError:
+        return None
+
+    user_id = payload.get('sub')
+    if not user_id:
+        return None
+    return User.objects.filter(user_id=user_id).first()
 
 
 def _ensure_checklist_items(cycle):
@@ -554,7 +587,7 @@ def _validate_background_phone(value):
 def _validate_background_review_date(raw_value):
     text = f'{raw_value or ""}'.strip()
     if not text:
-        return None, 'Date of Last General Review is required.'
+        return None, None
 
     parsed_date = None
     for fmt in ('%Y-%m-%d', '%Y/%m/%d', '%m/%d/%Y'):
@@ -567,10 +600,20 @@ def _validate_background_review_date(raw_value):
     if parsed_date is None:
         return None, 'Date of Last General Review must be a valid date (YYYY-MM-DD, YYYY/MM/DD, or MM/DD/YYYY).'
 
-    current_year = timezone.now().year
-    if parsed_date.year >= current_year:
-        return None, 'Date of Last General Review must be before the current year.'
+    today = timezone.localdate()
+    if parsed_date > today:
+        return None, 'Date of Last General Review cannot be in the future.'
     return parsed_date, None
+
+
+def _background_review_date_to_storage(value):
+    return value if value is not None else BACKGROUND_EMPTY_REVIEW_DATE
+
+
+def _background_review_date_to_display(value):
+    if value in (None, BACKGROUND_EMPTY_REVIEW_DATE):
+        return ''
+    return str(value)
 
 
 def _background_completion_percentage(background):
@@ -581,7 +624,7 @@ def _background_completion_percentage(background):
         background.phone_number,
         background.email_address,
         background.year_implemented,
-        background.last_general_review_date,
+        None if background.last_general_review_date == BACKGROUND_EMPTY_REVIEW_DATE else background.last_general_review_date,
         background.summary_of_major_changes,
     ]
 
@@ -627,7 +670,7 @@ def _ensure_background(cycle):
         phone_number='',
         email_address='',
         year_implemented=0,
-        last_general_review_date=timezone.now().date(),
+        last_general_review_date=BACKGROUND_EMPTY_REVIEW_DATE,
         summary_of_major_changes='',
         cycle=cycle,
         item=item,
@@ -644,9 +687,392 @@ def _serialize_background_payload(background):
         'phoneNumber': background.phone_number or '',
         'emailAddress': background.email_address or '',
         'yearImplemented': str(background.year_implemented or ''),
-        'lastReviewDate': str(background.last_general_review_date) if background.last_general_review_date else '',
+        'lastReviewDate': _background_review_date_to_display(background.last_general_review_date),
         'majorChanges': background.summary_of_major_changes or '',
     }
+
+
+def _save_background_completion(background, item):
+    completion_percentage = _background_completion_percentage(background)
+    item.status = 1 if completion_percentage >= 100 else 0
+    item.completion_percentage = completion_percentage
+    item.save(update_fields=['status', 'completion_percentage'])
+
+
+def _clean_ai_text(value):
+    return f'{value or ""}'.strip()
+
+
+def _truncate_for_llm(text, limit=16000):
+    cleaned = re.sub(r'\s+', ' ', f'{text or ""}').strip()
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit]
+
+
+def _extract_text_from_docx_bytes(file_bytes):
+    parts = []
+    try:
+        with zipfile.ZipFile(BytesIO(file_bytes)) as archive:
+            for name in archive.namelist():
+                if not name.startswith('word/') or not name.endswith('.xml'):
+                    continue
+                xml_text = archive.read(name).decode('utf-8', errors='ignore')
+                text = html.unescape(re.sub(r'<[^>]+>', ' ', xml_text))
+                text = re.sub(r'\s+', ' ', text).strip()
+                if text:
+                    parts.append(text)
+    except Exception:
+        return ''
+    return '\n'.join(parts)
+
+
+def _extract_text_from_pdf_bytes(file_bytes):
+    # Lightweight PDF fallback: this is intentionally simple and conservative.
+    # It works best for text-based PDFs and gracefully returns partial text when
+    # the file uses standard embedded strings.
+    chunks = []
+    for match in re.findall(rb'\((.*?)(?<!\\)\)', file_bytes, flags=re.DOTALL):
+        text = match
+        for src, dst in (
+            (rb'\\n', b' '),
+            (rb'\\r', b' '),
+            (rb'\\t', b' '),
+            (rb'\\(', b'('),
+            (rb'\\)', b')'),
+            (rb'\\\\', b'\\'),
+        ):
+            text = text.replace(src, dst)
+        decoded = text.decode('latin-1', errors='ignore').strip()
+        if decoded:
+            chunks.append(decoded)
+
+    for stream_bytes in re.findall(rb'stream\s*(.*?)\s*endstream', file_bytes, flags=re.DOTALL):
+        for candidate in (stream_bytes,):
+            try:
+                inflated = zlib.decompress(candidate)
+            except Exception:
+                continue
+            text = re.sub(rb'[^A-Za-z0-9@\.\-\+\(\)/,:;#\s]', b' ', inflated)
+            decoded = text.decode('latin-1', errors='ignore')
+            decoded = re.sub(r'\s+', ' ', decoded).strip()
+            if decoded:
+                chunks.append(decoded)
+
+    return '\n'.join(chunks[:80])
+
+
+def _extract_text_from_uploaded_file(uploaded_file):
+    name = f'{uploaded_file.name or ""}'.lower()
+    file_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+    if not file_bytes:
+        return ''
+
+    if name.endswith(('.txt', '.md', '.csv', '.json', '.yaml', '.yml', '.html', '.xml')):
+        return file_bytes.decode('utf-8', errors='ignore')
+    if name.endswith('.docx'):
+        return _extract_text_from_docx_bytes(file_bytes)
+    if name.endswith('.pdf'):
+        return _extract_text_from_pdf_bytes(file_bytes)
+
+    decoded_utf8 = file_bytes.decode('utf-8', errors='ignore').strip()
+    if decoded_utf8:
+        return decoded_utf8
+    return file_bytes.decode('latin-1', errors='ignore')
+
+
+def _extract_json_object(text):
+    raw_text = f'{text or ""}'.strip()
+    if not raw_text:
+        return None
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r'\{.*\}', raw_text, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+
+def _normalize_contact_line(text):
+    return re.sub(r'\s+', ' ', f'{text or ""}').strip()
+
+
+def _clean_contact_candidate_value(text):
+    value = _normalize_contact_line(text)
+    value = re.sub(r'^(name|title|position|office|location|email|phone|telephone|tel)\s*[:\-]\s*', '', value, flags=re.IGNORECASE)
+    return value.strip(' -,:;')
+
+
+def _extract_email_from_text(text):
+    match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', f'{text or ""}', flags=re.IGNORECASE)
+    return _clean_ai_text(match.group(0) if match else '')
+
+
+def _extract_phone_from_text(text):
+    match = re.search(r'(\+?\d[\d\s\-\(\)]{6,}\d)', f'{text or ""}')
+    if not match:
+        return ''
+    return _clean_ai_text(match.group(1))
+
+
+def _looks_like_name(text):
+    value = _clean_contact_candidate_value(text)
+    if not value:
+        return False
+    if '@' in value or re.search(r'\d', value):
+        return False
+    if len(value) > 80:
+        return False
+    if any(token in value.lower() for token in ('department', 'program', 'office', 'building', 'room', 'email', 'phone', 'tel', 'fax')):
+        return False
+    if re.search(r'(dr\.?|prof\.?|mr\.?|ms\.?|mrs\.?)\s+[A-Za-z]', value, flags=re.IGNORECASE):
+        return True
+    words = [part for part in re.split(r'\s+', value) if part]
+    if len(words) < 2 or len(words) > 5:
+        return False
+    capitalized = sum(1 for word in words if re.fullmatch(r"[A-Z][A-Za-z'`\-]+\.?", word))
+    return capitalized >= 2
+
+
+def _looks_like_title(text):
+    value = _clean_contact_candidate_value(text).lower()
+    title_keywords = (
+        'coordinator', 'chair', 'director', 'dean', 'head', 'manager', 'officer',
+        'professor', 'assistant professor', 'associate professor', 'lecturer',
+        'department', 'program', 'self-study', 'accreditation', 'contact'
+    )
+    return any(keyword in value for keyword in title_keywords)
+
+
+def _looks_like_location(text):
+    value = _clean_contact_candidate_value(text).lower()
+    location_keywords = ('office', 'room', 'building', 'floor', 'campus', 'hall', 'department of', 'school of', 'faculty of')
+    return any(keyword in value for keyword in location_keywords)
+
+
+def _score_contact_line(line):
+    lower_line = line.lower()
+    score = 0
+    if any(keyword in lower_line for keyword in ('abet', 'self-study', 'program contact', 'submitted by', 'prepared by')):
+        score += 8
+    if any(keyword in lower_line for keyword in ('program coordinator', 'program chair', 'department chair', 'program director')):
+        score += 7
+    if any(keyword in lower_line for keyword in ('coordinator', 'chair', 'director', 'head')):
+        score += 4
+    if any(keyword in lower_line for keyword in ('dean', 'professor', 'lecturer')):
+        score += 1
+    if '@' in line:
+        score += 2
+    if re.search(r'(\+?\d[\d\s\-\(\)]{6,}\d)', line):
+        score += 2
+    if _looks_like_name(line):
+        score += 2
+    if _looks_like_title(line):
+        score += 3
+    if any(keyword in lower_line for keyword in ('directory', 'faculty list', 'all faculty', 'committee members', 'roster')):
+        score -= 6
+    return score
+
+
+def _pick_field_value(candidates, validator, minimum_score):
+    valid_candidates = [candidate for candidate in candidates if validator(candidate.get('value'))]
+    if not valid_candidates:
+        return '', False
+    valid_candidates.sort(key=lambda candidate: candidate.get('score', 0), reverse=True)
+    top = valid_candidates[0]
+    runner_up = valid_candidates[1] if len(valid_candidates) > 1 else None
+    if top.get('score', 0) < minimum_score:
+        return '', False
+    if runner_up and (top.get('score', 0) - runner_up.get('score', 0)) < 2:
+        return '', True
+    return _clean_ai_text(top.get('value')), False
+
+
+def _heuristic_background_contact_extraction(text):
+    normalized_text = f'{text or ""}'
+    lines = [_normalize_contact_line(line) for line in normalized_text.splitlines()]
+    lines = [line for line in lines if line]
+    field_candidates = {
+        'contactName': [],
+        'positionTitle': [],
+        'officeLocation': [],
+        'phoneNumber': [],
+        'emailAddress': [],
+    }
+
+    for idx, line in enumerate(lines):
+        score = _score_contact_line(line)
+        window = lines[max(0, idx - 2): min(len(lines), idx + 3)]
+        combined_window = ' | '.join(window)
+
+        email_value = _extract_email_from_text(combined_window)
+        if email_value:
+            field_candidates['emailAddress'].append({'value': email_value, 'score': score + 3, 'context': combined_window})
+
+        phone_value = _extract_phone_from_text(combined_window)
+        if phone_value:
+            field_candidates['phoneNumber'].append({'value': phone_value, 'score': score + 2, 'context': combined_window})
+
+        if _looks_like_name(line):
+            field_candidates['contactName'].append({'value': _clean_contact_candidate_value(line), 'score': score + 3, 'context': combined_window})
+        else:
+            for candidate_line in window:
+                if _looks_like_name(candidate_line):
+                    field_candidates['contactName'].append({'value': _clean_contact_candidate_value(candidate_line), 'score': score + 1, 'context': combined_window})
+
+        if _looks_like_title(line):
+            field_candidates['positionTitle'].append({'value': _clean_contact_candidate_value(line), 'score': score + 3, 'context': combined_window})
+        else:
+            for candidate_line in window:
+                if _looks_like_title(candidate_line):
+                    field_candidates['positionTitle'].append({'value': _clean_contact_candidate_value(candidate_line), 'score': score + 1, 'context': combined_window})
+
+        if _looks_like_location(line):
+            field_candidates['officeLocation'].append({'value': _clean_contact_candidate_value(line), 'score': score + 2, 'context': combined_window})
+        else:
+            for candidate_line in window:
+                if _looks_like_location(candidate_line):
+                    field_candidates['officeLocation'].append({'value': _clean_contact_candidate_value(candidate_line), 'score': score, 'context': combined_window})
+
+    email_value, email_ambiguous = _pick_field_value(field_candidates['emailAddress'], lambda value: bool(_extract_email_from_text(value)), 3)
+    phone_value, phone_ambiguous = _pick_field_value(field_candidates['phoneNumber'], lambda value: bool(_extract_phone_from_text(value)), 2)
+    title_value, title_ambiguous = _pick_field_value(field_candidates['positionTitle'], _looks_like_title, 4)
+    location_value, location_ambiguous = _pick_field_value(field_candidates['officeLocation'], _looks_like_location, 2)
+    name_value, name_ambiguous = _pick_field_value(field_candidates['contactName'], _looks_like_name, 4)
+
+    if not name_value and email_value:
+        email_prefix = email_value.split('@', 1)[0]
+        inferred_name = re.sub(r'[\._\-]+', ' ', email_prefix).strip()
+        inferred_name = ' '.join(part.capitalize() for part in inferred_name.split())
+        if _looks_like_name(inferred_name):
+            name_value = inferred_name
+
+    confidence_notes = []
+    if title_value:
+        confidence_notes.append('A high-scoring program/accreditation title line was found.')
+    if email_value:
+        confidence_notes.append('A matching email candidate was detected near the likely contact context.')
+    if phone_value:
+        confidence_notes.append('A matching phone candidate was detected near the likely contact context.')
+    if location_value:
+        confidence_notes.append('An office/location candidate was found close to the likely contact lines.')
+    ambiguity_flags = [
+        ('name', name_ambiguous),
+        ('title', title_ambiguous),
+        ('office location', location_ambiguous),
+        ('phone', phone_ambiguous),
+        ('email', email_ambiguous),
+    ]
+    ambiguous_fields = [label for label, is_ambiguous in ambiguity_flags if is_ambiguous]
+    if ambiguous_fields:
+        confidence_notes.append(f'Conflicting candidates were found for: {", ".join(ambiguous_fields)}; those fields were left blank.')
+    if not confidence_notes:
+        confidence_notes.append('Only limited structured contact evidence was found in the uploaded files, so uncertain fields were left blank.')
+
+    return {
+        'contactName': _clean_ai_text(name_value),
+        'positionTitle': _clean_ai_text(title_value),
+        'officeLocation': _clean_ai_text(location_value),
+        'phoneNumber': _clean_ai_text(phone_value),
+        'emailAddress': _clean_ai_text(email_value),
+        'confidenceNotes': ' '.join(confidence_notes),
+    }
+
+
+def _run_ollama_background_contact_extraction(text, heuristic_result):
+    model_name = 'llama3.1:8b'
+    prompt = (
+        'You are filling ABET accreditation Background section A: Contact Information.\n'
+        'Use only the provided extracted document text.\n'
+        'Prefer the current program-level ABET/self-study contact, program coordinator, chair, or equivalent.\n'
+        'Apply these rules strictly:\n'
+        '- Only fill fields when the evidence is explicit enough.\n'
+        '- If multiple people appear and the best candidate is not clearly stronger, leave the uncertain fields empty.\n'
+        '- Prefer lines containing terms such as Program Coordinator, Program Chair, Program Director, ABET, self-study, submitted by, or prepared by.\n'
+        '- Do not combine one person\'s name with another person\'s title, phone, email, or office.\n'
+        '- Ignore generic directories, long faculty rosters, committee lists, and unrelated institutional contacts unless they are explicitly marked as the program contact.\n'
+        '- Returning an empty string is better than making a weak guess.\n'
+        'Return only JSON with keys: '
+        'contactName, positionTitle, officeLocation, phoneNumber, emailAddress, confidenceNotes.\n'
+        'If a value is unknown, use an empty string.\n'
+        'confidenceNotes should be 2-4 concise sentences and mention any ambiguity or why fields were left empty.\n\n'
+        f'Heuristic hints:\n{json.dumps(heuristic_result, ensure_ascii=True)}\n\n'
+        f'Extracted text:\n{_truncate_for_llm(text, limit=6000)}\n'
+    )
+
+    try:
+        result = _run_ollama_command(prompt, timeout=90, model_name=model_name)
+    except FileNotFoundError:
+        return None, 'Ollama is not installed on this machine yet.'
+    except Exception as exc:
+        return None, f'Unable to start the local LLaMA runtime: {exc}'
+
+    if result.returncode != 0:
+        stderr = f'{result.stderr or ""}'.strip()
+        return None, stderr or 'The local LLaMA model did not complete successfully.'
+
+    parsed = _extract_json_object(result.stdout)
+    if not isinstance(parsed, dict):
+        return None, 'The local LLaMA model returned an invalid JSON response.'
+
+    result = {
+        'contactName': _clean_ai_text(parsed.get('contactName')),
+        'positionTitle': _clean_ai_text(parsed.get('positionTitle')),
+        'officeLocation': _clean_ai_text(parsed.get('officeLocation')),
+        'phoneNumber': _clean_ai_text(parsed.get('phoneNumber')),
+        'emailAddress': _clean_ai_text(parsed.get('emailAddress')),
+        'confidenceNotes': _clean_ai_text(parsed.get('confidenceNotes')),
+    }
+
+    if result['contactName'] and not _looks_like_name(result['contactName']):
+        result['contactName'] = ''
+    if result['positionTitle'] and not _looks_like_title(result['positionTitle']):
+        result['positionTitle'] = ''
+    if result['officeLocation'] and not _looks_like_location(result['officeLocation']):
+        result['officeLocation'] = ''
+    if result['emailAddress'] and not _extract_email_from_text(result['emailAddress']):
+        result['emailAddress'] = ''
+    if result['phoneNumber'] and not _extract_phone_from_text(result['phoneNumber']):
+        result['phoneNumber'] = ''
+
+    return result, None
+
+
+def _extract_background_section_a_from_files(files):
+    text_parts = []
+    file_summaries = []
+    for uploaded_file in files:
+        extracted_text = _extract_text_from_uploaded_file(uploaded_file)
+        if extracted_text.strip():
+            text_parts.append(f'File: {uploaded_file.name}\n{extracted_text}')
+            file_summaries.append(uploaded_file.name or 'document')
+
+    combined_text = '\n\n'.join(text_parts).strip()
+    if not combined_text:
+        return None, 'The selected files did not contain readable text for extraction.'
+
+    heuristic_result = _heuristic_background_contact_extraction(combined_text)
+    llama_result, llama_error = _run_ollama_background_contact_extraction(combined_text, heuristic_result)
+    if llama_result:
+        confidence_notes = llama_result.get('confidenceNotes') or ''
+        if file_summaries:
+            confidence_notes = f'{confidence_notes} Source files: {", ".join(file_summaries[:4])}.'.strip()
+        llama_result['confidenceNotes'] = confidence_notes.strip()
+        return llama_result, None
+
+    heuristic_result['confidenceNotes'] = (
+        f'{heuristic_result.get("confidenceNotes", "")} '
+        f'Local LLaMA was not used: {llama_error} '
+        'A rule-based extraction fallback was applied instead.'
+    ).strip()
+    return heuristic_result, None
 
 
 @api_view(['GET', 'PUT'])
@@ -683,6 +1109,7 @@ def cycle_background(request, cycle_id):
         not year_error and
         not review_date_error and
         year_implemented is not None and
+        last_review_date is not None and
         year_implemented > int(last_review_date.year)
     ):
         validation_errors['yearImplemented'] = ['Year Implemented cannot be after Date of Last General Review.']
@@ -695,18 +1122,137 @@ def cycle_background(request, cycle_id):
     background.phone_number = phone_number_validated
     background.email_address = email_address
     background.year_implemented = year_implemented
-    background.last_general_review_date = last_review_date
+    background.last_general_review_date = _background_review_date_to_storage(last_review_date)
     background.summary_of_major_changes = major_changes
     background.cycle = cycle
     background.item = item
     background.save()
 
-    completion_percentage = _background_completion_percentage(background)
-    item.status = 1 if completion_percentage >= 100 else 0
-    item.completion_percentage = completion_percentage
-    item.save(update_fields=['status', 'completion_percentage'])
+    _save_background_completion(background, item)
 
     return Response(_serialize_background_payload(background))
+
+
+@api_view(['POST'])
+def cycle_textbox_ai_extract(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    page_key = f'{request.data.get("pageKey", "")}'.strip()
+    section_title = f'{request.data.get("sectionTitle", "")}'.strip()
+    files = request.FILES.getlist('files')
+    if not files:
+        return Response({'detail': 'Please upload at least one document first.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    current_fields_raw = request.data.get('currentState', request.data.get('currentFields', '{}'))
+    try:
+        current_fields = json.loads(current_fields_raw) if current_fields_raw else {}
+    except json.JSONDecodeError:
+        current_fields = {}
+
+    extracted, extraction_error = extract_ai_section(page_key, section_title, current_fields, files)
+    if extraction_error:
+        return Response({'detail': extraction_error}, status=status.HTTP_400_BAD_REQUEST)
+    if extracted.get('mode') == 'structured':
+        return Response({
+            'pageKey': page_key,
+            'sectionTitle': section_title,
+            'mode': 'structured',
+            'extractedFields': extracted.get('extractedFields', {}),
+            'rows': extracted.get('rows', []),
+            'confidenceNotes': extracted.get('confidenceNotes', ''),
+            'message': 'Local AI extraction completed.',
+        })
+    return Response({
+        'pageKey': page_key,
+        'sectionTitle': section_title,
+        'mode': 'textbox',
+        'mergedFields': extracted.get('mergedFields', {}),
+        'appliedFields': extracted.get('appliedFields', []),
+        'preservedFields': extracted.get('preservedFields', []),
+        'confidenceNotes': extracted.get('confidenceNotes', ''),
+        'message': 'Local AI extraction completed.',
+    })
+
+
+@api_view(['POST'])
+def cycle_background_llama_extract(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    background, item = _ensure_background(cycle)
+    section_title = f'{request.data.get("sectionTitle", "")}'.strip()
+    if section_title != 'A. Contact Information':
+        return Response(
+            {'detail': 'Local AI extraction is currently available only for Background section A.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    files = request.FILES.getlist('files')
+    if not files:
+        return Response({'detail': 'Please upload at least one document first.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    current_fields_raw = request.data.get('currentFields', '{}')
+    try:
+        current_fields = json.loads(current_fields_raw) if current_fields_raw else {}
+    except json.JSONDecodeError:
+        current_fields = {}
+
+    extracted, extraction_error = _extract_background_section_a_from_files(files)
+    if extraction_error:
+        return Response({'detail': extraction_error}, status=status.HTTP_400_BAD_REQUEST)
+
+    existing_values = {
+        'contactName': _clean_ai_text(current_fields.get('contactName')) or (background.program_contact_name or '').strip(),
+        'positionTitle': _clean_ai_text(current_fields.get('positionTitle')) or (background.contact_title or '').strip(),
+        'officeLocation': _clean_ai_text(current_fields.get('officeLocation')) or (background.office_location or '').strip(),
+        'phoneNumber': _clean_ai_text(current_fields.get('phoneNumber')) or (background.phone_number or '').strip(),
+        'emailAddress': _clean_ai_text(current_fields.get('emailAddress')) or (background.email_address or '').strip(),
+    }
+
+    merged = {}
+    applied_fields = []
+    preserved_fields = []
+    for field_name in ('contactName', 'positionTitle', 'officeLocation', 'phoneNumber', 'emailAddress'):
+        existing_value = existing_values[field_name]
+        extracted_value = _clean_ai_text(extracted.get(field_name))
+        if existing_value:
+            merged[field_name] = existing_value
+            preserved_fields.append(field_name)
+        else:
+            merged[field_name] = extracted_value
+            if extracted_value:
+                applied_fields.append(field_name)
+
+    phone_number_validated, phone_error = _validate_background_phone(merged['phoneNumber'])
+    if phone_error:
+        return Response({'phoneNumber': [phone_error]}, status=status.HTTP_400_BAD_REQUEST)
+    merged['phoneNumber'] = phone_number_validated
+
+    background.program_contact_name = merged['contactName']
+    background.contact_title = merged['positionTitle']
+    background.office_location = merged['officeLocation']
+    background.phone_number = merged['phoneNumber']
+    background.email_address = merged['emailAddress']
+    background.save(update_fields=[
+        'program_contact_name',
+        'contact_title',
+        'office_location',
+        'phone_number',
+        'email_address',
+    ])
+    _save_background_completion(background, item)
+
+    return Response({
+        'sectionTitle': section_title,
+        'mergedFields': merged,
+        'appliedFields': applied_fields,
+        'preservedFields': preserved_fields,
+        'confidenceNotes': _clean_ai_text(extracted.get('confidenceNotes')),
+        'message': 'Local AI extraction completed for Background section A.',
+    })
 
 
 @api_view(['GET', 'PUT'])
@@ -1910,6 +2456,22 @@ def cycle_appendixd(request, cycle_id):
         if parsed < 0:
             return 0, f'{label} must be a non-negative integer.'
         return parsed, None
+    def _optional_nonnegative_number(value, label):
+        text = f'{value or ""}'.strip()
+        if text == '':
+            return 0, None
+        try:
+            parsed = float(text)
+        except (TypeError, ValueError):
+            return 0, f'{label} must be a non-negative number.'
+        if parsed < 0:
+            return 0, f'{label} must be a non-negative number.'
+        return parsed, None
+    def _is_valid_academic_year(value):
+        match = re.fullmatch(r'(\d{4})-(\d{4})', value or '')
+        if not match:
+            return False
+        return int(match.group(2)) == int(match.group(1)) + 1
 
     normalized_academic = []
     row_errors = {}
@@ -1961,6 +2523,7 @@ def cycle_appendixd(request, cycle_id):
         normalized_nonacademic.append(normalized)
 
     normalized_enrollment = []
+    seen_enrollment_keys = set()
     for row in enrollment_records:
         if not isinstance(row, dict):
             continue
@@ -1969,7 +2532,6 @@ def cycle_appendixd(request, cycle_id):
         year3_count, err_year3 = _optional_nonnegative_int(row.get('year3_count', row.get('y3')), '3rd year enrollment')
         year4_count, err_year4 = _optional_nonnegative_int(row.get('year4_count', row.get('y4')), '4th year enrollment')
         year5_count, err_year5 = _optional_nonnegative_int(row.get('year5_count', row.get('y5')), '5th year enrollment')
-        total_undergraduate, err_ug = _optional_nonnegative_int(row.get('total_undergraduate', row.get('ug')), 'Total UG')
         total_graduate, err_grad = _optional_nonnegative_int(row.get('total_graduate', row.get('grad')), 'Total Grad')
         associates_awarded, err_a = _optional_nonnegative_int(row.get('associates_awarded', row.get('a')), 'Associates')
         bachelors_awarded, err_b = _optional_nonnegative_int(row.get('bachelors_awarded', row.get('b')), 'Bachelors')
@@ -1977,13 +2539,13 @@ def cycle_appendixd(request, cycle_id):
         doctorates_awarded, err_d = _optional_nonnegative_int(row.get('doctorates_awarded', row.get('d')), 'Doctorates')
         normalized = {
             'academic_year': _norm_text(row.get('academic_year', row.get('year'))),
-            'student_type': _norm_text(row.get('student_type', row.get('type'))),
+            'student_type': _norm_text(row.get('student_type', row.get('type'))).upper(),
             'year1_count': year1_count,
             'year2_count': year2_count,
             'year3_count': year3_count,
             'year4_count': year4_count,
             'year5_count': year5_count,
-            'total_undergraduate': total_undergraduate,
+            'total_undergraduate': year1_count + year2_count + year3_count + year4_count + year5_count,
             'total_graduate': total_graduate,
             'associates_awarded': associates_awarded,
             'bachelors_awarded': bachelors_awarded,
@@ -1995,19 +2557,31 @@ def cycle_appendixd(request, cycle_id):
         has_any = (
             normalized['academic_year'] or normalized['student_type'] or
             normalized['year1_count'] or normalized['year2_count'] or normalized['year3_count'] or normalized['year4_count'] or
-            normalized['year5_count'] or normalized['total_undergraduate'] or normalized['total_graduate'] or
+            normalized['year5_count'] or normalized['total_graduate'] or
             normalized['associates_awarded'] or normalized['bachelors_awarded'] or normalized['masters_awarded'] or normalized['doctorates_awarded']
         )
         if not has_any:
             continue
+        if not normalized['academic_year']:
+            current_errors.append('Academic Year is required.')
+        elif not _is_valid_academic_year(normalized['academic_year']):
+            current_errors.append('Academic Year must use YYYY-YYYY.')
+        if not normalized['student_type']:
+            current_errors.append('FT/PT is required.')
         if normalized['student_type'] and normalized['student_type'].upper() not in ('FT', 'PT'):
             current_errors.append('FT/PT must be either FT or PT.')
         for parse_error in [
             err_year1, err_year2, err_year3, err_year4, err_year5,
-            err_ug, err_grad, err_a, err_b, err_m, err_d
+            err_grad, err_a, err_b, err_m, err_d
         ]:
             if parse_error:
                 current_errors.append(parse_error)
+        duplicate_key = f"{normalized['academic_year']}::{normalized['student_type']}"
+        if normalized['academic_year'] and normalized['student_type']:
+            if duplicate_key in seen_enrollment_keys:
+                current_errors.append('Duplicate Academic Year + FT/PT combination.')
+            else:
+                seen_enrollment_keys.add(duplicate_key)
         if current_errors:
             row_errors[f'enrollmentRecords[{row_index}]'] = current_errors
         normalized_enrollment.append(normalized)
@@ -2018,18 +2592,20 @@ def cycle_appendixd(request, cycle_id):
             continue
         full_time_count, err_ft = _optional_nonnegative_int(row.get('full_time_count', row.get('ft')), 'FT')
         part_time_count, err_pt = _optional_nonnegative_int(row.get('part_time_count', row.get('pt')), 'PT')
-        fte_count, err_fte = _optional_nonnegative_int(row.get('fte_count', row.get('fte')), 'FTE')
+        fte_count, err_fte = _optional_nonnegative_number(row.get('fte_count', row.get('fte')), 'FTE')
         normalized = {
             'employment_category': _norm_text(row.get('employment_category', row.get('cat'))),
             'full_time_count': full_time_count,
             'part_time_count': part_time_count,
-            'fte_count': fte_count,
+            'fte_count': full_time_count + (part_time_count * 0.5),
         }
         row_index = len(normalized_personnel)
         current_errors = []
         has_any = normalized['employment_category'] or normalized['full_time_count'] or normalized['part_time_count'] or normalized['fte_count']
         if not has_any:
             continue
+        if not normalized['employment_category']:
+            current_errors.append('Employment Category is required.')
         for parse_error in [err_ft, err_pt, err_fte]:
             if parse_error:
                 current_errors.append(parse_error)
@@ -2329,8 +2905,85 @@ class EvidenceFileViewSet(viewsets.ModelViewSet):
     """
     API endpoint for Evidence Files
     """
-    queryset = EvidenceFile.objects.all()
     serializer_class = EvidenceFileSerializer
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        queryset = EvidenceFile.objects.select_related('user', 'cycle', 'program').order_by('-uploaded_at', '-evidence_id')
+        cycle_id = self.request.query_params.get('cycle_id')
+        program_id = self.request.query_params.get('program_id')
+
+        if cycle_id:
+            queryset = queryset.filter(cycle_id=cycle_id)
+        if program_id:
+            queryset = queryset.filter(program_id=program_id)
+
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        upload = request.FILES.get('file')
+        cycle_id = request.data.get('cycle') or request.data.get('cycle_id')
+        program_id = request.data.get('program') or request.data.get('program_id')
+
+        if upload is None:
+            return Response({'detail': 'A file is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not cycle_id:
+            return Response({'detail': 'cycle_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not program_id:
+            return Response({'detail': 'program_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        cycle = AccreditationCycle.objects.filter(pk=cycle_id).first()
+        if cycle is None:
+            return Response({'detail': 'Cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        program = Program.objects.filter(pk=program_id).first()
+        if program is None:
+            return Response({'detail': 'Program not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        user = _get_request_user(request)
+        if user is None:
+            return Response({'detail': 'Authentication required.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        content = upload.read()
+        last_modified_raw = request.data.get('last_modified')
+        try:
+            last_modified = int(last_modified_raw) if last_modified_raw not in (None, '') else None
+        except (TypeError, ValueError):
+            last_modified = None
+
+        existing = EvidenceFile.objects.filter(
+            cycle=cycle,
+            program=program,
+            file_name=upload.name,
+            file_size=upload.size or len(content),
+            last_modified=last_modified,
+        ).order_by('-uploaded_at').first()
+        if existing is not None:
+            serializer = self.get_serializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        evidence = EvidenceFile.objects.create(
+            file_name=upload.name,
+            file_type=upload.content_type or 'application/octet-stream',
+            upload_date=timezone.now().date(),
+            cycle=cycle,
+            program=program,
+            user=user,
+            uploaded_at=timezone.now(),
+            file_size=upload.size or len(content),
+            last_modified=last_modified,
+            file_blob=content,
+        )
+        serializer = self.get_serializer(evidence)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        evidence = self.get_object()
+        response = HttpResponse(bytes(evidence.file_blob), content_type=evidence.file_type or 'application/octet-stream')
+        response['Content-Disposition'] = f'inline; filename="{evidence.file_name}"'
+        response['Content-Length'] = evidence.file_size
+        return response
 
 
 class AccreditationCycleViewSet(viewsets.ModelViewSet):
@@ -2433,6 +3086,15 @@ def _serialize_peo(row):
     }
 
 
+def _renumber_program_peos(program_id):
+    rows = list(Peo.objects.filter(program_id=program_id).order_by('peo_id'))
+    for index, row in enumerate(rows, start=1):
+        next_code = f'P{program_id}-PEO{index}'
+        if row.peo_code != next_code:
+            row.peo_code = next_code
+            row.save(update_fields=['peo_code'])
+
+
 def _ensure_supports_peo_table():
     with connection.cursor() as cursor:
         cursor.execute(
@@ -2505,6 +3167,15 @@ def _serialize_clo(row):
         'display_code': display_code,
         'description': row.get('description') or '',
     }
+
+
+def _renumber_program_clos(program_id):
+    rows = _program_clo_rows(program_id)
+    with connection.cursor() as cursor:
+        for index, row in enumerate(rows, start=1):
+            next_code = f'P{program_id}-CLO{index}'
+            if (row.get('level') or '') != next_code:
+                cursor.execute('UPDATE CLO SET level = %s WHERE clo_id = %s', [next_code, row.get('clo_id')])
 
 
 def _next_pk(table_name, pk_column):
@@ -2890,6 +3561,8 @@ def program_peos(request, program_id):
         peo_description=description,
         program_id=program_id,
     )
+    _renumber_program_peos(program_id)
+    peo_row.refresh_from_db()
     return Response(_serialize_peo(peo_row), status=status.HTTP_201_CREATED)
 
 
@@ -2902,6 +3575,7 @@ def program_peo_detail(request, program_id, peo_id):
 
     if request.method == 'DELETE':
         peo_row.delete()
+        _renumber_program_peos(program_id)
         return Response({'detail': 'PEO deleted successfully.'}, status=status.HTTP_200_OK)
 
     description = f'{request.data.get("peo_description", "")}'.strip()
@@ -2939,9 +3613,11 @@ def program_clos(request, program_id):
                 'INSERT INTO CLO (clo_id, description, level) VALUES (%s, %s, %s)',
                 [next_clo_id, description, stored_code]
             )
+            _renumber_program_clos(program_id)
 
+    refreshed_row = next((item for item in _program_clo_rows(program_id) if int(item.get('clo_id') or 0) == next_clo_id), None)
     return Response(
-        _serialize_clo({'clo_id': next_clo_id, 'description': description, 'level': stored_code}),
+        _serialize_clo(refreshed_row or {'clo_id': next_clo_id, 'description': description, 'level': stored_code}),
         status=status.HTTP_201_CREATED
     )
 
@@ -2964,6 +3640,7 @@ def program_clo_detail(request, program_id, clo_id):
                 cursor.execute('DELETE FROM HAS_CLO WHERE clo_id = %s', [clo_id])
                 cursor.execute('DELETE FROM MAPS_TO WHERE clo_id = %s', [clo_id])
                 cursor.execute('DELETE FROM CLO WHERE clo_id = %s', [clo_id])
+                _renumber_program_clos(program_id)
         return Response({'detail': 'CLO deleted successfully.'}, status=status.HTTP_200_OK)
 
     description = f'{request.data.get("description", "")}'.strip()

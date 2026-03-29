@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
+from django.utils import timezone
 
 # ============================================================================
 # BASE MODELS (Required by Criterion 7 & 8)
@@ -454,10 +455,15 @@ class StaffingRow(models.Model):
 class EvidenceFile(models.Model):
     evidence_id = models.AutoField(primary_key=True)
     file_name = models.CharField(max_length=255)
-    file_type = models.CharField(max_length=50)
+    file_type = models.CharField(max_length=255)
     upload_date = models.DateField()
     cycle = models.ForeignKey(AccreditationCycle, on_delete=models.CASCADE, db_column='Cycle_ID')
+    program = models.ForeignKey(Program, on_delete=models.CASCADE, db_column='program_id', null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, db_column='user_id')
+    uploaded_at = models.DateTimeField(default=timezone.now)
+    file_size = models.BigIntegerField(default=0)
+    last_modified = models.BigIntegerField(null=True, blank=True)
+    file_blob = models.BinaryField()
 
     class Meta:
         db_table = 'EVIDENCE_FILE'

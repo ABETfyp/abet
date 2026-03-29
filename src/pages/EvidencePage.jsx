@@ -3,103 +3,12 @@ import { Upload, Search, FileText, Eye, Trash2 } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { colors, fontStack } from '../styles/theme';
 import { getActiveContext } from '../utils/activeContext';
-
-const EVIDENCE_DB_NAME = 'abet-evidence-library-documents';
-const EVIDENCE_STORE = 'documents';
-
-const openEvidenceDb = () => new Promise((resolve, reject) => {
-  const request = window.indexedDB.open(EVIDENCE_DB_NAME, 1);
-  request.onupgradeneeded = () => {
-    const db = request.result;
-    if (!db.objectStoreNames.contains(EVIDENCE_STORE)) {
-      const store = db.createObjectStore(EVIDENCE_STORE, { keyPath: 'id' });
-      store.createIndex('by_cycle_program', ['cycleId', 'programId'], { unique: false });
-    }
-  };
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error || new Error('Unable to open evidence library storage.'));
-});
-
-const listEvidenceDocuments = async (cycleId, programId) => {
-  const db = await openEvidenceDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(EVIDENCE_STORE, 'readonly');
-    const store = tx.objectStore(EVIDENCE_STORE);
-    const index = store.index('by_cycle_program');
-    const req = index.getAll(IDBKeyRange.only([String(cycleId), String(programId)]));
-    req.onsuccess = () => {
-      const rows = req.result || [];
-      rows.sort((a, b) => `${b.uploadedAt || ''}`.localeCompare(`${a.uploadedAt || ''}`));
-      resolve(rows);
-    };
-    req.onerror = () => reject(req.error || new Error('Unable to read evidence documents.'));
-  });
-};
-
-const appendEvidenceDocuments = async (cycleId, programId, files, uploadedBy) => {
-  const db = await openEvidenceDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(EVIDENCE_STORE, 'readwrite');
-    const store = tx.objectStore(EVIDENCE_STORE);
-    const index = store.index('by_cycle_program');
-    const existingReq = index.getAll(IDBKeyRange.only([String(cycleId), String(programId)]));
-
-    existingReq.onsuccess = () => {
-      const existing = existingReq.result || [];
-      const existingKeySet = new Set(existing.map((row) => `${row.name}::${row.lastModified}::${row.size}`));
-      files.forEach((file, idx) => {
-        const key = `${file.name}::${file.lastModified}::${file.size}`;
-        if (existingKeySet.has(key)) return;
-        store.put({
-          id: `${cycleId}-${programId}-${file.name}-${file.lastModified}-${idx}`,
-          cycleId: String(cycleId),
-          programId: String(programId),
-          name: file.name,
-          type: file.type || 'Unknown',
-          size: file.size,
-          lastModified: file.lastModified,
-          uploadedBy,
-          uploadedAt: new Date().toISOString(),
-          fileBlob: file
-        });
-      });
-    };
-
-    existingReq.onerror = () => reject(existingReq.error || new Error('Unable to save evidence documents.'));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error || new Error('Unable to save evidence documents.'));
-  });
-};
-
-const deleteEvidenceDocumentById = async (docId) => {
-  const db = await openEvidenceDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(EVIDENCE_STORE, 'readwrite');
-    tx.objectStore(EVIDENCE_STORE).delete(docId);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error || new Error('Unable to delete evidence document.'));
-  });
-};
-
-const decodeUserEmailFromToken = () => {
-  try {
-    const token = localStorage.getItem('accessToken');
-    if (!token) return 'Faculty Admin';
-    const payloadRaw = token.split('.')[1];
-    if (!payloadRaw) return 'Faculty Admin';
-    const normalized = payloadRaw.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(normalized)
-        .split('')
-        .map((c) => `%${(`00${c.charCodeAt(0).toString(16)}`).slice(-2)}`)
-        .join('')
-    );
-    const payload = JSON.parse(jsonPayload);
-    return payload?.email || 'Faculty Admin';
-  } catch (_error) {
-    return 'Faculty Admin';
-  }
-};
+import {
+  deleteEvidenceLibraryDocument,
+  fetchEvidenceLibraryDocumentBlob,
+  listEvidenceLibraryDocuments,
+  uploadEvidenceLibraryDocuments
+} from '../utils/evidenceLibrary';
 
 const formatDate = (isoString) => {
   if (!isoString) return '-';
@@ -128,7 +37,7 @@ const EvidencePage = ({ onToggleSidebar, onBack }) => {
   const loadDocuments = async () => {
     try {
       setLoading(true);
-      const rows = await listEvidenceDocuments(cycleId, programId);
+      const rows = await listEvidenceLibraryDocuments(cycleId, programId);
       setDocuments(rows);
     } catch (error) {
       setStatusMessage(error?.message || 'Unable to load evidence documents.');
@@ -152,8 +61,7 @@ const EvidencePage = ({ onToggleSidebar, onBack }) => {
     try {
       const files = Array.from(event.target.files || []);
       if (files.length === 0) return;
-      const uploader = decodeUserEmailFromToken();
-      await appendEvidenceDocuments(cycleId, programId, files, uploader);
+      await uploadEvidenceLibraryDocuments(cycleId, programId, files);
       await loadDocuments();
       setStatusMessage(`${files.length} file(s) uploaded successfully.`);
     } catch (error) {
@@ -161,19 +69,20 @@ const EvidencePage = ({ onToggleSidebar, onBack }) => {
     }
   };
 
-  const handleViewDocument = (doc) => {
-    if (!doc?.fileBlob) {
-      setStatusMessage('Unable to open this file.');
-      return;
+  const handleViewDocument = async (doc) => {
+    try {
+      const blob = await fetchEvidenceLibraryDocumentBlob(doc?.id);
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+    } catch (error) {
+      setStatusMessage(error?.message || 'Unable to open this file.');
     }
-    const objectUrl = URL.createObjectURL(doc.fileBlob);
-    window.open(objectUrl, '_blank', 'noopener,noreferrer');
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
   };
 
   const handleDeleteDocument = async (docId) => {
     try {
-      await deleteEvidenceDocumentById(docId);
+      await deleteEvidenceLibraryDocument(docId);
       await loadDocuments();
       setStatusMessage('Document deleted.');
     } catch (error) {

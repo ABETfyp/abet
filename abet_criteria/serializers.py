@@ -1,3 +1,5 @@
+import re
+
 from rest_framework import serializers
 from .models import (
     Criterion1Students,
@@ -25,6 +27,21 @@ from .models import (
 
 
 class Criterion1StudentsSerializer(serializers.ModelSerializer):
+    def validate_minimum_required_credits(self, value):
+        if value is None:
+            return 0
+        if int(value) < 0:
+            raise serializers.ValidationError('Minimum required credits must be a non-negative number.')
+        return int(value)
+
+    def validate_required_gpa_or_standing(self, value):
+        text = f'{value or ""}'.strip()
+        if not text:
+            return ''
+        if not re.fullmatch(r'\d+(?:\.\d+)?', text):
+            raise serializers.ValidationError('Required GPA or standing must contain numbers only.')
+        return text
+
     class Meta:
         model = Criterion1Students
         fields = '__all__'
@@ -212,9 +229,39 @@ class Criterion8InstitutionalSupportSerializer(serializers.ModelSerializer):
 # ============================================================================
 
 class EvidenceFileSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='evidence_id', read_only=True)
+    name = serializers.CharField(source='file_name', read_only=True)
+    type = serializers.CharField(source='file_type', read_only=True)
+    size = serializers.IntegerField(source='file_size', read_only=True)
+    lastModified = serializers.IntegerField(source='last_modified', read_only=True)
+    uploadedAt = serializers.DateTimeField(source='uploaded_at', read_only=True)
+    uploadedBy = serializers.EmailField(source='user.email', read_only=True)
+    cycleId = serializers.IntegerField(source='cycle_id', read_only=True)
+    programId = serializers.IntegerField(source='program_id', read_only=True)
+
     class Meta:
         model = EvidenceFile
-        fields = '__all__'
+        fields = (
+            'id',
+            'evidence_id',
+            'name',
+            'file_name',
+            'type',
+            'file_type',
+            'size',
+            'file_size',
+            'lastModified',
+            'last_modified',
+            'uploadedAt',
+            'uploaded_at',
+            'uploadedBy',
+            'upload_date',
+            'cycle',
+            'cycleId',
+            'program',
+            'programId',
+            'user',
+        )
 
 
 class AccreditationCycleSerializer(serializers.ModelSerializer):

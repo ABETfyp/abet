@@ -49,9 +49,9 @@ const EvidenceLibraryImport = ({ cycleId, programId, onImportFiles }) => {
 
   const handleImport = async () => {
     try {
-      const files = selectedDocs
-        .map((doc) => toFileFromEvidenceDocument(doc))
-        .filter(Boolean);
+      const files = (await Promise.all(
+        selectedDocs.map((doc) => toFileFromEvidenceDocument(doc))
+      )).filter(Boolean);
       if (files.length === 0) {
         setError('No valid documents selected.');
         return;

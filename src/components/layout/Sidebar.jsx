@@ -714,7 +714,8 @@ const Sidebar = ({
         return;
       }
       await apiRequest(`/programs/${resolvedProgramId}/clos/${cloId}/`, { method: 'DELETE' });
-      setClos((prev) => prev.filter((row) => Number(row.clo_id) !== Number(cloId)));
+      const refreshedRows = await apiRequest(`/programs/${resolvedProgramId}/clos/`, { method: 'GET' });
+      setClos(Array.isArray(refreshedRows) ? refreshedRows : []);
       setDeleteCloConfirm({ open: false, cloId: null, label: '' });
     } catch (error) {
       setCloError(error?.message || 'Unable to delete CLO.');
@@ -882,7 +883,8 @@ const Sidebar = ({
         return;
       }
       await apiRequest(`/programs/${resolvedProgramId}/peos/${peoId}/`, { method: 'DELETE' });
-      setPeos((prev) => prev.filter((row) => Number(row.peo_id) !== Number(peoId)));
+      const refreshedRows = await apiRequest(`/programs/${resolvedProgramId}/peos/`, { method: 'GET' });
+      setPeos(Array.isArray(refreshedRows) ? refreshedRows : []);
       window.dispatchEvent(new CustomEvent('so-peo-updated'));
       setDeletePeoConfirm({ open: false, peoId: null, label: '' });
     } catch (error) {
