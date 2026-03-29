@@ -384,6 +384,30 @@ class AiExtractionSafetyTests(SimpleTestCase):
         self.assertEqual(result['appliedFields'], [])
         self.assertIn('safe rule-based fallback is disabled', result['confidenceNotes'])
 
+    def test_criterion7_maintenance_textbox_section_uses_gemini_when_available(self):
+        upload = SimpleUploadedFile(
+            'criterion7-maintenance.txt',
+            b'Facilities are reviewed each semester, preventive maintenance is scheduled annually, and high-use equipment is replaced on a planned cycle.'
+        )
+
+        with patch(
+            'abet_criteria.textbox_ai._run_textbox_gemini',
+            return_value=({
+                'maintenance_policy_description': 'Facilities are reviewed each semester, preventive maintenance is scheduled annually, and high-use equipment is replaced on a planned cycle.',
+                'confidenceNotes': 'Gemini extracted the maintenance policy narrative from the uploaded evidence.',
+            }, '')
+        ):
+            result, error = extract_textbox_section(
+                'criterion7',
+                'D. Maintenance and Upgrading',
+                {},
+                [upload],
+            )
+
+        self.assertIsNone(error)
+        self.assertEqual(result['appliedFields'], ['maintenance_policy_description'])
+        self.assertIn('preventive maintenance', result['mergedFields']['maintenance_policy_description'])
+
     def test_criterion1_serializer_rejects_non_numeric_gpa(self):
         serializer = Criterion1StudentsSerializer(
             data={'required_gpa_or_standing': 'good standing'},

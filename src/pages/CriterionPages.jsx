@@ -277,6 +277,7 @@ const CRITERION2_TEXTBOX_SECTION_FIELDS = {
 
 const CRITERION7_TEXTBOX_SECTION_FIELDS = {
   'C. Guidance': ['guidance_description', 'responsible_faculty_name'],
+  'D. Maintenance and Upgrading': ['maintenance_policy_description'],
   'E. Library Services': ['technical_collections_and_journals', 'electronic_databases_and_eresources', 'faculty_book_request_process', 'library_access_hours_and_systems'],
   'F. Overall Comments': ['facilities_support_student_outcomes', 'safety_and_inspection_processes', 'compliance_with_university_policy'],
 };
@@ -3887,7 +3888,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [isCriterion7Complete, setIsCriterion7Complete] = useState(false);
-  const [criterion7DocModal, setCriterion7DocModal] = useState({ open: false, sectionTitle: '' });
+  const [criterion7DocModal, setCriterion7DocModal] = useState({ open: false, sectionTitle: '', extractionMode: 'structured' });
   const [criterion7Docs, setCriterion7Docs] = useState([]);
   const [criterion7DocStatus, setCriterion7DocStatus] = useState('');
   const [criterion7DocLoading, setCriterion7DocLoading] = useState(false);
@@ -4378,9 +4379,12 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
     saveCriterion7();
   };
 
-  const openCriterion7UploadModal = async (sectionTitle) => {
+  const openCriterion7UploadModal = async (sectionTitle, extractionMode = null) => {
+    const resolvedMode = extractionMode || (
+      CRITERION7_TEXTBOX_SECTION_FIELDS[sectionTitle] ? 'textbox' : 'structured'
+    );
     setCriterion7DocStatus('');
-    setCriterion7DocModal({ open: true, sectionTitle });
+    setCriterion7DocModal({ open: true, sectionTitle, extractionMode: resolvedMode });
     try {
       const docs = await listCriterion1SectionDocs(cycleId, `Criterion7:${sectionTitle}`);
       setCriterion7Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
@@ -4391,7 +4395,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   };
 
   const closeCriterion7UploadModal = () => {
-    setCriterion7DocModal({ open: false, sectionTitle: '' });
+    setCriterion7DocModal({ open: false, sectionTitle: '', extractionMode: 'structured' });
     setCriterion7Docs([]);
     setCriterion7DocStatus('');
   };
@@ -4559,7 +4563,9 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   const handleExtractCriterion7WithAi = async () => {
     if (criterion7DocLoading) return;
     const eligibleFields = CRITERION7_TEXTBOX_SECTION_FIELDS[criterion7DocModal.sectionTitle];
-    const structuredFields = CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle];
+    const structuredFields = criterion7DocModal.extractionMode === 'structured'
+      ? CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle]
+      : null;
     const isStructuredSection = Boolean(structuredFields);
     if (!eligibleFields && !isStructuredSection) {
       setCriterion7DocStatus('Local AI extraction is not enabled for this section yet because it includes unsupported fields.');
@@ -4909,7 +4915,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
               <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>D. Maintenance and Upgrading of Facilities</h3>
               <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>Describe how maintenance and upgrades are planned and tracked.</p>
             </div>
-            <button type="button" onClick={() => openCriterion7UploadModal('D. Maintenance and Upgrading')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button type="button" onClick={() => openCriterion7UploadModal('D. Maintenance and Upgrading', 'textbox')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Upload size={16} /> Upload Documents
             </button>
           </div>
@@ -4955,7 +4961,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
             <button onClick={addUpgradingFacilityRow} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Plus size={14} /> Add maintenance row
             </button>
-            <button type="button" onClick={() => openCriterion7UploadModal('D. Maintenance and Upgrading')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button type="button" onClick={() => openCriterion7UploadModal('D. Maintenance and Upgrading', 'structured')} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', padding: '8px 10px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Upload size={14} /> Upload Documents
             </button>
           </div>
