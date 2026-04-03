@@ -1632,6 +1632,22 @@ def _ensure_program_faculty_assignment(program_id, faculty_id):
         )
 
 
+def _ensure_placeholder_faculty():
+    placeholder_id = 0
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT 1 FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [placeholder_id])
+        if cursor.fetchone():
+            return placeholder_id
+        cursor.execute(
+            '''
+            INSERT INTO FACULTY_MEMBER (Faculty_ID, Full_Name, Academic_Rank, Appointment_Type, Email, Office_Hours)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ''',
+            [placeholder_id, 'Unassigned instructor', 'N/A', 'N/A', 'unassigned-instructor@system.local', '']
+        )
+    return placeholder_id
+
+
 def _resolve_or_create_criterion6_faculty(cycle, row, row_label):
     provided_faculty_id = _safe_int(row.get('faculty_id'), 0)
     if provided_faculty_id > 0:
@@ -3216,8 +3232,8 @@ def _course_sections_rows(course_id):
             'id': int(row[0]),
             'syllabus_id': int(row[0]),
             'term': row[1] or '',
-            'faculty_id': int(row[2]) if row[2] is not None else None,
-            'faculty_name': row[3] or '',
+            'faculty_id': int(row[2]) if row[2] is not None and int(row[2]) > 0 else None,
+            'faculty_name': (row[3] or '') if row[2] is not None and int(row[2]) > 0 else '',
         }
         for row in rows
     ]
@@ -3849,27 +3865,31 @@ def program_course_sections(request, program_id, course_id):
     faculty_id_raw = request.data.get('faculty_id')
     if not term:
         return Response({'detail': 'Term is required.'}, status=status.HTTP_400_BAD_REQUEST)
-    try:
-        faculty_id = int(faculty_id_raw)
-    except (TypeError, ValueError):
-        return Response({'detail': 'faculty_id is required and must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+    if faculty_id_raw in (None, '', 'null'):
+        faculty_id = _ensure_placeholder_faculty()
+    else:
+        try:
+            faculty_id = int(faculty_id_raw)
+        except (TypeError, ValueError):
+            return Response({'detail': 'faculty_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
     with connection.cursor() as cursor:
-        cursor.execute('SELECT 1 FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
-        if not cursor.fetchone():
-            return Response({'detail': 'Faculty member not found.'}, status=status.HTTP_404_NOT_FOUND)
-        cursor.execute('SELECT 1 FROM ASSIGNED_TO WHERE program_id = %s AND Faculty_ID = %s', [program_id, faculty_id])
-        if not cursor.fetchone():
-            return Response({'detail': 'Faculty member is not assigned to this program.'}, status=status.HTTP_400_BAD_REQUEST)
-        cursor.execute(
-            '''
-            SELECT 1 FROM INSTRUCTOR_SYLLABUS
-            WHERE Course_ID = %s AND Faculty_ID = %s
-            ''',
-            [course_id, faculty_id]
-        )
-        if cursor.fetchone():
-            return Response({'detail': 'This faculty member already has a syllabus section for this course.'}, status=status.HTTP_400_BAD_REQUEST)
+        if faculty_id > 0:
+            cursor.execute('SELECT 1 FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
+            if not cursor.fetchone():
+                return Response({'detail': 'Faculty member not found.'}, status=status.HTTP_404_NOT_FOUND)
+            cursor.execute('SELECT 1 FROM ASSIGNED_TO WHERE program_id = %s AND Faculty_ID = %s', [program_id, faculty_id])
+            if not cursor.fetchone():
+                return Response({'detail': 'Faculty member is not assigned to this program.'}, status=status.HTTP_400_BAD_REQUEST)
+            cursor.execute(
+                '''
+                SELECT 1 FROM INSTRUCTOR_SYLLABUS
+                WHERE Course_ID = %s AND Faculty_ID = %s
+                ''',
+                [course_id, faculty_id]
+            )
+            if cursor.fetchone():
+                return Response({'detail': 'This faculty member already has a syllabus section for this course.'}, status=status.HTTP_400_BAD_REQUEST)
 
     with transaction.atomic():
         description_id = _next_pk('COURSE_DISCRIPTION', 'description_id')
@@ -3899,18 +3919,20 @@ def program_course_sections(request, program_id, course_id):
                 ''',
                 [syllabus_row_id, term, 0, faculty_id, course_id, description_id, outline_id, additional_info_id, unified_id]
             )
-            cursor.execute('SELECT 1 FROM TEACHES WHERE Faculty_ID = %s AND Course_ID = %s', [faculty_id, course_id])
-            if not cursor.fetchone():
-                cursor.execute('INSERT INTO TEACHES (Faculty_ID, Course_ID) VALUES (%s, %s)', [faculty_id, course_id])
-            cursor.execute('SELECT COALESCE(Full_Name, \'\') FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
-            faculty_name = (cursor.fetchone() or [''])[0]
+            faculty_name = ''
+            if faculty_id > 0:
+                cursor.execute('SELECT 1 FROM TEACHES WHERE Faculty_ID = %s AND Course_ID = %s', [faculty_id, course_id])
+                if not cursor.fetchone():
+                    cursor.execute('INSERT INTO TEACHES (Faculty_ID, Course_ID) VALUES (%s, %s)', [faculty_id, course_id])
+                cursor.execute('SELECT COALESCE(Full_Name, \'\') FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
+                faculty_name = (cursor.fetchone() or [''])[0]
 
     return Response(
         {
             'id': syllabus_row_id,
             'syllabus_id': syllabus_row_id,
             'term': term,
-            'faculty_id': faculty_id,
+            'faculty_id': faculty_id if faculty_id > 0 else None,
             'faculty_name': faculty_name,
         },
         status=status.HTTP_201_CREATED
@@ -3951,27 +3973,31 @@ def program_course_section_detail(request, program_id, course_id, syllabus_id):
     if not term:
         return Response({'detail': 'Term is required.'}, status=status.HTTP_400_BAD_REQUEST)
     faculty_id_raw = request.data.get('faculty_id', section_row[2])
-    try:
-        faculty_id = int(faculty_id_raw)
-    except (TypeError, ValueError):
-        return Response({'detail': 'faculty_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+    if faculty_id_raw in (None, '', 'null'):
+        faculty_id = _ensure_placeholder_faculty()
+    else:
+        try:
+            faculty_id = int(faculty_id_raw)
+        except (TypeError, ValueError):
+            return Response({'detail': 'faculty_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
     with connection.cursor() as cursor:
-        cursor.execute('SELECT 1 FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
-        if not cursor.fetchone():
-            return Response({'detail': 'Faculty member not found.'}, status=status.HTTP_404_NOT_FOUND)
-        cursor.execute('SELECT 1 FROM ASSIGNED_TO WHERE program_id = %s AND Faculty_ID = %s', [program_id, faculty_id])
-        if not cursor.fetchone():
-            return Response({'detail': 'Faculty member is not assigned to this program.'}, status=status.HTTP_400_BAD_REQUEST)
-        cursor.execute(
-            '''
-            SELECT 1 FROM INSTRUCTOR_SYLLABUS
-            WHERE Course_ID = %s AND syllabus_id <> %s AND Faculty_ID = %s
-            ''',
-            [course_id, syllabus_id, faculty_id]
-        )
-        if cursor.fetchone():
-            return Response({'detail': 'This faculty member already has a syllabus section for this course.'}, status=status.HTTP_400_BAD_REQUEST)
+        if faculty_id > 0:
+            cursor.execute('SELECT 1 FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
+            if not cursor.fetchone():
+                return Response({'detail': 'Faculty member not found.'}, status=status.HTTP_404_NOT_FOUND)
+            cursor.execute('SELECT 1 FROM ASSIGNED_TO WHERE program_id = %s AND Faculty_ID = %s', [program_id, faculty_id])
+            if not cursor.fetchone():
+                return Response({'detail': 'Faculty member is not assigned to this program.'}, status=status.HTTP_400_BAD_REQUEST)
+            cursor.execute(
+                '''
+                SELECT 1 FROM INSTRUCTOR_SYLLABUS
+                WHERE Course_ID = %s AND syllabus_id <> %s AND Faculty_ID = %s
+                ''',
+                [course_id, syllabus_id, faculty_id]
+            )
+            if cursor.fetchone():
+                return Response({'detail': 'This faculty member already has a syllabus section for this course.'}, status=status.HTTP_400_BAD_REQUEST)
 
     with transaction.atomic():
         with connection.cursor() as cursor:
@@ -3979,18 +4005,20 @@ def program_course_section_detail(request, program_id, course_id, syllabus_id):
                 'UPDATE INSTRUCTOR_SYLLABUS SET term = %s, Faculty_ID = %s WHERE syllabus_id = %s',
                 [term, faculty_id, syllabus_id]
             )
-            cursor.execute('SELECT 1 FROM TEACHES WHERE Faculty_ID = %s AND Course_ID = %s', [faculty_id, course_id])
-            if not cursor.fetchone():
-                cursor.execute('INSERT INTO TEACHES (Faculty_ID, Course_ID) VALUES (%s, %s)', [faculty_id, course_id])
-            cursor.execute('SELECT COALESCE(Full_Name, \'\') FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
-            faculty_name = (cursor.fetchone() or [''])[0]
+            faculty_name = ''
+            if faculty_id > 0:
+                cursor.execute('SELECT 1 FROM TEACHES WHERE Faculty_ID = %s AND Course_ID = %s', [faculty_id, course_id])
+                if not cursor.fetchone():
+                    cursor.execute('INSERT INTO TEACHES (Faculty_ID, Course_ID) VALUES (%s, %s)', [faculty_id, course_id])
+                cursor.execute('SELECT COALESCE(Full_Name, \'\') FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [faculty_id])
+                faculty_name = (cursor.fetchone() or [''])[0]
 
     return Response(
         {
             'id': int(syllabus_id),
             'syllabus_id': int(syllabus_id),
             'term': term,
-            'faculty_id': faculty_id,
+            'faculty_id': faculty_id if faculty_id > 0 else None,
             'faculty_name': faculty_name,
         }
     )
@@ -4109,6 +4137,7 @@ def _load_syllabus_payload(program_id, cycle_id, course_id, syllabus_id):
             FROM ASSIGNED_TO a
             JOIN FACULTY_MEMBER f ON f.Faculty_ID = a.Faculty_ID
             WHERE a.program_id = %s
+              AND f.Faculty_ID <> 0
             ORDER BY f.Full_Name
             ''',
             [program_id]
@@ -4129,8 +4158,8 @@ def _load_syllabus_payload(program_id, cycle_id, course_id, syllabus_id):
         'section': {
             'syllabus_id': int(row[0]),
             'term': row[1] or '',
-            'faculty_id': int(row[2]) if row[2] is not None else None,
-            'faculty_name': row[3] or '',
+            'faculty_id': int(row[2]) if row[2] is not None and int(row[2]) > 0 else None,
+            'faculty_name': (row[3] or '') if row[2] is not None and int(row[2]) > 0 else '',
         },
         'syllabus': {
             'catalog_description': catalog_description,
@@ -4187,18 +4216,23 @@ def program_syllabus_detail(request, program_id, course_id, syllabus_id):
     next_term = f'{section_payload.get("term", payload["section"]["term"])}'.strip()
     if not next_term:
         return Response({'detail': 'Term is required.'}, status=status.HTTP_400_BAD_REQUEST)
-    try:
-        next_faculty_id = int(section_payload.get('faculty_id', payload['section']['faculty_id']))
-    except (TypeError, ValueError):
-        return Response({'detail': 'faculty_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+    next_faculty_raw = section_payload.get('faculty_id', payload['section']['faculty_id'])
+    if next_faculty_raw in (None, '', 'null'):
+        next_faculty_id = _ensure_placeholder_faculty()
+    else:
+        try:
+            next_faculty_id = int(next_faculty_raw)
+        except (TypeError, ValueError):
+            return Response({'detail': 'faculty_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
     with connection.cursor() as cursor:
-        cursor.execute('SELECT 1 FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [next_faculty_id])
-        if not cursor.fetchone():
-            return Response({'detail': 'Faculty member not found.'}, status=status.HTTP_404_NOT_FOUND)
-        cursor.execute('SELECT 1 FROM ASSIGNED_TO WHERE program_id = %s AND Faculty_ID = %s', [program_id, next_faculty_id])
-        if not cursor.fetchone():
-            return Response({'detail': 'Faculty member is not assigned to this program.'}, status=status.HTTP_400_BAD_REQUEST)
+        if next_faculty_id > 0:
+            cursor.execute('SELECT 1 FROM FACULTY_MEMBER WHERE Faculty_ID = %s', [next_faculty_id])
+            if not cursor.fetchone():
+                return Response({'detail': 'Faculty member not found.'}, status=status.HTTP_404_NOT_FOUND)
+            cursor.execute('SELECT 1 FROM ASSIGNED_TO WHERE program_id = %s AND Faculty_ID = %s', [program_id, next_faculty_id])
+            if not cursor.fetchone():
+                return Response({'detail': 'Faculty member is not assigned to this program.'}, status=status.HTTP_400_BAD_REQUEST)
         cursor.execute(
             '''
             SELECT 1 FROM COURSE
@@ -4208,15 +4242,16 @@ def program_syllabus_detail(request, program_id, course_id, syllabus_id):
         )
         if cursor.fetchone():
             return Response({'detail': 'Another course in this cycle already uses this code.'}, status=status.HTTP_400_BAD_REQUEST)
-        cursor.execute(
-            '''
-            SELECT 1 FROM INSTRUCTOR_SYLLABUS
-            WHERE Course_ID = %s AND syllabus_id <> %s AND Faculty_ID = %s
-            ''',
-            [course_id, syllabus_id, next_faculty_id]
-        )
-        if cursor.fetchone():
-            return Response({'detail': 'This faculty member already has a syllabus section for this course.'}, status=status.HTTP_400_BAD_REQUEST)
+        if next_faculty_id > 0:
+            cursor.execute(
+                '''
+                SELECT 1 FROM INSTRUCTOR_SYLLABUS
+                WHERE Course_ID = %s AND syllabus_id <> %s AND Faculty_ID = %s
+                ''',
+                [course_id, syllabus_id, next_faculty_id]
+            )
+            if cursor.fetchone():
+                return Response({'detail': 'This faculty member already has a syllabus section for this course.'}, status=status.HTTP_400_BAD_REQUEST)
 
     catalog_description = f'{syllabus_payload.get("catalog_description", "")}'
     weekly_topics = f'{syllabus_payload.get("weekly_topics", "")}'
@@ -4279,9 +4314,10 @@ def program_syllabus_detail(request, program_id, course_id, syllabus_id):
                 'UPDATE INSTRUCTOR_SYLLABUS SET term = %s, Faculty_ID = %s WHERE syllabus_id = %s',
                 [next_term, next_faculty_id, syllabus_id]
             )
-            cursor.execute('SELECT 1 FROM TEACHES WHERE Faculty_ID = %s AND Course_ID = %s', [next_faculty_id, course_id])
-            if not cursor.fetchone():
-                cursor.execute('INSERT INTO TEACHES (Faculty_ID, Course_ID) VALUES (%s, %s)', [next_faculty_id, course_id])
+            if next_faculty_id > 0:
+                cursor.execute('SELECT 1 FROM TEACHES WHERE Faculty_ID = %s AND Course_ID = %s', [next_faculty_id, course_id])
+                if not cursor.fetchone():
+                    cursor.execute('INSERT INTO TEACHES (Faculty_ID, Course_ID) VALUES (%s, %s)', [next_faculty_id, course_id])
 
             cursor.execute('SELECT description_id, outline_id, additional_info_id FROM INSTRUCTOR_SYLLABUS WHERE syllabus_id = %s', [syllabus_id])
             dep_row = cursor.fetchone()

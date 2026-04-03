@@ -1060,10 +1060,6 @@ const Sidebar = ({
       setCoursesError('Section term is required.');
       return;
     }
-    if (!facultyId) {
-      setCoursesError('Please select a faculty member for the section.');
-      return;
-    }
     try {
       setSavingSectionCourseId(courseId);
       setCoursesError('');
@@ -1891,75 +1887,144 @@ const Sidebar = ({
               const availableFacultyMembers = facultyMembers.filter((faculty) => !usedFacultyIds.has(Number(faculty.faculty_id || 0)));
               return (
                 <div key={courseId} style={{ marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
                     <div
                       onClick={() => setExpandedCourse(expandedCourse === courseId ? null : courseId)}
                       style={{
                         flex: 1,
+                        minHeight: '84px',
                         padding: '12px 16px',
                         backgroundColor: colors.hover,
-                        borderRadius: '6px',
+                        borderRadius: '8px',
                         cursor: 'pointer',
                         transition: 'background-color 0.2s',
                         border: `1px solid ${colors.border}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
                       }}
                     >
-                      <div style={{ fontSize: '13px', fontWeight: '700', color: colors.primary, marginBottom: '2px' }}>{course.code}</div>
+                      <div style={{ fontSize: '14px', fontWeight: '800', color: colors.primary, marginBottom: '4px' }}>{course.code}</div>
                       <div style={{ fontSize: '12px', color: colors.mediumGray }}>
                         {course.credits} credits • {course.contact_hours} hrs • {course.course_type}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteCourseConfirm({ open: true, courseId, label: course.code })}
-                      style={{
-                        border: `1px solid ${colors.border}`,
-                        backgroundColor: 'white',
-                        color: '#b42318',
-                        borderRadius: '6px',
-                        padding: '8px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                    <button
-                      onClick={() => setExpandedCourse(expandedCourse === courseId ? null : courseId)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        padding: '8px',
-                        color: colors.mediumGray
-                      }}
-                    >
-                      {expandedCourse === courseId ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={async (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const selectedCoursePayload = { ...course, program_id: Number(programId || 0), cycle_id: Number(cycleId || 0) };
+                        const primarySection = Array.isArray(course.sections) ? course.sections[0] : null;
+                        if (primarySection?.syllabus_id) {
+                          setSelectedCourse(selectedCoursePayload);
+                          setSelectedInstructor({
+                            ...primarySection,
+                            name: primarySection.faculty_name,
+                            syllabus_id: primarySection.syllabus_id,
+                            faculty_id: primarySection.faculty_id,
+                            term: primarySection.term,
+                            course_id: courseId,
+                            program_id: Number(programId),
+                            cycle_id: Number(cycleId),
+                          });
+                          setSyllabusMode('course-edit');
+                        } else {
+                          try {
+                            setCoursesError('');
+                            setSavingSectionCourseId(courseId);
+                            const resolvedProgramId = programId ? Number(programId) : await resolveProgramId();
+                            if (!resolvedProgramId) {
+                              setCoursesError('No program selected');
+                              return;
+                            }
+                            const createdSection = await apiRequest(`/programs/${resolvedProgramId}/courses/${courseId}/sections/`, {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                cycle_id: Number(cycleId),
+                                term: 'TBD',
+                                faculty_id: ''
+                              }),
+                            });
+                            setSelectedCourse({
+                              ...selectedCoursePayload,
+                              sections: [...(Array.isArray(course.sections) ? course.sections : []), createdSection]
+                            });
+                            setSelectedInstructor({
+                              ...createdSection,
+                              name: createdSection.faculty_name,
+                              syllabus_id: createdSection.syllabus_id,
+                              faculty_id: createdSection.faculty_id,
+                              term: createdSection.term,
+                              course_id: courseId,
+                              program_id: Number(resolvedProgramId),
+                              cycle_id: Number(cycleId),
+                            });
+                            setSyllabusMode('course-edit');
+                            window.dispatchEvent(new CustomEvent('courses-updated'));
+                          } catch (error) {
+                            setCoursesError(error?.message || 'Unable to create syllabus.');
+                          } finally {
+                            setSavingSectionCourseId(null);
+                          }
+                        }
+                        }}
+                        style={{
+                          border: `1px solid ${colors.primary}`,
+                          backgroundColor: 'white',
+                          color: colors.primary,
+                          borderRadius: '7px',
+                          padding: '7px 12px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          minWidth: '64px',
+                          height: '36px',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteCourseConfirm({ open: true, courseId, label: course.code })}
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          border: `1px solid ${colors.border}`,
+                          backgroundColor: 'white',
+                          color: '#b42318',
+                          borderRadius: '7px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                      <button
+                        onClick={() => setExpandedCourse(expandedCourse === courseId ? null : courseId)}
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: colors.mediumGray,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {expandedCourse === courseId ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      </button>
+                    </div>
                   </div>
 
                   {expandedCourse === courseId && (
                     <div style={{ marginTop: '8px', marginLeft: '16px', paddingLeft: '16px', borderLeft: `2px solid ${colors.border}` }}>
-                      {sectionCount > 1 ? (
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            width: '100%',
-                            padding: '8px',
-                            marginBottom: '8px',
-                            fontSize: '11px',
-                            backgroundColor: '#eceef2',
-                            color: colors.mediumGray,
-                            border: `1px solid ${colors.border}`,
-                            borderRadius: '4px',
-                            cursor: 'not-allowed',
-                            fontWeight: '700'
-                          }}
-                        >
-                          Generate Common Syllabus (Course Level)
-                        </button>
-                      ) : null}
-
                       {(course.sections || []).map((section) => (
                         <div
                           key={section.syllabus_id}
@@ -1972,7 +2037,7 @@ const Sidebar = ({
                             fontSize: '12px'
                           }}
                         >
-                          <div style={{ fontWeight: '600', color: colors.darkGray, marginBottom: '2px' }}>{section.faculty_name || `Faculty #${section.faculty_id}`}</div>
+                          <div style={{ fontWeight: '600', color: colors.darkGray, marginBottom: '2px' }}>{section.faculty_name || (section.faculty_id ? `Faculty #${section.faculty_id}` : 'Unassigned instructor')}</div>
                           <div style={{ color: colors.mediumGray, fontSize: '11px', marginBottom: '8px' }}>{section.term}</div>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button
@@ -1984,39 +2049,13 @@ const Sidebar = ({
                                   syllabus_id: section.syllabus_id,
                                   faculty_id: section.faculty_id,
                                   term: section.term,
+                                  course_code: course.code,
                                   course_id: courseId,
                                   program_id: Number(programId),
                                   cycle_id: Number(cycleId),
                                 });
-                                setSyllabusMode('view');
-                              }}
-                              style={{
-                                flex: 1,
-                                padding: '6px',
-                                fontSize: '11px',
-                                backgroundColor: 'white',
-                                color: colors.primary,
-                                border: `1px solid ${colors.primary}`,
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontWeight: '600'
-                              }}>
-                              View
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedCourse({ ...course, program_id: Number(programId || 0), cycle_id: Number(cycleId || 0) });
-                                setSelectedInstructor({
-                                  ...section,
-                                  name: section.faculty_name,
-                                  syllabus_id: section.syllabus_id,
-                                  faculty_id: section.faculty_id,
-                                  term: section.term,
-                                  course_id: courseId,
-                                  program_id: Number(programId),
-                                  cycle_id: Number(cycleId),
-                                });
-                                setSyllabusMode('edit');
+                                setSelectedCourse(null);
+                                setSyllabusMode('section-edit');
                               }}
                               style={{
                                 flex: 1,
@@ -2054,25 +2093,31 @@ const Sidebar = ({
                       {draft.open ? (
                         <div style={{ border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '10px', backgroundColor: '#fafafa', marginTop: '8px' }}>
                           <div style={{ display: 'grid', gap: '8px' }}>
-                            <input
-                              type="text"
-                              value={draft.term}
-                              onChange={(event) => updateSectionDraft(courseId, 'term', event.target.value)}
-                              placeholder="Term (e.g., Fall 2026)"
-                              style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit' }}
-                            />
+                            <div>
+                              <div style={{ fontSize: '11px', fontWeight: '700', color: colors.darkGray, marginBottom: '6px' }}>Professor</div>
                             <select
                               value={draft.faculty_id}
                               onChange={(event) => updateSectionDraft(courseId, 'faculty_id', event.target.value)}
                               style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit' }}
                             >
-                              <option value="">Select Faculty</option>
+                              <option value="">No professor yet</option>
                               {availableFacultyMembers.map((faculty) => (
                                 <option key={faculty.faculty_id} value={faculty.faculty_id}>
                                   {faculty.full_name}
                                 </option>
                               ))}
                             </select>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '11px', fontWeight: '700', color: colors.darkGray, marginBottom: '6px' }}>Semester Taught</div>
+                              <input
+                                type="text"
+                                value={draft.term}
+                                onChange={(event) => updateSectionDraft(courseId, 'term', event.target.value)}
+                                placeholder="e.g., Fall 2026"
+                                style={{ width: '100%', padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: '6px', fontSize: '12px', fontFamily: 'inherit' }}
+                              />
+                            </div>
                             {availableFacultyMembers.length === 0 ? (
                               <div style={{ fontSize: '11px', color: colors.mediumGray }}>
                                 All faculty members already have a section for this course.
@@ -2140,7 +2185,7 @@ const Sidebar = ({
                           }}
                         >
                           <Plus size={14} />
-                          Add Section (Faculty Syllabus)
+                          Add Section
                         </button>
                       )}
                     </div>

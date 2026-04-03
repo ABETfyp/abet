@@ -13,7 +13,7 @@ import { AppendicesPage, AppendixCPage, AppendixDPage } from './pages/AppendixPa
 import EvidencePage from './pages/EvidencePage';
 import Sidebar from './components/layout/Sidebar';
 import { FacultyProfileModal } from './components/modals/Modals';
-import { SyllabusModal, CourseSummaryModal } from './components/modals/CourseModals';
+import { SyllabusModal, CourseSummaryModal, SectionEditorModal } from './components/modals/CourseModals';
 
 const pageToPath = {
   login: '/login',
@@ -310,12 +310,22 @@ const AUBAccreditationSystem = () => {
         <CourseSummaryModal
           selectedCourse={selectedCourse}
           selectedInstructor={selectedInstructor}
+          syllabusMode={syllabusMode}
           setSelectedCourse={setSelectedCourse}
           setSelectedInstructor={setSelectedInstructor}
           setSyllabusMode={setSyllabusMode}
         />
       )}
-      {selectedInstructor && syllabusMode && (
+      {selectedInstructor && syllabusMode === 'section-edit' && (
+        <SectionEditorModal
+          selectedInstructor={selectedInstructor}
+          selectedCourse={selectedCourse}
+          syllabusMode={syllabusMode}
+          setSelectedInstructor={setSelectedInstructor}
+          setSyllabusMode={setSyllabusMode}
+        />
+      )}
+      {selectedInstructor && (syllabusMode === 'view' || syllabusMode === 'edit' || syllabusMode === 'course-edit' || syllabusMode === 'course-view') && (
         <SyllabusModal
           selectedInstructor={selectedInstructor}
           selectedCourse={selectedCourse}

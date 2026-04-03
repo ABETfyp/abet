@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, ChevronDown, Menu, X, Upload, Search, Check, Clock, AlertCircle, FileText, Users, BookOpen, Database, Plus, Edit, Trash2, Download, Eye, Save, ShieldCheck, Mail, Lock, Award, Globe2, Cpu, Cog, FlaskConical, CheckCircle2, Sparkles, LayoutGrid, ClipboardList } from 'lucide-react';
+import { ChevronRight, ChevronDown, Menu, X, Upload, Search, Check, Clock, AlertCircle, FileText, Users, BookOpen, Database, Plus, Edit, Trash2, Download, Eye, Save, ShieldCheck, Mail, Lock, Award, Globe2, Cpu, Cog, FlaskConical, CheckCircle2, LayoutGrid, ClipboardList } from 'lucide-react';
 import { colors, fontStack } from '../../styles/theme';
 import { apiRequest } from '../../utils/api';
 import EvidenceLibraryImport from '../shared/EvidenceLibraryImport';
@@ -2567,77 +2567,6 @@ const getFacultyDocById = async (docId) => {
           {/* Modal Content */}
 
           <div style={{ padding: '32px' }}>
-
-            {/* Generate Common Syllabus Button */}
-
-            <div style={{
-
-              marginBottom: '32px',
-
-              padding: '28px',
-
-              backgroundColor: '#E8F5E9',
-
-              borderRadius: '10px',
-
-              border: '1px solid #81C784',
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              justifyContent: 'space-between'
-
-            }}>
-
-              <div>
-
-                <h4 style={{ fontSize: '17px', fontWeight: '700', color: colors.darkGray, marginBottom: '8px' }}>
-
-                  Generate Common Syllabus
-
-                </h4>
-
-                <p style={{ fontSize: '14px', color: colors.mediumGray, margin: 0 }}>
-
-                  Merge all instructor syllabi into one unified version for ABET reporting. Common elements will be combined, differences will be highlighted.
-
-                </p>
-
-              </div>
-
-              <button style={{
-
-                backgroundColor: colors.success,
-
-                color: 'white',
-
-                padding: '14px 28px',
-
-                borderRadius: '8px',
-
-                border: 'none',
-
-                cursor: 'pointer',
-
-                fontSize: '15px',
-
-                fontWeight: '700',
-
-                whiteSpace: 'nowrap',
-
-                boxShadow: '0 4px 12px rgba(40,167,69,0.3)'
-
-              }}>
-
-                Generate Now
-
-              </button>
-
-            </div>
-
-
-
             {/* Instructor Syllabi List */}
 
             <div style={{ marginBottom: '32px' }}>

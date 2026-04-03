@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Edit, Eye, Plus, Save, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { Edit, Plus, Save, Trash2, Upload, X } from 'lucide-react';
 import { colors, fontStack } from '../../styles/theme';
 import { apiRequest } from '../../utils/api';
 import EvidenceLibraryImport from '../shared/EvidenceLibraryImport';
@@ -82,6 +82,7 @@ const emptyWeekTopic = () => ({ week: '', topic: '' });
 const emptyTextbook = () => ({ title_author_year: '', attribute: '' });
 const emptySupplement = () => ({ material_discription: '' });
 const emptyCourseCode = () => ({ course_code: '' });
+const sectionInstructorLabel = (section) => section?.faculty_name || (section?.faculty_id ? `Faculty #${section.faculty_id}` : 'Unassigned instructor');
 
 const toTrimmedLines = (text) => `${text || ''}`.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 const parseWeeklyTopics = (text) => {
@@ -138,6 +139,8 @@ const mapPayloadToForm = (payload) => ({
   }
 });
 const syllabusPath = ({ programId, courseId, syllabusId, cycleId }) => `/programs/${programId}/courses/${courseId}/sections/${syllabusId}/syllabus/?cycle_id=${cycleId}`;
+const coursePath = ({ programId, courseId, cycleId }) => `/programs/${programId}/courses/${courseId}/?cycle_id=${cycleId}`;
+const sectionPath = ({ programId, courseId, syllabusId, cycleId }) => `/programs/${programId}/courses/${courseId}/sections/${syllabusId}/?cycle_id=${cycleId}`;
 
 const FieldLabel = ({ children }) => (
   <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: colors.darkGray, marginBottom: '6px' }}>{children}</label>
@@ -149,6 +152,320 @@ const SectionCard = ({ title, children }) => (
     {children}
   </div>
 );
+
+const overlayStyle = {
+  position: 'fixed',
+  inset: 0,
+  backgroundColor: 'rgba(0,0,0,0.58)',
+  zIndex: 2100,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '20px'
+};
+
+const panelStyle = {
+  width: '100%',
+  maxWidth: '860px',
+  maxHeight: '92vh',
+  overflow: 'auto',
+  borderRadius: '12px',
+  backgroundColor: '#f6f7f9',
+  boxShadow: '0 24px 70px rgba(0,0,0,0.35)',
+  fontFamily: fontStack
+};
+
+const stickyHeaderStyle = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 10,
+  backgroundColor: 'white',
+  borderBottom: `1px solid ${colors.border}`,
+  padding: '20px 24px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center'
+};
+
+const CourseEditorModal = ({
+  selectedCourse,
+  syllabusMode,
+  setSelectedCourse,
+  setSyllabusMode
+}) => {
+  if (!selectedCourse || syllabusMode !== 'course-edit') return null;
+
+  const scope = {
+    programId: Number(selectedCourse.program_id || 0),
+    courseId: Number(selectedCourse.course_id || selectedCourse.id || 0),
+    cycleId: Number(selectedCourse.cycle_id || localStorage.getItem('currentCycleId') || 0)
+  };
+
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [form, setForm] = useState({
+    course_code: selectedCourse.code || '',
+    credits: selectedCourse.credits ?? 0,
+    contact_hours: selectedCourse.contact_hours ?? 0,
+    course_type: selectedCourse.course_type || 'Required'
+  });
+
+  useEffect(() => {
+    setForm({
+      course_code: selectedCourse.code || '',
+      credits: selectedCourse.credits ?? 0,
+      contact_hours: selectedCourse.contact_hours ?? 0,
+      course_type: selectedCourse.course_type || 'Required'
+    });
+    setError('');
+    setSuccess('');
+  }, [selectedCourse]);
+
+  const closeModal = () => {
+    setSelectedCourse(null);
+    setSyllabusMode(null);
+  };
+
+  const setCourseField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  const saveCourse = async () => {
+    try {
+      setSaving(true);
+      setError('');
+      setSuccess('');
+      setLoading(true);
+      const result = await apiRequest(coursePath(scope), {
+        method: 'PUT',
+        body: JSON.stringify({
+          course_code: `${form.course_code || ''}`.trim().toUpperCase(),
+          credits: Number(form.credits || 0),
+          contact_hours: Number(form.contact_hours || 0),
+          course_type: `${form.course_type || 'Required'}`.trim() || 'Required'
+        })
+      });
+      setSelectedCourse((prev) => ({
+        ...(prev || {}),
+        ...result,
+        code: result.code,
+        course_id: result.course_id || scope.courseId,
+        program_id: scope.programId,
+        cycle_id: scope.cycleId
+      }));
+      setForm({
+        course_code: result.code || '',
+        credits: result.credits ?? 0,
+        contact_hours: result.contact_hours ?? 0,
+        course_type: result.course_type || 'Required'
+      });
+      setSuccess('Course updated successfully.');
+      window.dispatchEvent(new CustomEvent('courses-updated'));
+    } catch (e) {
+      setError(e?.message || 'Unable to update course.');
+    } finally {
+      setSaving(false);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div onClick={closeModal} style={overlayStyle}>
+      <div onClick={(event) => event.stopPropagation()} style={panelStyle}>
+        <div style={stickyHeaderStyle}>
+          <div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: colors.darkGray }}>
+              {selectedCourse.code || 'Course'} Setup
+            </div>
+            <div style={{ marginTop: '4px', fontSize: '13px', color: colors.mediumGray }}>
+              Edit course-level information
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button type="button" onClick={saveCourse} disabled={saving || loading} style={{ backgroundColor: colors.primary, border: 'none', color: 'white', borderRadius: '8px', padding: '10px 14px', fontWeight: '700', fontSize: '13px', cursor: saving || loading ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: saving || loading ? 0.7 : 1 }}>
+              <Save size={16} />
+              {saving ? 'Saving...' : 'Save Course'}
+            </button>
+            <button onClick={closeModal} type="button" style={{ background: 'none', border: 'none', color: colors.mediumGray, cursor: 'pointer', padding: '6px' }}><X size={22} /></button>
+          </div>
+        </div>
+
+        <div style={{ padding: '22px', display: 'grid', gap: '14px' }}>
+          {error ? <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid #f5c6cb', backgroundColor: '#f8d7da', color: '#721c24', fontSize: '13px', fontWeight: '700' }}>{error}</div> : null}
+          {success ? <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid #b7ebc6', backgroundColor: '#e6f7ec', color: '#155724', fontSize: '13px', fontWeight: '700' }}>{success}</div> : null}
+
+          <SectionCard title="Course Details">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
+              <div>
+                <FieldLabel>Course Code</FieldLabel>
+                <input type="text" value={form.course_code} onChange={(event) => setCourseField('course_code', event.target.value.toUpperCase())} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit' }} />
+              </div>
+              <div>
+                <FieldLabel>Course Type</FieldLabel>
+                <select value={form.course_type} onChange={(event) => setCourseField('course_type', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit' }}>
+                  <option value="Required">Required</option>
+                  <option value="Elective">Elective</option>
+                </select>
+              </div>
+              <div>
+                <FieldLabel>Credits</FieldLabel>
+                <input type="number" min="0" step="1" value={form.credits} onChange={(event) => setCourseField('credits', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit' }} />
+              </div>
+              <div>
+                <FieldLabel>Contact Hours</FieldLabel>
+                <input type="number" min="0" step="1" value={form.contact_hours} onChange={(event) => setCourseField('contact_hours', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit' }} />
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SectionEditorModal = ({
+  selectedInstructor,
+  selectedCourse,
+  syllabusMode,
+  setSelectedInstructor,
+  setSyllabusMode
+}) => {
+  if (!selectedInstructor || syllabusMode !== 'section-edit') return null;
+
+  const scope = {
+    programId: Number(selectedInstructor.program_id || selectedCourse?.program_id || 0),
+    courseId: Number(selectedInstructor.course_id || selectedCourse?.course_id || selectedCourse?.id || 0),
+    syllabusId: Number(selectedInstructor.syllabus_id || 0),
+    cycleId: Number(selectedInstructor.cycle_id || localStorage.getItem('currentCycleId') || 0)
+  };
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [facultyOptions, setFacultyOptions] = useState([]);
+  const [form, setForm] = useState({
+    faculty_id: selectedInstructor.faculty_id || '',
+    term: selectedInstructor.term || ''
+  });
+
+  useEffect(() => {
+    setForm({
+      faculty_id: selectedInstructor.faculty_id || '',
+      term: selectedInstructor.term || ''
+    });
+    setError('');
+    setSuccess('');
+  }, [selectedInstructor]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFaculty = async () => {
+      try {
+        const result = await apiRequest(syllabusPath(scope), { method: 'GET' });
+        if (!cancelled) {
+          setFacultyOptions(Array.isArray(result?.faculty_options) ? result.faculty_options : []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setFacultyOptions([]);
+        }
+      }
+    };
+    if (scope.programId && scope.courseId && scope.syllabusId && scope.cycleId) {
+      loadFaculty();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [scope.programId, scope.courseId, scope.syllabusId, scope.cycleId]);
+
+  const closeModal = () => {
+    setSelectedInstructor(null);
+    setSyllabusMode(null);
+  };
+
+  const setSectionField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  const saveSection = async () => {
+    try {
+      setSaving(true);
+      setError('');
+      setSuccess('');
+      const result = await apiRequest(sectionPath(scope), {
+        method: 'PUT',
+        body: JSON.stringify({
+          faculty_id: Number(form.faculty_id || 0),
+          term: `${form.term || ''}`.trim()
+        })
+      });
+      setSelectedInstructor((prev) => ({
+        ...(prev || {}),
+        ...result,
+        name: result.faculty_name ?? '',
+        course_id: scope.courseId,
+        program_id: scope.programId,
+        cycle_id: scope.cycleId
+      }));
+      setForm({
+        faculty_id: result.faculty_id || '',
+        term: result.term || ''
+      });
+      setSuccess('Section updated successfully.');
+      window.dispatchEvent(new CustomEvent('courses-updated'));
+    } catch (e) {
+      setError(e?.message || 'Unable to update section.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div onClick={closeModal} style={overlayStyle}>
+      <div onClick={(event) => event.stopPropagation()} style={panelStyle}>
+        <div style={stickyHeaderStyle}>
+          <div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: colors.darkGray }}>
+              {selectedInstructor?.course_code || selectedCourse?.code || 'Course'} Section
+            </div>
+            <div style={{ marginTop: '4px', fontSize: '13px', color: colors.mediumGray }}>
+              Edit professor and semester taught
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button type="button" onClick={saveSection} disabled={saving} style={{ backgroundColor: colors.primary, border: 'none', color: 'white', borderRadius: '8px', padding: '10px 14px', fontWeight: '700', fontSize: '13px', cursor: saving ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: saving ? 0.7 : 1 }}>
+              <Save size={16} />
+              {saving ? 'Saving...' : 'Save Section'}
+            </button>
+            <button onClick={closeModal} type="button" style={{ background: 'none', border: 'none', color: colors.mediumGray, cursor: 'pointer', padding: '6px' }}><X size={22} /></button>
+          </div>
+        </div>
+
+        <div style={{ padding: '22px', display: 'grid', gap: '14px' }}>
+          {error ? <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid #f5c6cb', backgroundColor: '#f8d7da', color: '#721c24', fontSize: '13px', fontWeight: '700' }}>{error}</div> : null}
+          {success ? <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid #b7ebc6', backgroundColor: '#e6f7ec', color: '#155724', fontSize: '13px', fontWeight: '700' }}>{success}</div> : null}
+
+          <SectionCard title="Section Details">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
+              <div>
+                <FieldLabel>Professor</FieldLabel>
+                <select value={form.faculty_id} onChange={(event) => setSectionField('faculty_id', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit' }}>
+                  <option value="">No professor yet</option>
+                  {facultyOptions.map((option) => (
+                    <option key={option.faculty_id} value={option.faculty_id}>{option.full_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <FieldLabel>Semester Taught</FieldLabel>
+                <input type="text" value={form.term} onChange={(event) => setSectionField('term', event.target.value)} placeholder="e.g., Fall 2026" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit' }} />
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const SyllabusModal = ({
   selectedInstructor,
@@ -167,7 +484,6 @@ const SyllabusModal = ({
     cycleId: Number(selectedInstructor.cycle_id || localStorage.getItem('currentCycleId') || 0)
   };
 
-  const readOnly = syllabusMode === 'view';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -177,8 +493,19 @@ const SyllabusModal = ({
   const [docsOpen, setDocsOpen] = useState(false);
   const [docs, setDocs] = useState([]);
   const [docsStatus, setDocsStatus] = useState('');
+  const [courseViewContext, setCourseViewContext] = useState(null);
+  const readOnly = syllabusMode === 'view' || syllabusMode === 'course-view' || Boolean(courseViewContext);
+  const showCourseSections = (syllabusMode === 'course-edit' || syllabusMode === 'course-view') && !courseViewContext;
 
   const closeModal = () => {
+    if (courseViewContext) {
+      setCourseViewContext(null);
+      return;
+    }
+    if (syllabusMode === 'course-view') {
+      setSyllabusMode('course-edit');
+      return;
+    }
     setSelectedInstructor(null);
     setSyllabusMode(null);
     if (setSelectedCourse) setSelectedCourse(null);
@@ -206,6 +533,10 @@ const SyllabusModal = ({
     }
     loadPayload();
   }, [scope.programId, scope.courseId, scope.syllabusId, scope.cycleId]);
+
+  useEffect(() => {
+    setCourseViewContext(null);
+  }, [selectedCourse?.course_id, selectedInstructor?.syllabus_id, syllabusMode]);
 
   const availableSos = useMemo(() => (Array.isArray(payload?.available_sos) ? payload.available_sos : []), [payload]);
   const availableClos = useMemo(() => (Array.isArray(payload?.available_clos) ? payload.available_clos : []), [payload]);
@@ -377,8 +708,18 @@ const SyllabusModal = ({
       <div onClick={(event) => event.stopPropagation()} style={{ width: '100%', maxWidth: '1140px', maxHeight: '92vh', overflow: 'auto', borderRadius: '12px', backgroundColor: '#f6f7f9', boxShadow: '0 24px 70px rgba(0,0,0,0.35)', fontFamily: fontStack }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: 'white', borderBottom: `1px solid ${colors.border}`, padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: '24px', fontWeight: '800', color: colors.darkGray }}>{loading ? 'Loading syllabus...' : `${form?.course?.course_code || selectedCourse?.code || 'Course'} Syllabus`}</div>
-            <div style={{ marginTop: '4px', fontSize: '13px', color: colors.mediumGray }}>{readOnly ? 'View mode' : 'Edit mode'} - {selectedInstructor?.name || 'Instructor'}</div>
+            <div style={{ fontSize: '24px', fontWeight: '800', color: colors.darkGray }}>
+              {loading
+                ? 'Loading syllabus...'
+                : `${form?.course?.course_code || selectedCourse?.code || 'Course'} Syllabus`}
+            </div>
+            <div style={{ marginTop: '4px', fontSize: '13px', color: colors.mediumGray }}>
+              {courseViewContext
+                ? `View mode - ${courseViewContext.name || 'Instructor'}${courseViewContext.term ? ` (${courseViewContext.term})` : ''}`
+                : showCourseSections
+                ? 'Course-level syllabus'
+                : `${readOnly ? 'View mode' : 'Edit mode'} - ${selectedInstructor?.name || 'Instructor'}`}
+            </div>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             {readOnly ? (
@@ -412,7 +753,7 @@ const SyllabusModal = ({
 
           {!loading && form ? (
             <>
-              <SectionCard title="Course And Section Setup">
+              <SectionCard title="Course Setup">
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
                   <div>
                     <FieldLabel>Course Code</FieldLabel>
@@ -432,19 +773,6 @@ const SyllabusModal = ({
                   <div>
                     <FieldLabel>Contact Hours</FieldLabel>
                     <input type="number" min="0" step="1" value={form.course.contact_hours} disabled={readOnly} onChange={(event) => setCourseField('contact_hours', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
-                  </div>
-                  <div>
-                    <FieldLabel>Term</FieldLabel>
-                    <input type="text" value={form.section.term} disabled={readOnly} onChange={(event) => setSectionField('term', event.target.value)} placeholder="e.g., Fall 2026" style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }} />
-                  </div>
-                  <div>
-                    <FieldLabel>Instructor</FieldLabel>
-                    <select value={form.section.faculty_id} disabled={readOnly} onChange={(event) => setSectionField('faculty_id', event.target.value)} style={{ width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: '7px', fontSize: '13px', fontFamily: 'inherit', backgroundColor: readOnly ? '#f7f8fa' : 'white' }}>
-                      <option value="">Select instructor</option>
-                      {facultyOptions.map((option) => (
-                        <option key={option.faculty_id} value={option.faculty_id}>{option.full_name}</option>
-                      ))}
-                    </select>
                   </div>
                 </div>
               </SectionCard>
@@ -594,6 +922,30 @@ const SyllabusModal = ({
                   {!readOnly ? <button type="button" onClick={() => setForm((prev) => ({ ...prev, syllabus: { ...prev.syllabus, clo_mappings: [...prev.syllabus.clo_mappings, emptyMapping()] } }))} style={{ width: 'fit-content', border: `1px dashed ${colors.primary}`, backgroundColor: 'white', color: colors.primary, borderRadius: '6px', padding: '6px 10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Plus size={14} />Add Mapping</button> : null}
                 </div>
               </SectionCard>
+              {showCourseSections ? (
+                <SectionCard title={`Instructor Sections (${Array.isArray(selectedCourse?.sections) ? selectedCourse.sections.length : 0})`}>
+                  {Array.isArray(selectedCourse?.sections) && selectedCourse.sections.length > 0 ? (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      {selectedCourse.sections.map((section) => (
+                        <div key={section.syllabus_id} style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                          <div>
+                            <div style={{ fontSize: '14px', fontWeight: '800', color: colors.darkGray }}>{sectionInstructorLabel(section)}</div>
+                            <div style={{ fontSize: '12px', color: colors.mediumGray, marginTop: '2px' }}>{section.term}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button type="button" onClick={() => { setSelectedInstructor({ ...section, name: section.faculty_name, course_code: selectedCourse.code, course_id: selectedCourse.course_id || selectedCourse.id, program_id: selectedCourse.program_id, cycle_id: selectedCourse.cycle_id || localStorage.getItem('currentCycleId') }); setSelectedCourse(null); setSyllabusMode('section-edit'); }} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', borderRadius: '7px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              <Edit size={14} />
+                              Edit
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '13px', color: colors.mediumGray }}>No sections yet. Add sections from Courses in the sidebar.</div>
+                  )}
+                </SectionCard>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -604,7 +956,7 @@ const SyllabusModal = ({
             <div style={{ padding: '18px 22px', background: `linear-gradient(120deg, ${colors.primaryDark || colors.primary} 0%, ${colors.primary} 100%)`, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: '17px', fontWeight: '800' }}>AI Document Import</div>
-                <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>Instructor Syllabus</div>
+                <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>Course Syllabus</div>
               </div>
               <button onClick={() => setDocsOpen(false)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', fontSize: '18px', fontWeight: '700' }} aria-label="Close">x</button>
             </div>
@@ -652,6 +1004,52 @@ const CourseSummaryModal = ({
 }) => {
   if (!selectedCourse || selectedInstructor) return null;
   const sections = Array.isArray(selectedCourse.sections) ? selectedCourse.sections : [];
+  const primarySection = sections[0];
+  const [creatingSyllabus, setCreatingSyllabus] = useState(false);
+  const [error, setError] = useState('');
+
+  const openCourseSyllabus = (section) => {
+    setSelectedInstructor({
+      ...section,
+      name: section.faculty_name,
+      course_code: selectedCourse.code,
+      course_id: selectedCourse.course_id || selectedCourse.id,
+      program_id: selectedCourse.program_id,
+      cycle_id: selectedCourse.cycle_id || localStorage.getItem('currentCycleId')
+    });
+    setSyllabusMode('course-edit');
+  };
+
+  const handleEditCourse = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setError('');
+    if (primarySection?.syllabus_id) {
+      openCourseSyllabus(primarySection);
+      return;
+    }
+    try {
+      setCreatingSyllabus(true);
+      const result = await apiRequest(`/programs/${selectedCourse.program_id}/courses/${selectedCourse.course_id || selectedCourse.id}/sections/`, {
+        method: 'POST',
+        body: JSON.stringify({
+          cycle_id: Number(selectedCourse.cycle_id || localStorage.getItem('currentCycleId') || 0),
+          term: 'TBD',
+          faculty_id: ''
+        })
+      });
+      setSelectedCourse((prev) => ({
+        ...(prev || selectedCourse),
+        sections: [...sections, result]
+      }));
+      openCourseSyllabus(result);
+    } catch (e) {
+      setError(e?.message || 'Unable to create a syllabus for this course.');
+    } finally {
+      setCreatingSyllabus(false);
+    }
+  };
+
   return (
     <div onClick={() => setSelectedCourse(null)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.58)', zIndex: 2050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <div onClick={(event) => event.stopPropagation()} style={{ width: '100%', maxWidth: '980px', maxHeight: '90vh', overflow: 'auto', borderRadius: '12px', backgroundColor: 'white', boxShadow: '0 24px 70px rgba(0,0,0,0.35)', fontFamily: fontStack }}>
@@ -660,32 +1058,32 @@ const CourseSummaryModal = ({
             <div style={{ fontSize: '24px', fontWeight: '800', color: colors.darkGray }}>{selectedCourse.code} Syllabus Workspace</div>
             <div style={{ marginTop: '4px', fontSize: '13px', color: colors.mediumGray }}>{selectedCourse.credits} credits - {selectedCourse.contact_hours} contact hours - {selectedCourse.course_type}</div>
           </div>
-          <button type="button" onClick={() => setSelectedCourse(null)} style={{ background: 'none', border: 'none', color: colors.mediumGray, cursor: 'pointer', padding: '6px' }}><X size={22} /></button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={handleEditCourse}
+              disabled={creatingSyllabus}
+              style={{ backgroundColor: 'white', border: `1px solid ${colors.primary}`, color: colors.primary, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', fontSize: '13px', cursor: creatingSyllabus ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: creatingSyllabus ? 0.7 : 1 }}
+            >
+              <Edit size={16} />
+              {creatingSyllabus ? 'Creating Syllabus...' : 'Edit Course'}
+            </button>
+            <button type="button" onClick={() => setSelectedCourse(null)} style={{ background: 'none', border: 'none', color: colors.mediumGray, cursor: 'pointer', padding: '6px' }}><X size={22} /></button>
+          </div>
         </div>
         <div style={{ padding: '22px', display: 'grid', gap: '14px' }}>
-          {sections.length > 1 ? (
-            <SectionCard title="Common Syllabus Generation">
-              <button type="button" disabled style={{ backgroundColor: '#eceef2', color: colors.mediumGray, border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <Sparkles size={15} />
-                Generate Common Syllabus
-              </button>
-            </SectionCard>
-          ) : null}
+          {error ? <div style={{ padding: '12px 14px', borderRadius: '8px', border: '1px solid #f5c6cb', backgroundColor: '#f8d7da', color: '#721c24', fontSize: '13px', fontWeight: '700' }}>{error}</div> : null}
           <SectionCard title={`Instructor Sections (${sections.length})`}>
             {sections.length === 0 ? <div style={{ fontSize: '13px', color: colors.mediumGray }}>No sections yet. Add sections from Courses in the sidebar.</div> : (
               <div style={{ display: 'grid', gap: '10px' }}>
                 {sections.map((section) => (
                   <div key={section.syllabus_id} style={{ border: `1px solid ${colors.border}`, borderRadius: '8px', padding: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                     <div>
-                      <div style={{ fontSize: '14px', fontWeight: '800', color: colors.darkGray }}>{section.faculty_name || `Faculty #${section.faculty_id}`}</div>
+                      <div style={{ fontSize: '14px', fontWeight: '800', color: colors.darkGray }}>{sectionInstructorLabel(section)}</div>
                       <div style={{ fontSize: '12px', color: colors.mediumGray, marginTop: '2px' }}>{section.term}</div>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <button type="button" onClick={() => { setSelectedInstructor({ ...section, name: section.faculty_name, course_id: selectedCourse.course_id || selectedCourse.id, program_id: selectedCourse.program_id, cycle_id: selectedCourse.cycle_id || localStorage.getItem('currentCycleId') }); setSyllabusMode('view'); }} style={{ backgroundColor: 'white', color: colors.primary, border: `1px solid ${colors.primary}`, borderRadius: '7px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                        <Eye size={14} />
-                        View
-                      </button>
-                      <button type="button" onClick={() => { setSelectedInstructor({ ...section, name: section.faculty_name, course_id: selectedCourse.course_id || selectedCourse.id, program_id: selectedCourse.program_id, cycle_id: selectedCourse.cycle_id || localStorage.getItem('currentCycleId') }); setSyllabusMode('edit'); }} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', borderRadius: '7px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <button type="button" onClick={() => { setSelectedInstructor({ ...section, name: section.faculty_name, course_code: selectedCourse.code, course_id: selectedCourse.course_id || selectedCourse.id, program_id: selectedCourse.program_id, cycle_id: selectedCourse.cycle_id || localStorage.getItem('currentCycleId') }); setSelectedCourse(null); setSyllabusMode('section-edit'); }} style={{ backgroundColor: colors.primary, color: 'white', border: 'none', borderRadius: '7px', padding: '8px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: '700', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                         <Edit size={14} />
                         Edit
                       </button>
@@ -701,4 +1099,4 @@ const CourseSummaryModal = ({
   );
 };
 
-export { SyllabusModal, CourseSummaryModal };
+export { SyllabusModal, CourseSummaryModal, CourseEditorModal, SectionEditorModal };
