@@ -84,15 +84,31 @@ const supplementRows = (rows) => (Array.isArray(rows) ? rows : [])
   .map((row) => `${row?.material_discription || ''}`.trim())
   .filter(Boolean);
 const courseIdOf = (course) => Number(course?.course_id || course?.id || 0);
+const sectionEntriesOf = (course) => (Array.isArray(course?.sections) ? course.sections : [])
+  .filter((section) => Number(section?.syllabus_id || 0) > 0);
+const sectionDisplayLabel = (section) => {
+  const term = `${section?.term || ''}`.trim() || 'TBD';
+  const faculty = `${section?.faculty_name || ''}`.trim() || 'Unassigned instructor';
+  return `${term} - ${faculty}`;
+};
 
 const commonMeta = (course) => {
-  const sections = Array.isArray(course?.sections) ? course.sections : [];
-  const count = sections.length;
-  const commonId = Number(course?.common_syllabus_id || course?.commonSyllabusId || 0);
-  if (count === 1) return { state: 'single', syllabusId: Number(sections[0]?.syllabus_id || 0), section: sections[0] || null };
-  if (count > 1 && commonId > 0) return { state: 'generated', syllabusId: commonId, section: sections.find((s) => Number(s?.syllabus_id || 0) === commonId) || null };
-  if (count > 1) return { state: 'pending', syllabusId: 0, section: null };
-  return { state: 'none', syllabusId: 0, section: null };
+  const sections = sectionEntriesOf(course);
+  if (sections.length === 0) return { state: 'none', syllabusId: 0, section: null, sections: [] };
+  if (sections.length === 1) {
+    return {
+      state: 'single',
+      syllabusId: Number(sections[0]?.syllabus_id || 0),
+      section: sections[0] || null,
+      sections,
+    };
+  }
+  return {
+    state: 'shared',
+    syllabusId: Number(sections[0]?.syllabus_id || 0),
+    section: sections[0] || null,
+    sections,
+  };
 };
 
 const cvReady = (faculty, profile) => {
@@ -255,7 +271,6 @@ const AppendicesABLivePage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
           const meta = commonMeta(course);
           if (!id) return;
           if (meta.state === 'none') syllState[id] = { status: 'none', meta };
-          else if (meta.state === 'pending') syllState[id] = { status: 'pending', meta };
           else if (meta.syllabusId > 0) {
             syllJobs.push({
               id,
@@ -332,7 +347,7 @@ const AppendicesABLivePage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
           <div style={pageCardStyle}>
             <h3 style={{ margin: 0, color: colors.darkGray, fontSize: '18px', fontWeight: '800' }}>Appendix A - Course Syllabi</h3>
             <p style={{ color: colors.mediumGray, margin: '6px 0 0 0', fontSize: '14px' }}>
-              Single-section course syllabi are treated as common syllabi. Multi-section courses require generated common syllabi.
+              One syllabus is shown per course. When a course has multiple sections, the shared course syllabus is displayed once with the related sections and instructors listed together.
             </p>
             <div style={{ marginTop: '12px', display: 'grid', gap: '12px', maxHeight: '68vh', overflowY: 'auto', paddingRight: '4px' }}>
               {!loading && coursesData.length === 0 ? <div style={{ border: `1px dashed ${colors.border}`, borderRadius: '10px', padding: '14px', color: colors.mediumGray, fontSize: '13px' }}>No courses yet.</div> : null}
@@ -340,7 +355,7 @@ const AppendicesABLivePage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
                 const id = courseIdOf(course);
                 const meta = commonMeta(course);
                 const state = syllabusByCourse[id];
-                const tag = meta.state === 'single' ? 'Auto common syllabus' : meta.state === 'generated' ? 'Generated common syllabus' : meta.state === 'pending' ? 'Pending common syllabus' : 'No section';
+                const tag = meta.state === 'single' ? 'Single-section syllabus' : meta.state === 'shared' ? 'Shared course syllabus' : 'No section';
                 const code = course?.code || course?.course_code || 'Course';
                 const name = hasText(course?.name) ? ` - ${course.name}` : '';
                 return (
@@ -360,7 +375,6 @@ const AppendicesABLivePage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
                       </div>
 
                       {loading && !state ? <div style={{ padding: '10px', fontSize: '13px', color: colors.mediumGray }}>Loading...</div> : null}
-                      {state?.status === 'pending' ? <div style={{ margin: '12px', borderRadius: '8px', padding: '10px', fontSize: '13px', color: '#b54708', border: '1px solid #fed7aa', backgroundColor: '#fff6ed' }}>Multiple sections detected; common syllabus is pending generation.</div> : null}
                       {state?.status === 'none' ? <div style={{ padding: '10px', fontSize: '13px', color: colors.mediumGray }}>No section syllabus found.</div> : null}
                       {state?.status === 'error' ? <div style={{ margin: '12px', borderRadius: '8px', padding: '10px', fontSize: '13px', color: '#b42318', border: '1px solid #fecdd3', backgroundColor: '#fff1f2' }}>{state.error}</div> : null}
 
@@ -377,12 +391,37 @@ const AppendicesABLivePage = ({ setCurrentPage, onToggleSidebar, onBack }) => {
                         const textbooks = textbookRows(syllabus.textbooks);
                         const supplements = supplementRows(syllabus.supplements);
                         const toolText = `${syllabus.software_or_labs_tools_used || ''}`.trim();
+                        const relatedSections = Array.isArray(meta?.sections) ? meta.sections : [];
                         return (
                           <div style={{ padding: '14px 16px', display: 'grid', gap: '12px', maxHeight: '380px', overflowY: 'auto' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '12px', color: '#475467' }}>
-                              <div>Instructor: <span style={{ fontWeight: '700', color: '#111827' }}>{section?.faculty_name || meta?.section?.faculty_name || '-'}</span></div>
-                              <div>Term: <span style={{ fontWeight: '700', color: '#111827' }}>{section?.term || meta?.section?.term || '-'}</span></div>
-                            </div>
+                            {relatedSections.length > 1 ? (
+                              <div>
+                                <div style={secTitleStyle}>Covered Sections and Instructors</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                  {relatedSections.map((item) => (
+                                    <span
+                                      key={`section-chip-${item.syllabus_id}`}
+                                      style={{
+                                        border: '1px solid #dbe2ea',
+                                        backgroundColor: '#f8fafc',
+                                        color: '#344054',
+                                        borderRadius: '999px',
+                                        padding: '6px 10px',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                      }}
+                                    >
+                                      {sectionDisplayLabel(item)}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px', fontSize: '12px', color: '#475467' }}>
+                                <div>Instructor: <span style={{ fontWeight: '700', color: '#111827' }}>{section?.faculty_name || meta?.section?.faculty_name || '-'}</span></div>
+                                <div>Term: <span style={{ fontWeight: '700', color: '#111827' }}>{section?.term || meta?.section?.term || '-'}</span></div>
+                              </div>
+                            )}
 
                             <div>
                               <div style={secTitleStyle}>Catalog Description</div>

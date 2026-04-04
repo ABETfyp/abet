@@ -297,16 +297,64 @@ const CRITERION7_STRUCTURED_SECTION_FIELDS = {
   'D. Maintenance and Upgrading': ['maintenance_policy_description'],
 };
 
+const CRITERION7_EXCEL_ONLY_STRUCTURED_SECTIONS = new Set([
+  'A. Classrooms',
+  'A. Laboratories',
+  'B. Computing Resources',
+  'D. Maintenance and Upgrading',
+]);
+
+const isCriterion7StructuredSection = (sectionTitle, extractionMode = 'structured') => (
+  extractionMode === 'structured' && Boolean(CRITERION7_STRUCTURED_SECTION_FIELDS[sectionTitle])
+);
+
+const isCriterion7ExcelOnlyStructuredSection = (sectionTitle, extractionMode = 'structured') => (
+  extractionMode === 'structured' && CRITERION7_EXCEL_ONLY_STRUCTURED_SECTIONS.has(sectionTitle)
+);
+
+const isCriterion7ExcelFile = (file) => (
+  Boolean(`${file?.name ?? ''}`.toLowerCase().match(/\.(xlsx|xlsm)$/))
+);
+
 const CRITERION8_STRUCTURED_SECTION_FIELDS = {
   'C. Staffing': ['additional_narrative_on_staffing'],
 };
 
-const normalizeAiKeyPart = (value) => `${value ?? ''}`.trim().toLowerCase();
+const CRITERION8_EXCEL_ONLY_STRUCTURED_SECTIONS = new Set([
+  'C. Staffing',
+]);
 
-const appendUniqueAiRows = (existingRows, incomingRows, keyBuilder, rowFactory) => {
+const isCriterion8ExcelOnlyStructuredSection = (sectionTitle) => (
+  CRITERION8_EXCEL_ONLY_STRUCTURED_SECTIONS.has(sectionTitle)
+);
+
+const normalizeAiKeyPart = (value) => `${value ?? ''}`.trim().toLowerCase();
+const buildAiRowKey = (row, preferredFields, allFields) => {
+  const preferredParts = (preferredFields || [])
+    .map((fieldName) => `${row?.[fieldName] ?? ''}`.trim().toLowerCase())
+    .filter(Boolean);
+  if (preferredParts.length > 0) {
+    return preferredParts.join('||');
+  }
+  const fallbackParts = (allFields || [])
+    .map((fieldName) => {
+      const value = `${row?.[fieldName] ?? ''}`.trim().toLowerCase();
+      return value ? `${fieldName}:${value}` : '';
+    })
+    .filter(Boolean);
+  return fallbackParts.join('||');
+};
+
+const appendUniqueAiRows = (existingRows, incomingRows, keyBuilder, rowFactory, options = {}) => {
   const nextRows = [...(existingRows || [])];
+  const emptyRowIndexes = typeof options?.isEmptyRow === 'function'
+    ? nextRows
+      .map((row, index) => (options.isEmptyRow(row) ? index : -1))
+      .filter((index) => index >= 0)
+    : [];
   const seenKeys = new Set(
     (existingRows || [])
+      .filter((row) => !(typeof options?.isEmptyRow === 'function' && options.isEmptyRow(row)))
       .map((row) => keyBuilder(row))
       .filter(Boolean)
   );
@@ -315,11 +363,18 @@ const appendUniqueAiRows = (existingRows, incomingRows, keyBuilder, rowFactory) 
     const key = keyBuilder(row);
     if (!key || seenKeys.has(key)) continue;
     seenKeys.add(key);
-    nextRows.push(rowFactory(row));
+    if (emptyRowIndexes.length > 0) {
+      const targetIndex = emptyRowIndexes.shift();
+      nextRows[targetIndex] = rowFactory(row, nextRows[targetIndex]);
+    } else {
+      nextRows.push(rowFactory(row));
+    }
     added += 1;
   }
   return { rows: nextRows, added };
 };
+
+const rowHasAnyValue = (row, fieldNames) => (fieldNames || []).some((fieldName) => `${row?.[fieldName] ?? ''}`.trim() !== '');
 
 const mergeEmptyStringFields = (currentObject, extractedFields, fieldNames) => {
   const mergedFields = {};
@@ -4403,11 +4458,26 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   const handleCriterion7DocFiles = async (files) => {
     if (!criterion7DocModal.sectionTitle) return;
     if (!Array.isArray(files) || files.length === 0) return;
+    const requiresExcelOnly = isCriterion7ExcelOnlyStructuredSection(
+      criterion7DocModal.sectionTitle,
+      criterion7DocModal.extractionMode
+    );
+    if (requiresExcelOnly) {
+      const invalidFiles = files.filter((file) => !isCriterion7ExcelFile(file));
+      if (invalidFiles.length > 0) {
+        setCriterion7DocStatus('This Criterion 7 table extractor supports Excel files only (.xlsx or .xlsm).');
+        return;
+      }
+    }
     try {
       await appendCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`, files);
       const docs = await listCriterion1SectionDocs(cycleId, `Criterion7:${criterion7DocModal.sectionTitle}`);
       setCriterion7Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
-      setCriterion7DocStatus(`${docs.length} file(s) saved for ${criterion7DocModal.sectionTitle}.`);
+      setCriterion7DocStatus(
+        requiresExcelOnly
+          ? `${docs.length} Excel file(s) saved for ${criterion7DocModal.sectionTitle}.`
+          : `${docs.length} file(s) saved for ${criterion7DocModal.sectionTitle}.`
+      );
     } catch (err) {
       setCriterion7DocStatus(err?.message || 'Unable to save documents.');
     }
@@ -4469,17 +4539,38 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
       const mergeResult = appendUniqueAiRows(
         classroomRows,
         result?.rows,
-        (row) => normalizeAiKeyPart(row?.classroom_room),
-        (row) => ({
-          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
-          classroom_id: null,
+        (row) => buildAiRowKey(
+          row,
+          ['classroom_room'],
+          [
+            'classroom_room',
+            'classroom_capacity',
+            'classroom_multimedia',
+            'classroom_internet_access',
+            'classroom_typical_use',
+            'classroom_adequacy_comments',
+          ]
+        ),
+        (row, existingRow) => ({
+          local_id: existingRow?.local_id ?? Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          classroom_id: existingRow?.classroom_id ?? null,
           classroom_room: `${row?.classroom_room ?? ''}`,
           classroom_capacity: `${row?.classroom_capacity ?? ''}`,
           classroom_multimedia: `${row?.classroom_multimedia ?? ''}`,
           classroom_internet_access: `${row?.classroom_internet_access ?? ''}`,
           classroom_typical_use: `${row?.classroom_typical_use ?? ''}`,
           classroom_adequacy_comments: `${row?.classroom_adequacy_comments ?? ''}`,
-        })
+        }),
+        {
+          isEmptyRow: (row) => !rowHasAnyValue(row, [
+            'classroom_room',
+            'classroom_capacity',
+            'classroom_multimedia',
+            'classroom_internet_access',
+            'classroom_typical_use',
+            'classroom_adequacy_comments',
+          ]),
+        }
       );
       addedRows = mergeResult.added;
       setClassroomRows(mergeResult.rows);
@@ -4490,10 +4581,22 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
       const mergeResult = appendUniqueAiRows(
         laboratoryRows,
         result?.rows,
-        (row) => `${normalizeAiKeyPart(row?.lab_name)}||${normalizeAiKeyPart(row?.lab_room)}`,
-        (row) => ({
-          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
-          lab_id: null,
+        (row) => buildAiRowKey(
+          row,
+          ['lab_name', 'lab_room'],
+          [
+            'lab_name',
+            'lab_room',
+            'lab_category',
+            'lab_hardware_list',
+            'lab_software_list',
+            'lab_open_hours',
+            'lab_courses_using_lab',
+          ]
+        ),
+        (row, existingRow) => ({
+          local_id: existingRow?.local_id ?? Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          lab_id: existingRow?.lab_id ?? null,
           lab_name: `${row?.lab_name ?? ''}`,
           lab_room: `${row?.lab_room ?? ''}`,
           lab_category: `${row?.lab_category ?? ''}`,
@@ -4501,7 +4604,18 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
           lab_software_list: `${row?.lab_software_list ?? ''}`,
           lab_open_hours: `${row?.lab_open_hours ?? ''}`,
           lab_courses_using_lab: `${row?.lab_courses_using_lab ?? ''}`,
-        })
+        }),
+        {
+          isEmptyRow: (row) => !rowHasAnyValue(row, [
+            'lab_name',
+            'lab_room',
+            'lab_category',
+            'lab_hardware_list',
+            'lab_software_list',
+            'lab_open_hours',
+            'lab_courses_using_lab',
+          ]),
+        }
       );
       addedRows = mergeResult.added;
       setLaboratoryRows(mergeResult.rows);
@@ -4512,16 +4626,35 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
       const mergeResult = appendUniqueAiRows(
         computingResourceRows,
         result?.rows,
-        (row) => `${normalizeAiKeyPart(row?.computing_resource_name)}||${normalizeAiKeyPart(row?.computing_resource_location)}`,
-        (row) => ({
-          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
-          computing_resources_id: null,
+        (row) => buildAiRowKey(
+          row,
+          ['computing_resource_name', 'computing_resource_location'],
+          [
+            'computing_resource_name',
+            'computing_resource_location',
+            'computing_access_type',
+            'computing_hours_available',
+            'computing_adequacy_notes',
+          ]
+        ),
+        (row, existingRow) => ({
+          local_id: existingRow?.local_id ?? Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          computing_resources_id: existingRow?.computing_resources_id ?? null,
           computing_resource_name: `${row?.computing_resource_name ?? ''}`,
           computing_resource_location: `${row?.computing_resource_location ?? ''}`,
           computing_access_type: `${row?.computing_access_type ?? ''}`,
           computing_hours_available: `${row?.computing_hours_available ?? ''}`,
           computing_adequacy_notes: `${row?.computing_adequacy_notes ?? ''}`,
-        })
+        }),
+        {
+          isEmptyRow: (row) => !rowHasAnyValue(row, [
+            'computing_resource_name',
+            'computing_resource_location',
+            'computing_access_type',
+            'computing_hours_available',
+            'computing_adequacy_notes',
+          ]),
+        }
       );
       addedRows = mergeResult.added;
       setComputingResourceRows(mergeResult.rows);
@@ -4541,16 +4674,35 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
       const mergeRows = appendUniqueAiRows(
         upgradingFacilityRows,
         result?.rows,
-        (row) => normalizeAiKeyPart(row?.facility_name),
-        (row) => ({
-          local_id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
-          facility_id: null,
+        (row) => buildAiRowKey(
+          row,
+          ['facility_name'],
+          [
+            'facility_name',
+            'last_upgrade_date',
+            'next_scheduled_upgrade',
+            'responsible_staff',
+            'maintenance_notes',
+          ]
+        ),
+        (row, existingRow) => ({
+          local_id: existingRow?.local_id ?? Date.now() + Math.floor(Math.random() * 1000) + addedRows,
+          facility_id: existingRow?.facility_id ?? null,
           facility_name: `${row?.facility_name ?? ''}`,
           last_upgrade_date: `${row?.last_upgrade_date ?? ''}`,
           next_scheduled_upgrade: `${row?.next_scheduled_upgrade ?? ''}`,
           responsible_staff: `${row?.responsible_staff ?? ''}`,
           maintenance_notes: `${row?.maintenance_notes ?? ''}`,
-        })
+        }),
+        {
+          isEmptyRow: (row) => !rowHasAnyValue(row, [
+            'facility_name',
+            'last_upgrade_date',
+            'next_scheduled_upgrade',
+            'responsible_staff',
+            'maintenance_notes',
+          ]),
+        }
       );
       addedRows = mergeRows.added;
       setUpgradingFacilityRows(mergeRows.rows);
@@ -4567,18 +4719,33 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
       ? CRITERION7_STRUCTURED_SECTION_FIELDS[criterion7DocModal.sectionTitle]
       : null;
     const isStructuredSection = Boolean(structuredFields);
+    const requiresExcelOnly = isCriterion7ExcelOnlyStructuredSection(
+      criterion7DocModal.sectionTitle,
+      criterion7DocModal.extractionMode
+    );
     if (!eligibleFields && !isStructuredSection) {
-      setCriterion7DocStatus('Local AI extraction is not enabled for this section yet because it includes unsupported fields.');
+      setCriterion7DocStatus('AI extraction is not enabled for this section yet because it includes unsupported fields.');
       return;
     }
     if (criterion7Docs.length === 0) {
       setCriterion7DocStatus('Upload at least one document before running Extract with AI.');
       return;
     }
+    if (requiresExcelOnly) {
+      const invalidDocs = criterion7Docs.filter((doc) => !`${doc?.name ?? ''}`.toLowerCase().match(/\.(xlsx|xlsm)$/));
+      if (invalidDocs.length > 0) {
+        setCriterion7DocStatus('This Criterion 7 table extractor supports Excel files only (.xlsx or .xlsm).');
+        return;
+      }
+    }
 
     try {
       setCriterion7DocLoading(true);
-      setCriterion7DocStatus('Reading the selected documents and extracting ABET-relevant information for this section...');
+      setCriterion7DocStatus(
+        requiresExcelOnly
+          ? 'Reading the selected spreadsheets and extracting ABET-relevant rows for this section...'
+          : 'Reading the selected documents and extracting ABET-relevant information for this section...'
+      );
       if (isStructuredSection) {
         const currentState = {
           fields: Object.fromEntries(
@@ -4611,6 +4778,12 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
           addedFields: mergeSummary.addedFields,
           preservedFields: mergeSummary.preservedFields,
           notes: result?.confidenceNotes,
+          sectionMode:
+            criterion7DocModal.sectionTitle === 'A. Offices'
+              ? 'fields'
+              : criterion7DocModal.sectionTitle === 'D. Maintenance and Upgrading'
+                ? 'mixed'
+                : 'rows',
         }));
       } else {
         const currentFields = eligibleFields.reduce((accumulator, field) => ({
@@ -5060,8 +5233,14 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
               </div>
               <div style={{ padding: '22px', display: 'grid', gap: '16px' }}>
                 <label style={{ display: 'grid', gap: '8px', color: colors.darkGray, fontSize: '13px', fontWeight: '700' }}>
-                  Select Documents
-                  <input type="file" multiple onChange={handleCriterion7DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                  {isCriterion7ExcelOnlyStructuredSection(criterion7DocModal.sectionTitle, criterion7DocModal.extractionMode) ? 'Select Excel Files' : 'Select Documents'}
+                  <input
+                    type="file"
+                    multiple
+                    accept={isCriterion7ExcelOnlyStructuredSection(criterion7DocModal.sectionTitle, criterion7DocModal.extractionMode) ? '.xlsx,.xlsm' : undefined}
+                    onChange={handleCriterion7DocSelection}
+                    style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }}
+                  />
                 </label>
                 <EvidenceLibraryImport
                   cycleId={cycleId}
@@ -5283,11 +5462,23 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
     const handleCriterion8DocFiles = async (files) => {
       if (!criterion8DocModal.sectionTitle) return;
       if (!Array.isArray(files) || files.length === 0) return;
+      const requiresExcelOnly = isCriterion8ExcelOnlyStructuredSection(criterion8DocModal.sectionTitle);
+      if (requiresExcelOnly) {
+        const invalidFiles = files.filter((file) => !isCriterion7ExcelFile(file));
+        if (invalidFiles.length > 0) {
+          setCriterion8DocStatus('This table extractor supports Excel files only (.xlsx or .xlsm).');
+          return;
+        }
+      }
       try {
         await appendCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`, files);
         const docs = await listCriterion1SectionDocs(cycleId, `Criterion8:${criterion8DocModal.sectionTitle}`);
         setCriterion8Docs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
-        setCriterion8DocStatus(`${docs.length} file(s) saved for ${criterion8DocModal.sectionTitle}.`);
+        setCriterion8DocStatus(
+          requiresExcelOnly
+            ? `${docs.length} Excel file(s) saved for ${criterion8DocModal.sectionTitle}.`
+            : `${docs.length} file(s) saved for ${criterion8DocModal.sectionTitle}.`
+        );
       } catch (err) {
         setCriterion8DocStatus(err?.message || 'Unable to save documents.');
       }
@@ -5346,14 +5537,26 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
           const mergeRows = appendUniqueAiRows(
             staffingRows,
             result?.rows,
-            (row) => `${normalizeAiKeyPart(row?.category)}||${normalizeAiKeyPart(row?.primary_role)}`,
-            (row) => ({
-              staffing_row_id: null,
+            (row) => buildAiRowKey(
+              row,
+              ['category', 'primary_role'],
+              ['category', 'number_of_staff', 'primary_role', 'training_retention_practices']
+            ),
+            (row, existingRow) => ({
+              staffing_row_id: existingRow?.staffing_row_id ?? null,
               category: `${row?.category ?? ''}`,
               number_of_staff: `${row?.number_of_staff ?? ''}`,
               primary_role: `${row?.primary_role ?? ''}`,
               training_retention_practices: `${row?.training_retention_practices ?? ''}`,
-            })
+            }),
+            {
+              isEmptyRow: (row) => !rowHasAnyValue(row, [
+                'category',
+                'number_of_staff',
+                'primary_role',
+                'training_retention_practices',
+              ]),
+            }
           );
           addedRows = mergeRows.added;
           setStaffingRows(mergeRows.rows);
@@ -5367,18 +5570,30 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
         if (criterion8DocLoading) return;
         const eligibleFields = CRITERION8_TEXTBOX_SECTION_FIELDS[criterion8DocModal.sectionTitle];
         const structuredFields = CRITERION8_STRUCTURED_SECTION_FIELDS[criterion8DocModal.sectionTitle];
+        const requiresExcelOnly = isCriterion8ExcelOnlyStructuredSection(criterion8DocModal.sectionTitle);
         if (!eligibleFields && !structuredFields) {
-          setCriterion8DocStatus('Local AI extraction is not enabled for this section yet because it includes unsupported fields.');
+          setCriterion8DocStatus('AI extraction is not enabled for this section yet because it includes unsupported fields.');
           return;
         }
         if (criterion8Docs.length === 0) {
           setCriterion8DocStatus('Upload at least one document before running Extract with AI.');
           return;
         }
+        if (requiresExcelOnly) {
+          const invalidDocs = criterion8Docs.filter((doc) => !`${doc?.name ?? ''}`.toLowerCase().match(/\.(xlsx|xlsm)$/));
+          if (invalidDocs.length > 0) {
+            setCriterion8DocStatus('This table extractor supports Excel files only (.xlsx or .xlsm).');
+            return;
+          }
+        }
 
         try {
           setCriterion8DocLoading(true);
-          setCriterion8DocStatus('Reading the selected documents and extracting ABET-relevant information for this section...');
+          setCriterion8DocStatus(
+            requiresExcelOnly
+              ? 'Reading the selected spreadsheets and extracting ABET-relevant rows for this section...'
+              : 'Reading the selected documents and extracting ABET-relevant information for this section...'
+          );
           if (structuredFields) {
             const result = await extractStructuredSectionWithLocalAi({
               cycleId,
@@ -5400,6 +5615,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
               addedFields: mergeSummary.addedFields,
               preservedFields: mergeSummary.preservedFields,
               notes: result?.confidenceNotes,
+              sectionMode: 'mixed',
             }));
           } else {
             const currentFields = eligibleFields.reduce((accumulator, field) => ({
@@ -5895,8 +6111,14 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
 
                 <div style={{ padding: '22px', display: 'grid', gap: '16px' }}>
                   <label style={{ display: 'grid', gap: '8px', color: colors.darkGray, fontSize: '13px', fontWeight: '700' }}>
-                    Select Documents
-                    <input type="file" multiple onChange={handleCriterion8DocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                    {isCriterion8ExcelOnlyStructuredSection(criterion8DocModal.sectionTitle) ? 'Select Excel Files' : 'Select Documents'}
+                    <input
+                      type="file"
+                      multiple
+                      accept={isCriterion8ExcelOnlyStructuredSection(criterion8DocModal.sectionTitle) ? '.xlsx,.xlsm' : undefined}
+                      onChange={handleCriterion8DocSelection}
+                      style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }}
+                    />
                   </label>
                   <EvidenceLibraryImport
                     cycleId={cycleId}

@@ -8,7 +8,7 @@ import re
 import subprocess
 import zipfile
 import zlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO, StringIO
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -39,6 +39,16 @@ def _run_ollama_command(prompt, timeout, model_name=DEFAULT_OLLAMA_MODEL):
 
 def _clean_text(value):
     return re.sub(r'\s+', ' ', f'{value or ""}').strip()
+
+
+def _redact_sensitive_error_text(value):
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return ''
+    redacted = re.sub(r'AIza[0-9A-Za-z_-]{20,}', '[REDACTED_API_KEY]', cleaned)
+    redacted = re.sub(r'([?&](?:key|api_key)=)[^&\s]+', r'\1[REDACTED_API_KEY]', redacted, flags=re.IGNORECASE)
+    redacted = re.sub(r'((?:api[_-]?key|key)\s*[:=]\s*)([^\s,;\'"]+)', r'\1[REDACTED_API_KEY]', redacted, flags=re.IGNORECASE)
+    return redacted
 
 
 def _count_words(value):
@@ -453,11 +463,44 @@ def _xlsx_column_letters(cell_reference):
     return match.group(1) if match else ''
 
 
-def _extract_text_from_xlsx_bytes(file_bytes):
+def _xlsx_column_index(cell_reference):
+    letters = _xlsx_column_letters(cell_reference)
+    if not letters:
+        return 0
+    index = 0
+    for char in letters:
+        index = (index * 26) + (ord(char.upper()) - ord('A') + 1)
+    return index
+
+
+def _excel_serial_to_iso(value, date_1904=False):
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return ''
+    try:
+        serial = float(cleaned)
+    except ValueError:
+        return ''
+    base = datetime(1904, 1, 1) if date_1904 else datetime(1899, 12, 30)
+    try:
+        converted = base + timedelta(days=serial)
+    except Exception:
+        return ''
+    return converted.strftime('%Y-%m-%d')
+
+
+def _looks_like_excel_date_format(format_code):
+    cleaned = f'{format_code or ""}'.lower()
+    if not cleaned:
+        return False
+    return any(token in cleaned for token in ('yy', 'dd', 'mm', 'm/', '/m', 'h:', 'ss'))
+
+
+def _extract_xlsx_workbook_data(file_bytes, max_rows_per_sheet=180, max_sheets=10, max_columns=40):
     try:
         archive = zipfile.ZipFile(BytesIO(file_bytes))
     except Exception:
-        return ''
+        return []
 
     namespace = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
     relationship_ns = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id'
@@ -474,25 +517,52 @@ def _extract_text_from_xlsx_bytes(file_bytes):
     except Exception:
         shared_strings = []
 
-    sheet_targets = []
+    date_1904 = False
     try:
         workbook_root = ET.fromstring(archive.read('xl/workbook.xml'))
+        workbook_props = workbook_root.find('main:workbookPr', namespace)
+        date_1904 = (workbook_props is not None and workbook_props.attrib.get('date1904') == '1')
+    except Exception:
+        workbook_root = None
+
+    custom_num_formats = {}
+    style_date_indexes = set()
+    try:
+        styles_root = ET.fromstring(archive.read('xl/styles.xml'))
+        for num_fmt in styles_root.findall('main:numFmts/main:numFmt', namespace):
+            num_fmt_id = num_fmt.attrib.get('numFmtId')
+            format_code = num_fmt.attrib.get('formatCode')
+            if num_fmt_id and format_code:
+                custom_num_formats[num_fmt_id] = format_code
+        cell_xfs = styles_root.findall('main:cellXfs/main:xf', namespace)
+        builtin_date_ids = {'14', '15', '16', '17', '18', '19', '20', '21', '22', '45', '46', '47'}
+        for index, xf in enumerate(cell_xfs):
+            num_fmt_id = xf.attrib.get('numFmtId')
+            format_code = custom_num_formats.get(num_fmt_id, '')
+            if (num_fmt_id in builtin_date_ids) or _looks_like_excel_date_format(format_code):
+                style_date_indexes.add(index)
+    except Exception:
+        style_date_indexes = set()
+
+    sheet_targets = []
+    try:
         rels_root = ET.fromstring(archive.read('xl/_rels/workbook.xml.rels'))
         relationships = {}
         for relation in rels_root:
             relation_id = relation.attrib.get('Id')
             target = relation.attrib.get('Target')
             if relation_id and target:
-                normalized_target = target.replace('\\', '/')
+                normalized_target = target.replace('\\', '/').lstrip('/')
                 if not normalized_target.startswith('xl/'):
                     normalized_target = f'xl/{normalized_target.lstrip("/")}'
                 relationships[relation_id] = normalized_target
-        for sheet in workbook_root.findall('main:sheets/main:sheet', namespace):
-            sheet_name = sheet.attrib.get('name') or 'Sheet'
-            relation_id = sheet.attrib.get(relationship_ns)
-            target = relationships.get(relation_id)
-            if target:
-                sheet_targets.append((sheet_name, target))
+        if workbook_root is not None:
+            for sheet in workbook_root.findall('main:sheets/main:sheet', namespace):
+                sheet_name = sheet.attrib.get('name') or 'Sheet'
+                relation_id = sheet.attrib.get(relationship_ns)
+                target = relationships.get(relation_id)
+                if target:
+                    sheet_targets.append((sheet_name, target))
     except Exception:
         sheet_targets = []
 
@@ -503,11 +573,13 @@ def _extract_text_from_xlsx_bytes(file_bytes):
             if name.startswith('xl/worksheets/') and name.endswith('.xml')
         ]
 
-    lines = []
-    total_rows = 0
-
     def cell_text(cell):
         cell_type = cell.attrib.get('t')
+        style_index = None
+        try:
+            style_index = int(cell.attrib.get('s')) if cell.attrib.get('s') is not None else None
+        except Exception:
+            style_index = None
         if cell_type == 'inlineStr':
             return _clean_text(' '.join(cell.itertext()))
         value_node = cell.find('main:v', namespace)
@@ -521,58 +593,85 @@ def _extract_text_from_xlsx_bytes(file_bytes):
                 return ''
         if cell_type == 'b':
             return 'TRUE' if raw_value == '1' else 'FALSE'
+        if style_index is not None and style_index in style_date_indexes:
+            converted = _excel_serial_to_iso(raw_value, date_1904=date_1904)
+            if converted:
+                return converted
         return raw_value
 
-    for sheet_name, target in sheet_targets:
+    workbook_data = []
+    for sheet_name, target in sheet_targets[:max_sheets]:
         try:
             sheet_root = ET.fromstring(archive.read(target))
         except Exception:
             continue
-        rows = sheet_root.findall('.//main:sheetData/main:row', namespace)
-        if not rows:
+        sheet_rows = sheet_root.findall('.//main:sheetData/main:row', namespace)
+        if not sheet_rows:
             continue
 
         parsed_rows = []
-        all_columns = []
-        for row in rows:
+        max_seen_column = 0
+        for row in sheet_rows:
             row_values = {}
             for cell in row.findall('main:c', namespace):
-                column = _xlsx_column_letters(cell.attrib.get('r'))
+                column_index = _xlsx_column_index(cell.attrib.get('r'))
+                if column_index <= 0 or column_index > max_columns:
+                    continue
                 text = cell_text(cell)
-                if column and text:
-                    row_values[column] = text
-                    if column not in all_columns:
-                        all_columns.append(column)
+                if text:
+                    row_values[column_index] = text
+                    max_seen_column = max(max_seen_column, column_index)
             if row_values:
                 parsed_rows.append(row_values)
-            if len(parsed_rows) >= 120:
+            if len(parsed_rows) >= max_rows_per_sheet:
                 break
 
-        if not parsed_rows:
+        if not parsed_rows or max_seen_column == 0:
             continue
 
-        lines.append(f'Sheet: {sheet_name}')
-        header_candidates = parsed_rows[0]
-        has_header = any(
-            value and not re.fullmatch(r'\d+(?:\.\d+)?', value)
-            for value in header_candidates.values()
-        ) and len(parsed_rows) > 1
-        headers = {
-            column: header_candidates.get(column) or column
-            for column in all_columns
-        } if has_header else {column: column for column in all_columns}
+        rows = []
+        for row_values in parsed_rows:
+            row = [row_values.get(column_index, '') for column_index in range(1, max_seen_column + 1)]
+            while row and not _clean_text(row[-1]):
+                row.pop()
+            if any(_clean_text(cell) for cell in row):
+                rows.append(row)
 
+        if rows:
+            workbook_data.append({'sheet_name': sheet_name, 'rows': rows})
+
+    return workbook_data
+
+
+def _extract_text_from_xlsx_bytes(file_bytes):
+    workbook_data = _extract_xlsx_workbook_data(file_bytes, max_rows_per_sheet=120)
+    if not workbook_data:
+        return ''
+
+    lines = []
+    total_rows = 0
+    for sheet in workbook_data:
+        rows = sheet.get('rows') or []
+        if not rows:
+            continue
+        lines.append(f'Sheet: {sheet.get("sheet_name") or "Sheet"}')
+        headers = rows[0]
+        has_header = (
+            len(rows) > 1 and
+            any(header and not re.fullmatch(r'\d+(?:\.\d+)?', header) for header in headers)
+        )
         if has_header:
-            lines.append('Headers: ' + ' | '.join(headers[column] for column in all_columns if headers.get(column)))
+            lines.append('Headers: ' + ' | '.join(header or f'Column {index + 1}' for index, header in enumerate(headers)))
 
-        data_rows = parsed_rows[1:] if has_header else parsed_rows
-        for row_index, row_values in enumerate(data_rows, start=1):
+        data_rows = rows[1:] if has_header else rows
+        for row_index, row in enumerate(data_rows, start=1):
             pairs = []
-            for column in all_columns:
-                value = row_values.get(column, '')
+            for cell_index, cell in enumerate(row):
+                value = _clean_text(cell)
                 if not value:
                     continue
-                pairs.append(f'{headers.get(column, column)}: {value}')
+                header = headers[cell_index] if has_header and cell_index < len(headers) and headers[cell_index] else f'Column {cell_index + 1}'
+                pairs.append(f'{header}: {value}')
             if pairs:
                 lines.append(f'Row {row_index}: ' + '; '.join(pairs))
                 total_rows += 1
@@ -580,7 +679,6 @@ def _extract_text_from_xlsx_bytes(file_bytes):
                 break
         if total_rows >= 180:
             break
-
     return '\n'.join(lines)
 
 
@@ -674,9 +772,9 @@ def _run_gemini_json_prompt(prompt, model_name=BACKGROUND_GEMINI_MODEL, timeout=
         message = ''
         if isinstance(parsed_error, dict):
             message = _clean_text(((parsed_error.get('error') or {}).get('message')))
-        return None, message or f'Gemini request failed with HTTP {exc.code}.'
+        return None, _redact_sensitive_error_text(message or f'Gemini request failed with HTTP {exc.code}.')
     except Exception as exc:
-        return None, f'Unable to reach the Gemini API: {exc}'
+        return None, _redact_sensitive_error_text(f'Unable to reach the Gemini API: {exc}')
 
     text = _extract_gemini_text(response_payload)
     if not text:
@@ -1877,6 +1975,7 @@ STRUCTURED_SECTION_REGISTRY = {
         'A. Offices': {
             'mode': 'fields',
             'purpose': 'Extract concise office-count information and student availability details for Criterion 7 facilities.',
+            'sheet_hint': 'Offices',
             'rules': [
                 'Use explicit numeric evidence only for counts and average size values.',
                 'Keep student availability details concise and factual.',
@@ -1892,14 +1991,19 @@ STRUCTURED_SECTION_REGISTRY = {
         'A. Classrooms': {
             'mode': 'rows',
             'purpose': 'Extract one complete classroom row for each explicitly described classroom used by the program.',
+            'sheet_hint': 'Classrooms',
             'rules': [
                 'Return one row per classroom when the classroom identity is clear, even if some secondary columns are missing.',
+                'If a classroom room name is missing but at least two other classroom-specific values are explicit, return a partial row and leave the room blank.',
                 'Use short cell-ready values, not long sentences.',
                 'It is acceptable to leave secondary columns blank when the document does not state them explicitly.',
             ],
             'section_keywords': ['classroom', 'lecture room', 'capacity', 'projector', 'internet', 'typical use'],
             'row_label': 'classroom rows',
             'required_row_fields': ['classroom_room'],
+            'allow_partial_rows': True,
+            'min_row_non_empty_fields': 2,
+            'row_anchor_fields': ['classroom_room', 'classroom_capacity', 'classroom_multimedia', 'classroom_typical_use', 'classroom_adequacy_comments'],
             'dedupe_keys': ['classroom_room'],
             'row_fields': [
                 {'name': 'classroom_room', 'label': 'Room', 'kind': 'short_text', 'keywords': ['room', 'classroom', 'hall']},
@@ -1913,14 +2017,19 @@ STRUCTURED_SECTION_REGISTRY = {
         'A. Laboratories': {
             'mode': 'rows',
             'purpose': 'Extract one complete laboratory row for each program laboratory explicitly described in the uploaded evidence.',
+            'sheet_hint': 'Laboratories',
             'rules': [
                 'Return laboratory rows whenever the lab identity is clear, even if some secondary columns are blank.',
+                'If a lab name is missing but at least two other lab-specific values are explicit, return a partial row and leave the missing cells blank.',
                 'Hardware, software, open hours, and course-use fields should stay concise.',
                 'It is acceptable to leave secondary columns blank when they are not explicit.',
             ],
             'section_keywords': ['laboratory', 'lab room', 'hardware', 'software', 'open hours', 'courses using lab'],
             'row_label': 'laboratory rows',
             'required_row_fields': ['lab_name'],
+            'allow_partial_rows': True,
+            'min_row_non_empty_fields': 2,
+            'row_anchor_fields': ['lab_name', 'lab_room', 'lab_category', 'lab_hardware_list', 'lab_software_list', 'lab_courses_using_lab'],
             'dedupe_keys': ['lab_name', 'lab_room'],
             'row_fields': [
                 {'name': 'lab_name', 'label': 'Lab Name', 'kind': 'short_text', 'keywords': ['lab name', 'laboratory']},
@@ -1935,14 +2044,19 @@ STRUCTURED_SECTION_REGISTRY = {
         'B. Computing Resources': {
             'mode': 'rows',
             'purpose': 'Extract concise computing-resource rows for shared resources available to students.',
+            'sheet_hint': 'Computing Resources',
             'rules': [
                 'Return computing resources whenever the resource identity is clear, even if some descriptive columns are blank.',
+                'If a formal resource name is missing but at least two other computing-resource values are explicit, return a partial row and leave the missing cells blank.',
                 'Keep each value concise and table-ready.',
                 'Omit only clearly uncertain resource identities.',
             ],
             'section_keywords': ['computing resource', 'server', 'cluster', 'VPN', 'access', 'hours available'],
             'row_label': 'computing resource rows',
             'required_row_fields': ['computing_resource_name'],
+            'allow_partial_rows': True,
+            'min_row_non_empty_fields': 2,
+            'row_anchor_fields': ['computing_resource_name', 'computing_resource_location', 'computing_access_type', 'computing_hours_available', 'computing_adequacy_notes'],
             'dedupe_keys': ['computing_resource_name', 'computing_resource_location'],
             'row_fields': [
                 {'name': 'computing_resource_name', 'label': 'Resource', 'kind': 'short_text', 'keywords': ['resource', 'cluster', 'lab', 'server', 'platform']},
@@ -1955,10 +2069,11 @@ STRUCTURED_SECTION_REGISTRY = {
         'D. Maintenance and Upgrading': {
             'mode': 'mixed',
             'purpose': 'Extract a short maintenance-policy summary plus complete maintenance/upgrading rows for facilities and labs.',
+            'sheet_hint': 'Maintenance',
             'rules': [
                 'Use a short narrative for the maintenance policy only when the evidence is explicit.',
-                'Return only complete maintenance rows with normalized ISO dates.',
-                'Omit rows with uncertain dates or missing core columns.',
+                'Return maintenance rows with normalized ISO dates when dates are explicit.',
+                'If a facility name is missing but at least two other maintenance-specific values are explicit, return a partial row and leave the missing cells blank.',
             ],
             'section_keywords': ['maintenance', 'upgrade', 'replacement', 'facility review', 'equipment plan'],
             'fields': [
@@ -1972,6 +2087,9 @@ STRUCTURED_SECTION_REGISTRY = {
                 'responsible_staff',
                 'maintenance_notes',
             ],
+            'allow_partial_rows': True,
+            'min_row_non_empty_fields': 2,
+            'row_anchor_fields': ['facility_name', 'last_upgrade_date', 'next_scheduled_upgrade', 'responsible_staff', 'maintenance_notes'],
             'dedupe_keys': ['facility_name'],
             'row_fields': [
                 {'name': 'facility_name', 'label': 'Facility / Lab', 'kind': 'short_text', 'keywords': ['facility', 'lab', 'room', 'space']},
@@ -1986,6 +2104,7 @@ STRUCTURED_SECTION_REGISTRY = {
         'C. Staffing': {
             'mode': 'mixed',
             'purpose': 'Extract staffing rows and a short narrative on staffing adequacy for Criterion 8 institutional support.',
+            'sheet_hint': 'Staffing',
             'rules': [
                 'Return one row per staffing category and primary role combination.',
                 'Use integers only for staff counts.',
@@ -2010,6 +2129,7 @@ STRUCTURED_SECTION_REGISTRY = {
         'Inventory Sheet': {
             'mode': 'rows',
             'purpose': 'Extract equipment inventory rows for Appendix C using short table-ready values.',
+            'sheet_hint': 'Inventory',
             'rules': [
                 'Return only rows with explicit equipment name, manufacturer/model, quantity, location, instructional use/course use, and service date.',
                 'Normalize dates to YYYY-MM-DD.',
@@ -2034,11 +2154,33 @@ STRUCTURED_SECTION_REGISTRY = {
     },
 }
 
+CRITERION7_EXCEL_ONLY_STRUCTURED_SECTIONS = {
+    'A. Classrooms',
+    'A. Laboratories',
+    'B. Computing Resources',
+    'D. Maintenance and Upgrading',
+}
+
+CRITERION8_EXCEL_ONLY_STRUCTURED_SECTIONS = {
+    'C. Staffing',
+}
+
+APPENDIXC_EXCEL_ONLY_STRUCTURED_SECTIONS = {
+    'Inventory Sheet',
+}
+
 
 def _dedupe_row_key(row, key_fields):
     parts = [_clean_text(row.get(field)).lower() for field in (key_fields or [])]
     parts = [part for part in parts if part]
-    return '||'.join(parts)
+    if parts:
+        return '||'.join(parts)
+    fallback_parts = []
+    for field_name in sorted((row or {}).keys()):
+        value = _clean_text((row or {}).get(field_name)).lower()
+        if value:
+            fallback_parts.append(f'{field_name}:{value}')
+    return '||'.join(fallback_parts)
 
 
 def _sanitize_structured_row(config, row):
@@ -2051,9 +2193,21 @@ def _sanitize_structured_row(config, row):
             sanitized[field['name']] = value
         else:
             sanitized[field['name']] = ''
-    required = config.get('required_row_fields') or []
-    if required and any(not sanitized.get(field_name) for field_name in required):
+    non_empty_count = sum(1 for value in sanitized.values() if _clean_text(value))
+    if non_empty_count == 0:
         return None
+    required = config.get('required_row_fields') or []
+    allow_partial_rows = bool(config.get('allow_partial_rows'))
+    if required and any(not sanitized.get(field_name) for field_name in required):
+        if not allow_partial_rows:
+            return None
+    if allow_partial_rows:
+        min_non_empty_fields = int(config.get('min_row_non_empty_fields') or 0)
+        anchor_fields = [field_name for field_name in (config.get('row_anchor_fields') or []) if field_name]
+        if min_non_empty_fields and non_empty_count < min_non_empty_fields:
+            return None
+        if anchor_fields and not any(_clean_text(sanitized.get(field_name)) for field_name in anchor_fields):
+            return None
     return sanitized
 
 
@@ -2062,6 +2216,489 @@ def _extract_structured_field_values(config, blocks):
     for field in config.get('fields') or []:
         extracted[field['name']] = _clean_text(_extract_generic_value(field, blocks, config.get('section_keywords') or []))
     return extracted
+
+
+def _structured_row_has_any_content(config, row):
+    if not isinstance(row, dict):
+        return False
+    field_names = [field.get('name') for field in (config.get('row_fields') or []) if field.get('name')]
+    return any(_clean_text(row.get(field_name)) for field_name in field_names)
+
+
+def _structured_existing_row_keys(config, current_state):
+    if not isinstance(current_state, dict):
+        return set()
+    rows = current_state.get('rows')
+    if not isinstance(rows, list):
+        return set()
+    key_fields = config.get('dedupe_keys') or []
+    if not key_fields:
+        return set()
+    keys = set()
+    for row in rows:
+        if not _structured_row_has_any_content(config, row):
+            continue
+        key = _dedupe_row_key(row, key_fields)
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _run_structured_gemini(page_key, section_title, config, combined_text, current_state, files=None, heuristic_fields=None):
+    extra_parts = _build_gemini_background_file_parts(files)
+    field_defs = config.get('fields') or []
+    row_fields = config.get('row_fields') or []
+    field_names = [field.get('name') for field in field_defs if field.get('name')]
+    current_fields = (current_state or {}).get('fields') if isinstance(current_state, dict) else {}
+    current_rows = (current_state or {}).get('rows') if isinstance(current_state, dict) else []
+    heuristic_rows = []
+    if _is_excel_only_structured_section(f'{page_key or ""}'.strip().lower(), section_title):
+        _, heuristic_rows = _extract_excel_structured_draft(files, config)
+
+    prompt_parts = [
+        f'You are filling ABET {TEXTBOX_GEMINI_PAGE_LABELS.get(f"{page_key or ""}".strip().lower(), page_key)} section "{section_title}".',
+        f'Section purpose: {config.get("purpose", "")}',
+        'Read the entire provided evidence carefully. Combine consistent facts across multiple uploaded documents.',
+        'If PDF files are attached, read them directly in addition to the extracted text snippets.',
+        'Use only the provided evidence. Never invent facts or infer precise values that are not supported.',
+        'Return only valid JSON with this exact shape: {"fields": {...}, "rows": [...], "confidenceNotes": "short note"}.',
+    ]
+
+    rules = config.get('rules') or []
+    if rules:
+        prompt_parts.append('Section rules:\n' + '\n'.join(f'- {rule}' for rule in rules))
+
+    if field_defs:
+        prompt_parts.append(
+            'Allowed scalar fields:\n' + '\n'.join(
+                f'- {field["name"]}: {field.get("label", field["name"])} ({field.get("kind", "text")})'
+                for field in field_defs
+            )
+        )
+
+    if row_fields:
+        prompt_parts.append(
+            'Allowed row fields:\n' + '\n'.join(
+                f'- {field["name"]}: {field.get("label", field["name"])} ({field.get("kind", "text")})'
+                for field in row_fields
+            )
+        )
+        prompt_parts.extend([
+            f'Row identity / dedupe keys: {", ".join(config.get("dedupe_keys") or []) or "none"}',
+            f'Required fields for each returned row: {", ".join(config.get("required_row_fields") or []) or "none"}',
+            'Return one row per distinct real-world item. Do not combine different classrooms, labs, computing resources, or facilities into one row.',
+            'Return only new rows that should be inserted into empty placeholders or appended. Do not repeat or replace any existing non-empty row from the current saved state.',
+            'Keep all row values short, cell-ready, and specific. Do not write full paragraphs inside row cells.',
+            'Use YYYY-MM-DD for explicit dates and digits only for numeric fields.',
+        ])
+        if _is_excel_only_structured_section(f'{page_key or ""}'.strip().lower(), section_title):
+            prompt_parts.extend([
+                'The uploaded spreadsheet is already structured. Treat each listed source spreadsheet row as a candidate ABET row.',
+                'If the spreadsheet clearly contains 5 distinct relevant rows, you should usually return 5 ABET rows unless one is blank, irrelevant, or already exists in the current saved state.',
+                'Do not drop a source spreadsheet row just because some secondary cells are blank. Map the clear values you do have and leave uncertain cells empty.',
+                'Use the detected spreadsheet headers semantically. Similar headers such as "Courses Using", "Access Type", "Notes", or "Facility / Lab" should be mapped to the matching ABET row fields.',
+            ])
+
+    if config.get('mode') == 'fields':
+        prompt_parts.append('If a scalar field is already filled in the current saved state, keep it unchanged unless the evidence clearly shows a better direct value. Prefer leaving uncertain fields empty.')
+        if _is_excel_only_structured_section(f'{page_key or ""}'.strip().lower(), section_title):
+            prompt_parts.append('This section does not need output rows. Read key-value style spreadsheet content carefully and fill only the scalar fields from explicit spreadsheet evidence.')
+    else:
+        prompt_parts.append('Any existing row with content is protected. Do not try to complete, edit, or rewrite it in the response.')
+
+    prompt_parts.append(
+        f'Current saved scalar fields:\n{json.dumps({name: _clean_text((current_fields or {}).get(name)) for name in field_names}, ensure_ascii=True)}'
+    )
+    prompt_parts.append(
+        f'Current saved rows:\n{json.dumps(current_rows if isinstance(current_rows, list) else [], ensure_ascii=True)}'
+    )
+    if isinstance(heuristic_fields, dict) and heuristic_fields:
+        prompt_parts.append(f'High-confidence heuristic hints:\n{json.dumps(heuristic_fields, ensure_ascii=True)}')
+    if heuristic_rows:
+        prompt_parts.append(
+            'High-confidence spreadsheet row draft (already interpreted from the workbook headers; preserve these rows unless they are clearly duplicates of existing saved rows):\n'
+            + json.dumps(heuristic_rows, ensure_ascii=True)
+        )
+    prompt_parts.append(f'Relevant evidence excerpt:\n{combined_text}')
+    prompt_parts.append(
+        'confidenceNotes should briefly mention conflicts or limitations when relevant. '
+        'If the evidence is weak, return fewer rows or empty fields rather than guessing.'
+    )
+
+    return _run_gemini_json_prompt('\n\n'.join(part for part in prompt_parts if part), extra_parts=extra_parts)
+
+
+def _is_excel_upload_name(file_name):
+    return f'{file_name or ""}'.strip().lower().endswith(('.xlsx', '.xlsm'))
+
+
+def _build_excel_workbook_prompt_text(uploaded_file, config):
+    file_name = uploaded_file.name or 'workbook.xlsx'
+    uploaded_file.seek(0)
+    workbook_data = _extract_xlsx_workbook_data(uploaded_file.read(), max_rows_per_sheet=220)
+    uploaded_file.seek(0)
+    if not workbook_data:
+        return '', 0
+
+    section_title = _clean_text(config.get('sheet_hint') or '')
+    section_keywords = [f'{keyword or ""}'.strip().lower() for keyword in (config.get('section_keywords') or []) if f'{keyword or ""}'.strip()]
+
+    def sheet_score(sheet):
+        sheet_name = _clean_text(sheet.get('sheet_name')).lower()
+        preview_rows = sheet.get('rows') or []
+        preview_text = ' '.join(' '.join(_clean_text(cell) for cell in row[:8] if _clean_text(cell)) for row in preview_rows[:5]).lower()
+        score = 0
+        if section_title and section_title.lower() in sheet_name:
+            score += 6
+        if section_title and section_title.lower() in preview_text:
+            score += 4
+        for keyword in section_keywords:
+            if keyword and keyword in sheet_name:
+                score += 3
+            if keyword and keyword in preview_text:
+                score += 1
+        return score
+
+    ranked_sheets = sorted(workbook_data, key=sheet_score, reverse=True)
+    if ranked_sheets and sheet_score(ranked_sheets[0]) > 0:
+        workbook_data = [ranked_sheets[0]]
+    else:
+        workbook_data = ranked_sheets[:1]
+
+    lines = [f'Workbook: {file_name}']
+    total_rows = 0
+    total_row_limit = 260
+
+    for sheet in workbook_data:
+        rows = sheet.get('rows') or []
+        if not rows:
+            continue
+        sheet_name = sheet.get('sheet_name') or 'Sheet'
+        header_index = _detect_xlsx_header_index(rows)
+        headers = rows[header_index]
+        has_header = (
+            len(rows) > header_index + 1 and
+            sum(1 for header in headers if _clean_text(header)) >= 2 and
+            any(header and not re.fullmatch(r'\d+(?:\.\d+)?', header) for header in headers)
+        )
+        lines.append(f'Sheet: {sheet_name}')
+        if has_header:
+            lines.append('Detected headers: ' + ' | '.join(header or f'Column {index + 1}' for index, header in enumerate(headers)))
+            lines.append('Header hints: interpret similar spreadsheet headers semantically, even when they do not exactly match the ABET field names.')
+        if header_index > 0:
+            title_lines = [' | '.join(_clean_text(cell) for cell in row if _clean_text(cell)) for row in rows[:header_index]]
+            title_lines = [line for line in title_lines if line]
+            if title_lines:
+                lines.append('Sheet context: ' + ' || '.join(title_lines))
+
+        data_rows = rows[header_index + 1:] if has_header else rows
+        for row_index, row in enumerate(data_rows, start=1):
+            pairs = []
+            for cell_index, cell in enumerate(row):
+                value = _clean_text(cell)
+                if not value:
+                    continue
+                header = headers[cell_index] if has_header and cell_index < len(headers) and headers[cell_index] else f'Column {cell_index + 1}'
+                pairs.append(f'{header}: {value}')
+            if not pairs:
+                continue
+            lines.append(f'Row {row_index}: ' + '; '.join(pairs))
+            total_rows += 1
+            if total_rows >= total_row_limit:
+                break
+        if total_rows >= total_row_limit:
+            break
+
+    if total_rows == 0:
+        return '', 0
+
+    lines.append(f'Detected candidate spreadsheet rows for this section: {total_rows}')
+    lines.append(
+        f'For section "{config.get("row_label") or "rows"}", interpret spreadsheet column meanings flexibly. '
+        'A sheet may use different header names or column order, but you should still understand which values belong in the ABET rows.'
+    )
+    return '\n'.join(lines), total_rows
+
+
+def _score_workbook_sheet_for_section(sheet, config):
+    sheet_name = _clean_text((sheet or {}).get('sheet_name')).lower()
+    preview_rows = (sheet or {}).get('rows') or []
+    preview_text = ' '.join(
+        ' '.join(_clean_text(cell) for cell in row[:8] if _clean_text(cell))
+        for row in preview_rows[:5]
+    ).lower()
+    section_title = _clean_text(config.get('sheet_hint') or '').lower()
+    section_keywords = [
+        f'{keyword or ""}'.strip().lower()
+        for keyword in (config.get('section_keywords') or [])
+        if f'{keyword or ""}'.strip()
+    ]
+    score = 0
+    if section_title and section_title in sheet_name:
+        score += 6
+    if section_title and section_title in preview_text:
+        score += 4
+    for keyword in section_keywords:
+        if keyword and keyword in sheet_name:
+            score += 3
+        if keyword and keyword in preview_text:
+            score += 1
+    return score
+
+
+def _select_relevant_workbook_sheets(workbook_data, config, max_sheets=1):
+    ranked_sheets = sorted(workbook_data or [], key=lambda sheet: _score_workbook_sheet_for_section(sheet, config), reverse=True)
+    if ranked_sheets and _score_workbook_sheet_for_section(ranked_sheets[0], config) > 0:
+        return [sheet for sheet in ranked_sheets if _score_workbook_sheet_for_section(sheet, config) > 0][:max_sheets]
+    return ranked_sheets[:max_sheets]
+
+
+def _detect_xlsx_header_index(rows):
+    max_scan = min(len(rows), 4)
+    best_index = 0
+    best_score = -1
+    for index in range(max_scan):
+        row = rows[index]
+        non_empty = [cell for cell in row if _clean_text(cell)]
+        if not non_empty:
+            continue
+        score = 0
+        if len(non_empty) >= 2:
+            score += 3
+        if len(non_empty) >= 4:
+            score += 2
+        if any(not re.fullmatch(r'\d+(?:\.\d+)?', _clean_text(cell)) for cell in non_empty):
+            score += 2
+        if score > best_score:
+            best_score = score
+            best_index = index
+    return best_index
+
+
+def _normalize_header_token(value):
+    return re.sub(r'[^a-z0-9]+', ' ', _clean_text(value).lower()).strip()
+
+
+def _header_tokens_for_field(field):
+    candidates = {
+        _normalize_header_token(field.get('name')),
+        _normalize_header_token(field.get('label')),
+    }
+    for keyword in field.get('keywords') or []:
+        candidates.add(_normalize_header_token(keyword))
+    return {candidate for candidate in candidates if candidate}
+
+
+def _match_header_to_field(header_value, fields):
+    normalized_header = _normalize_header_token(header_value)
+    if not normalized_header:
+        return None
+    best_field = None
+    best_score = 0
+    for field in fields or []:
+        for candidate in _header_tokens_for_field(field):
+            score = 0
+            if normalized_header == candidate:
+                score = 10
+            elif normalized_header in candidate or candidate in normalized_header:
+                score = 7
+            else:
+                header_parts = set(normalized_header.split())
+                candidate_parts = set(candidate.split())
+                overlap = len(header_parts & candidate_parts)
+                if overlap:
+                    score = overlap
+            if score > best_score:
+                best_score = score
+                best_field = field
+    return best_field if best_score >= 2 else None
+
+
+def _extract_criterion7_spreadsheet_draft(files, config):
+    draft_fields = {}
+    draft_rows = []
+    for uploaded_file in files or []:
+        if not _is_excel_upload_name(uploaded_file.name):
+            continue
+        uploaded_file.seek(0)
+        workbook_data = _extract_xlsx_workbook_data(uploaded_file.read(), max_rows_per_sheet=220)
+        uploaded_file.seek(0)
+        for sheet in _select_relevant_workbook_sheets(workbook_data, config, max_sheets=1):
+            rows = sheet.get('rows') or []
+            if not rows:
+                continue
+            header_index = _detect_xlsx_header_index(rows)
+            headers = rows[header_index] if header_index < len(rows) else []
+            has_header = (
+                len(rows) > header_index + 1 and
+                sum(1 for header in headers if _clean_text(header)) >= 2 and
+                any(header and not re.fullmatch(r'\d+(?:\.\d+)?', header) for header in headers)
+            )
+
+            if config.get('mode') == 'fields':
+                for row in rows[header_index + 1:] if has_header else rows:
+                    if len(row) < 2:
+                        continue
+                    key = _clean_text(row[0])
+                    value = _clean_text(row[1])
+                    if not key or not value:
+                        continue
+                    matched_field = _match_header_to_field(key, config.get('fields') or [])
+                    if not matched_field:
+                        continue
+                    sanitized = _sanitize_structured_value(value, matched_field.get('kind'))
+                    if sanitized and _is_valid_value(sanitized, matched_field.get('kind')) and not draft_fields.get(matched_field['name']):
+                        draft_fields[matched_field['name']] = sanitized
+                continue
+
+            if config.get('mode') == 'mixed':
+                context_lines = [
+                    ' '.join(_clean_text(cell) for cell in row if _clean_text(cell))
+                    for row in rows[:header_index]
+                ]
+                context_lines = [line for line in context_lines if line]
+                if context_lines:
+                    narrative_field = next((field for field in (config.get('fields') or []) if field.get('kind') == 'narrative'), None)
+                    if narrative_field and not draft_fields.get(narrative_field['name']):
+                        narrative = ' '.join(context_lines[1:] if len(context_lines) > 1 else context_lines)
+                        narrative = _clean_text(narrative)
+                        if narrative:
+                            draft_fields[narrative_field['name']] = narrative
+
+            if not has_header:
+                continue
+            header_map = {}
+            for column_index, header in enumerate(headers):
+                matched_field = _match_header_to_field(header, config.get('row_fields') or [])
+                if matched_field and matched_field['name'] not in header_map.values():
+                    header_map[column_index] = matched_field['name']
+            if not header_map:
+                continue
+
+            for row in rows[header_index + 1:]:
+                row_payload = {}
+                for column_index, field_name in header_map.items():
+                    if column_index >= len(row):
+                        continue
+                    field_config = next((field for field in (config.get('row_fields') or []) if field.get('name') == field_name), None)
+                    if not field_config:
+                        continue
+                    sanitized = _sanitize_structured_value(row[column_index], field_config.get('kind'))
+                    if sanitized and _is_valid_value(sanitized, field_config.get('kind')):
+                        row_payload[field_name] = sanitized
+                sanitized_row = _sanitize_structured_row(config, row_payload)
+                if sanitized_row:
+                    draft_rows.append(sanitized_row)
+
+    deduped_rows = []
+    seen_keys = set()
+    for row in draft_rows:
+        key = _dedupe_row_key(row, config.get('dedupe_keys') or [])
+        if key and key in seen_keys:
+            continue
+        if key:
+            seen_keys.add(key)
+        deduped_rows.append(row)
+    return draft_fields, deduped_rows
+
+
+def _is_excel_only_structured_section(page_key_clean, section_title):
+    section_title_clean = f'{section_title or ""}'.strip()
+    if page_key_clean == 'criterion7':
+        return section_title_clean in CRITERION7_EXCEL_ONLY_STRUCTURED_SECTIONS
+    if page_key_clean == 'criterion8':
+        return section_title_clean in CRITERION8_EXCEL_ONLY_STRUCTURED_SECTIONS
+    if page_key_clean == 'appendixc':
+        return section_title_clean in APPENDIXC_EXCEL_ONLY_STRUCTURED_SECTIONS
+    return False
+
+
+def _extract_excel_structured_draft(files, config):
+    draft_fields = {}
+    draft_rows = []
+    for uploaded_file in files or []:
+        if not _is_excel_upload_name(uploaded_file.name):
+            continue
+        uploaded_file.seek(0)
+        workbook_data = _extract_xlsx_workbook_data(uploaded_file.read(), max_rows_per_sheet=220)
+        uploaded_file.seek(0)
+        for sheet in _select_relevant_workbook_sheets(workbook_data, config, max_sheets=1):
+            rows = sheet.get('rows') or []
+            if not rows:
+                continue
+            header_index = _detect_xlsx_header_index(rows)
+            headers = rows[header_index] if header_index < len(rows) else []
+            has_header = (
+                len(rows) > header_index + 1 and
+                sum(1 for header in headers if _clean_text(header)) >= 2 and
+                any(header and not re.fullmatch(r'\d+(?:\.\d+)?', header) for header in headers)
+            )
+
+            if config.get('mode') == 'fields':
+                for row in rows[header_index + 1:] if has_header else rows:
+                    if len(row) < 2:
+                        continue
+                    key = _clean_text(row[0])
+                    value = _clean_text(row[1])
+                    if not key or not value:
+                        continue
+                    matched_field = _match_header_to_field(key, config.get('fields') or [])
+                    if not matched_field:
+                        continue
+                    sanitized = _sanitize_structured_value(value, matched_field.get('kind'))
+                    if sanitized and _is_valid_value(sanitized, matched_field.get('kind')) and not draft_fields.get(matched_field['name']):
+                        draft_fields[matched_field['name']] = sanitized
+                continue
+
+            if config.get('mode') == 'mixed':
+                context_lines = [
+                    ' '.join(_clean_text(cell) for cell in row if _clean_text(cell))
+                    for row in rows[:header_index]
+                ]
+                context_lines = [line for line in context_lines if line]
+                if context_lines:
+                    narrative_field = next((field for field in (config.get('fields') or []) if field.get('kind') == 'narrative'), None)
+                    if narrative_field and not draft_fields.get(narrative_field['name']):
+                        narrative = ' '.join(context_lines[1:] if len(context_lines) > 1 else context_lines)
+                        narrative = _clean_text(narrative)
+                        if narrative:
+                            draft_fields[narrative_field['name']] = narrative
+
+            if not has_header:
+                continue
+            header_map = {}
+            for column_index, header in enumerate(headers):
+                matched_field = _match_header_to_field(header, config.get('row_fields') or [])
+                if matched_field and matched_field['name'] not in header_map.values():
+                    header_map[column_index] = matched_field['name']
+            if not header_map:
+                continue
+
+            for row in rows[header_index + 1:]:
+                row_payload = {}
+                for column_index, field_name in header_map.items():
+                    if column_index >= len(row):
+                        continue
+                    field_config = next((field for field in (config.get('row_fields') or []) if field.get('name') == field_name), None)
+                    if not field_config:
+                        continue
+                    sanitized = _sanitize_structured_value(row[column_index], field_config.get('kind'))
+                    if sanitized and _is_valid_value(sanitized, field_config.get('kind')):
+                        row_payload[field_name] = sanitized
+                sanitized_row = _sanitize_structured_row(config, row_payload)
+                if sanitized_row:
+                    draft_rows.append(sanitized_row)
+
+    deduped_rows = []
+    seen_keys = set()
+    for row in draft_rows:
+        key = _dedupe_row_key(row, config.get('dedupe_keys') or [])
+        if key and key in seen_keys:
+            continue
+        if key:
+            seen_keys.add(key)
+        deduped_rows.append(row)
+    return draft_fields, deduped_rows
 
 
 def _run_structured_llama(config, combined_text, heuristic_fields, current_state):
@@ -2129,30 +2766,58 @@ def _run_structured_llama(config, combined_text, heuristic_fields, current_state
 
 
 def extract_structured_section(page_key, section_title, current_state, files):
-    page = STRUCTURED_SECTION_REGISTRY.get(f'{page_key or ""}'.strip().lower())
+    page_key_clean = f'{page_key or ""}'.strip().lower()
+    page = STRUCTURED_SECTION_REGISTRY.get(page_key_clean)
     config = page.get(f'{section_title or ""}'.strip()) if page else None
     if not config:
-        return None, 'This structured section is not enabled for local AI extraction.'
+        return None, 'This structured section is not enabled for AI extraction.'
 
     text_parts = []
     file_names = []
-    for uploaded_file in files:
-        extracted_text = _extract_text_from_uploaded_file(uploaded_file)
-        if extracted_text.strip():
-            text_parts.append(extracted_text)
-            file_names.append(uploaded_file.name or 'document')
+    excel_row_count = 0
+    if _is_excel_only_structured_section(page_key_clean, section_title):
+        non_excel_files = [
+            uploaded_file.name or 'document'
+            for uploaded_file in (files or [])
+            if not _is_excel_upload_name(uploaded_file.name)
+        ]
+        if non_excel_files:
+            return None, 'This table extractor currently supports Excel files only (.xlsx or .xlsm).'
+
+        for uploaded_file in files:
+            workbook_text, workbook_rows = _build_excel_workbook_prompt_text(uploaded_file, config)
+            if workbook_text.strip():
+                text_parts.append(workbook_text)
+                file_names.append(uploaded_file.name or 'workbook.xlsx')
+                excel_row_count += workbook_rows
+    else:
+        for uploaded_file in files:
+            extracted_text = _extract_text_from_uploaded_file(uploaded_file)
+            if extracted_text.strip():
+                text_parts.append(extracted_text)
+                file_names.append(uploaded_file.name or 'document')
     combined_text = '\n\n'.join(text_parts).strip()
     if not combined_text:
+        if _is_excel_only_structured_section(page_key_clean, section_title):
+            return None, 'The selected Excel files did not contain readable spreadsheet content for extraction.'
         return None, 'The selected files did not contain readable text for extraction.'
 
     blocks = _build_blocks(combined_text)
     heuristic_fields = _extract_structured_field_values(config, blocks)
+    spreadsheet_draft_fields = {}
+    spreadsheet_draft_rows = []
+    if _is_excel_only_structured_section(page_key_clean, section_title):
+        spreadsheet_draft_fields, spreadsheet_draft_rows = _extract_excel_structured_draft(files, config)
+        for field in config.get('fields') or []:
+            field_name = field['name']
+            if spreadsheet_draft_fields.get(field_name):
+                heuristic_fields[field_name] = spreadsheet_draft_fields.get(field_name)
     current_fields = (current_state or {}).get('fields') if isinstance(current_state, dict) else {}
     if (config.get('mode') == 'fields') and all(
         _clean_text((current_fields or {}).get(field['name']))
         for field in (config.get('fields') or [])
     ):
-        notes = ['All fields in this structured section were already filled, so the local AI step was skipped.']
+        notes = ['All fields in this structured section were already filled, so the AI step was skipped.']
         if file_names:
             notes.append(f'Source files: {", ".join(file_names[:4])}.')
         return {
@@ -2163,42 +2828,68 @@ def extract_structured_section(page_key, section_title, current_state, files):
         }, None
 
     evidence_excerpt = _build_section_evidence_excerpt(blocks, config, current_fields=current_fields, max_chars=MAX_PROMPT_EVIDENCE_CHARS + 2000)
-    llama_result, llama_error = _run_structured_llama(config, evidence_excerpt, heuristic_fields, current_state or {})
+    structured_result = None
+    structured_error = ''
+    if page_key_clean in {'criterion7', 'criterion8', 'appendixc'}:
+        structured_result, structured_error = _run_structured_gemini(
+            page_key_clean,
+            section_title,
+            config,
+            evidence_excerpt or combined_text,
+            current_state or {},
+            files=files,
+            heuristic_fields=heuristic_fields,
+        )
+    else:
+        structured_result, structured_error = _run_structured_llama(config, evidence_excerpt, heuristic_fields, current_state or {})
 
     extracted_fields = {}
     for field in config.get('fields') or []:
         field_name = field['name']
         raw_value = ''
-        if isinstance(llama_result, dict):
-            raw_fields = llama_result.get('fields')
+        if isinstance(structured_result, dict):
+            raw_fields = structured_result.get('fields')
             if isinstance(raw_fields, dict):
                 raw_value = raw_fields.get(field_name)
-            elif field_name in llama_result:
-                raw_value = llama_result.get(field_name)
-        sanitized = _sanitize_structured_value(raw_value or heuristic_fields.get(field_name), field.get('kind'))
+            elif field_name in structured_result:
+                raw_value = structured_result.get(field_name)
+        fallback_value = heuristic_fields.get(field_name) if (page_key_clean != 'criterion7' and field.get('kind') in {'integer', 'decimal', 'date'}) else ''
+        sanitized = _sanitize_structured_value(raw_value or fallback_value, field.get('kind'))
         extracted_fields[field_name] = sanitized if _is_valid_value(sanitized, field.get('kind')) else ''
 
     extracted_rows = []
     seen_keys = set()
+    existing_row_keys = _structured_existing_row_keys(config, current_state)
     raw_rows = []
-    if isinstance(llama_result, dict) and isinstance(llama_result.get('rows'), list):
-        raw_rows = llama_result.get('rows') or []
-    for row in raw_rows:
+    if isinstance(structured_result, dict) and isinstance(structured_result.get('rows'), list):
+        raw_rows = structured_result.get('rows') or []
+    combined_raw_rows = []
+    if spreadsheet_draft_rows:
+        combined_raw_rows.extend(spreadsheet_draft_rows)
+    combined_raw_rows.extend(raw_rows)
+    for row in combined_raw_rows:
         sanitized_row = _sanitize_structured_row(config, row)
         if not sanitized_row:
             continue
         dedupe_key = _dedupe_row_key(sanitized_row, config.get('dedupe_keys') or [])
-        if dedupe_key and dedupe_key in seen_keys:
+        if dedupe_key and (dedupe_key in seen_keys or dedupe_key in existing_row_keys):
             continue
         if dedupe_key:
             seen_keys.add(dedupe_key)
         extracted_rows.append(sanitized_row)
 
     notes = []
-    confidence_notes = _clean_text((llama_result or {}).get('confidenceNotes')) if isinstance(llama_result, dict) else ''
+    confidence_notes = _clean_text((structured_result or {}).get('confidenceNotes')) if isinstance(structured_result, dict) else ''
     notes.append(confidence_notes or 'Section-specific structured extraction rules were applied conservatively, and uncertain values were omitted.')
-    if llama_error:
-        notes.append(f'Local LLaMA was not used: {llama_error} Structured rule-based fallback is limited, so only high-confidence scalar values were considered.')
+    if _is_excel_only_structured_section(page_key_clean, section_title) and excel_row_count:
+        notes.append(f'Spreadsheet evidence from {excel_row_count} row{"" if excel_row_count == 1 else "s"} was analyzed with Gemini for this table section.')
+    if structured_error:
+        if page_key_clean in {'criterion7', 'criterion8', 'appendixc'}:
+            notes.append(f'Gemini was not used: {structured_error} Fields or rows without clear evidence were left blank.')
+        else:
+            notes.append(f'Local LLaMA was not used: {structured_error} Structured rule-based fallback is limited, so only high-confidence scalar values were considered.')
+    elif page_key_clean in {'criterion7', 'criterion8', 'appendixc'} and not extracted_rows and not any(extracted_fields.values()):
+        notes.append('Gemini did not return confident table values for this section, so no existing rows were changed and uncertain values were left blank.')
     if file_names:
         notes.append(f'Source files: {", ".join(file_names[:4])}.')
 
@@ -2213,6 +2904,15 @@ def extract_structured_section(page_key, section_title, current_state, files):
 def extract_ai_section(page_key, section_title, current_payload, files):
     page_key_clean = f'{page_key or ""}'.strip().lower()
     section_title_clean = f'{section_title or ""}'.strip()
+    is_structured_payload = isinstance(current_payload, dict) and (
+        'rows' in current_payload or 'fields' in current_payload
+    )
+    if (
+        is_structured_payload and
+        page_key_clean in STRUCTURED_SECTION_REGISTRY and
+        section_title_clean in STRUCTURED_SECTION_REGISTRY.get(page_key_clean, {})
+    ):
+        return extract_structured_section(page_key, section_title, current_payload, files)
     if page_key_clean in SECTION_REGISTRY and section_title_clean in SECTION_REGISTRY.get(page_key_clean, {}):
         result, error = extract_textbox_section(page_key, section_title, current_payload, files)
         if result:
@@ -2220,4 +2920,4 @@ def extract_ai_section(page_key, section_title, current_payload, files):
         return result, error
     if page_key_clean in STRUCTURED_SECTION_REGISTRY and section_title_clean in STRUCTURED_SECTION_REGISTRY.get(page_key_clean, {}):
         return extract_structured_section(page_key, section_title, current_payload, files)
-    return None, 'This section is not enabled for local AI extraction.'
+    return None, 'This section is not enabled for AI extraction.'

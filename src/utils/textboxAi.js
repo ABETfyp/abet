@@ -70,14 +70,23 @@ export const buildStructuredAiStatus = ({
   addedFields = 0,
   preservedFields = 0,
   notes = '',
-  fallbackMessage = 'Local AI extraction completed.',
+  fallbackMessage = 'AI extraction completed.',
+  sectionMode = 'rows',
 }) => {
   return [
-    addedRows > 0
-      ? `AI added ${addedRows} new row${addedRows === 1 ? '' : 's'} from the selected evidence.`
-      : 'AI did not add new rows because the evidence was limited or the extracted rows matched existing entries.',
+    sectionMode === 'fields'
+      ? (
+        addedFields > 0
+          ? `AI filled ${addedFields} empty field${addedFields === 1 ? '' : 's'} from the selected evidence.`
+          : 'AI did not add new fields because the evidence was limited or the current fields were already filled.'
+      )
+      : (
+        addedRows > 0
+          ? `AI added ${addedRows} new row${addedRows === 1 ? '' : 's'} from the selected evidence.`
+          : 'AI did not add new rows because the evidence was limited or the extracted rows matched existing entries.'
+      ),
     addedFields > 0
-      ? `AI filled ${addedFields} empty field${addedFields === 1 ? '' : 's'}.`
+      ? (sectionMode === 'fields' ? '' : `AI filled ${addedFields} empty field${addedFields === 1 ? '' : 's'}.`)
       : '',
     preservedFields > 0
       ? `${preservedFields} existing field${preservedFields === 1 ? '' : 's'} were preserved exactly as written.`

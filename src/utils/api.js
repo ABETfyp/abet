@@ -1,6 +1,15 @@
 const rawApiBase = import.meta.env.VITE_API_BASE_URL || '/api';
 export const API_BASE = rawApiBase.replace(/\/$/, '');
 
+const getAppBase = () => {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  return window.location.pathname.startsWith('/abet/') ? '/abet' : '';
+};
+
+const buildAppPath = (path) => `${getAppBase()}${path}`;
+
 export const apiRequest = async (path, options = {}) => {
   const token = localStorage.getItem('accessToken');
   const { headers: customHeaders = {}, skipAuthRedirect = false, ...restOptions } = options;
@@ -22,7 +31,7 @@ export const apiRequest = async (path, options = {}) => {
     if (response.status === 401 && token && !skipAuthRedirect && !isAuthEndpoint) {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
-      window.location.href = '/login';
+      window.location.assign(buildAppPath('/login'));
       return;
     }
 

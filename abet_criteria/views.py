@@ -1162,7 +1162,7 @@ def cycle_textbox_ai_extract(request, cycle_id):
             'extractedFields': extracted.get('extractedFields', {}),
             'rows': extracted.get('rows', []),
             'confidenceNotes': extracted.get('confidenceNotes', ''),
-            'message': 'Local AI extraction completed.',
+            'message': 'AI extraction completed.',
         })
     return Response({
         'pageKey': page_key,
@@ -1172,7 +1172,7 @@ def cycle_textbox_ai_extract(request, cycle_id):
         'appliedFields': extracted.get('appliedFields', []),
         'preservedFields': extracted.get('preservedFields', []),
         'confidenceNotes': extracted.get('confidenceNotes', ''),
-        'message': 'Local AI extraction completed.',
+        'message': 'AI extraction completed.',
     })
 
 

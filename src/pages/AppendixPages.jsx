@@ -111,21 +111,25 @@ const APPENDIX_D_TEXTBOX_SECTION_FIELDS = {
 };
 
 const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
+const APPENDIXC_EXCEL_ONLY_STRUCTURED_SECTIONS = new Set(['Inventory Sheet']);
+const isAppendixCExcelOnlyStructuredSection = (sectionTitle) => APPENDIXC_EXCEL_ONLY_STRUCTURED_SECTIONS.has(sectionTitle);
+const isSpreadsheetFile = (file) => Boolean(`${file?.name ?? ''}`.toLowerCase().match(/\.(xlsx|xlsm)$/));
+const appendixRowHasAnyValue = (row, fieldNames) => (fieldNames || []).some((fieldName) => `${row?.[fieldName] ?? ''}`.trim() !== '');
+const APPENDIX_C_EQUIPMENT_COLUMN_DEFINITIONS = [
+  { column: 'Equipment (Name/Desc.)', description: 'Name and brief description of the item' },
+  { column: 'Manufacturer/Model', description: 'Vendor and model number (or software version)' },
+  { column: 'Quantity', description: 'Number of identical units available' },
+  { column: 'Location', description: 'Building and room (e.g. "Engr Building Rm 215")' },
+  { column: 'Course(s)', description: 'Course codes or names where item is used' },
+  { column: 'Outcomes (supported)', description: 'IDs of student outcomes supported (if tracked)' },
+  { column: 'Condition', description: 'Working condition or notes (e.g. "Operational, Calibrated")' },
+  { column: 'Last Calibration (Date)', description: 'Date of most recent calibration or inspection (if any)' },
+  { column: 'Maintenance/Safety Notes', description: 'Free-form notes on maintenance actions or safety status' },
+];
 
   const AppendixCPage = ({ onToggleSidebar, onBack, setCurrentPage }) => {
     const { subtitle } = getActiveContext();
     const programId = localStorage.getItem('currentProgramId') || 1;
-    const DEFAULT_EQUIPMENT_COLUMN_DEFINITIONS = [
-      { column: 'Equipment (Name/Desc.)', dataType: 'Text', description: 'Name and brief description of the item' },
-      { column: 'Manufacturer/Model', dataType: 'Text', description: 'Vendor and model number (or software version)' },
-      { column: 'Quantity', dataType: 'Integer', description: 'Number of identical units available' },
-      { column: 'Location', dataType: 'Text', description: 'Building and room (e.g. "Engr Building Rm 215")' },
-      { column: 'Course(s)', dataType: 'Text/List', description: 'Course codes or names where item is used' },
-      { column: 'Outcomes (supported)', dataType: 'Text/List', description: 'IDs of student outcomes supported (if tracked)' },
-      { column: 'Condition', dataType: 'Text', description: 'Working condition or notes (e.g. "Operational, Calibrated")' },
-      { column: 'Last Calibration (Date)', dataType: 'Date', description: 'Date of most recent calibration or inspection (if any)' },
-      { column: 'Maintenance/Safety Notes', dataType: 'Text', description: 'Free-form notes on maintenance actions or safety status' },
-    ];
     const [equipmentRows, setEquipmentRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -134,13 +138,11 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
     const [labsCoveredCount, setLabsCoveredCount] = useState(0);
     const [highValueAssetsCount, setHighValueAssetsCount] = useState(0);
     const [lastUpdatedLabel, setLastUpdatedLabel] = useState('-');
-    const [equipmentColumnDefinitions, setEquipmentColumnDefinitions] = useState(DEFAULT_EQUIPMENT_COLUMN_DEFINITIONS);
     const [appendixCDocModal, setAppendixCDocModal] = useState({ open: false, sectionTitle: '' });
     const [appendixCDocs, setAppendixCDocs] = useState([]);
     const [appendixCDocStatus, setAppendixCDocStatus] = useState('');
     const [appendixCDocLoading, setAppendixCDocLoading] = useState(false);
     const [appendixCTableExpanded, setAppendixCTableExpanded] = useState(false);
-    const [showEquipmentDescriptionRow, setShowEquipmentDescriptionRow] = useState(true);
     const cycleId = localStorage.getItem('currentCycleId') || 1;
 
     useEffect(() => {
@@ -313,26 +315,8 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
     const handleRemoveEquipment = (id) => {
       setEquipmentRows((prevRows) => prevRows.filter((row) => row.id !== id));
     };
-    const handleAddEquipmentColumnDefinition = () => {
-      setEquipmentColumnDefinitions((prev) => ([
-        ...prev,
-        { column: `New Column ${prev.length + 1}`, dataType: 'Text', description: '', description_value: '' }
-      ]));
-    };
-    const handleRemoveEquipmentColumnDefinition = (index) => {
-      setEquipmentColumnDefinitions((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
-    };
     const handleRemoveEquipmentRowByIndex = (index) => {
       setEquipmentRows((prev) => prev.filter((_, i) => i !== index));
-    };
-    const updateEquipmentColumnDefinition = (index, field, value) => {
-      setEquipmentColumnDefinitions((prev) => prev.map((row, i) => {
-        if (i !== index) return row;
-        if (field === 'column') {
-          return { ...row, column: value, description: '', description_value: '' };
-        }
-        return { ...row, [field]: value };
-      }));
     };
     const getEquipmentFieldByIndex = (index) => {
       switch (index) {
@@ -382,11 +366,23 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
     const handleAppendixCDocFiles = async (files) => {
       if (!appendixCDocModal.sectionTitle) return;
       if (!Array.isArray(files) || files.length === 0) return;
+      const requiresExcelOnly = isAppendixCExcelOnlyStructuredSection(appendixCDocModal.sectionTitle);
+      if (requiresExcelOnly) {
+        const invalidFiles = files.filter((file) => !isSpreadsheetFile(file));
+        if (invalidFiles.length > 0) {
+          setAppendixCDocStatus('This table extractor supports Excel files only (.xlsx or .xlsm).');
+          return;
+        }
+      }
       try {
         await appendCriterion1SectionDocs(cycleId, `AppendixC:${appendixCDocModal.sectionTitle}`, files);
         const docs = await listCriterion1SectionDocs(cycleId, `AppendixC:${appendixCDocModal.sectionTitle}`);
         setAppendixCDocs(docs.map((row) => ({ id: row.id, name: row.name, size: row.size, type: row.type })));
-        setAppendixCDocStatus(`${docs.length} file(s) saved for ${appendixCDocModal.sectionTitle}.`);
+        setAppendixCDocStatus(
+          requiresExcelOnly
+            ? `${docs.length} Excel file(s) saved for ${appendixCDocModal.sectionTitle}.`
+            : `${docs.length} file(s) saved for ${appendixCDocModal.sectionTitle}.`
+        );
       } catch (err) {
         setAppendixCDocStatus(err?.message || 'Unable to save documents.');
       }
@@ -413,10 +409,17 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
         setAppendixCDocStatus('Upload at least one document before running Extract with AI.');
         return;
       }
+      if (isAppendixCExcelOnlyStructuredSection(appendixCDocModal.sectionTitle)) {
+        const invalidDocs = appendixCDocs.filter((doc) => !`${doc?.name ?? ''}`.toLowerCase().match(/\.(xlsx|xlsm)$/));
+        if (invalidDocs.length > 0) {
+          setAppendixCDocStatus('This table extractor supports Excel files only (.xlsx or .xlsm).');
+          return;
+        }
+      }
 
       try {
         setAppendixCDocLoading(true);
-        setAppendixCDocStatus('Reading the selected inventory documents and extracting equipment rows...');
+        setAppendixCDocStatus('Reading the selected spreadsheets and extracting equipment rows...');
         const result = await extractStructuredSectionWithLocalAi({
           cycleId,
           pageKey: 'appendixc',
@@ -431,16 +434,24 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
 
         const seenKeys = new Set(
           (equipmentRows || [])
+            .filter((row) => !(!appendixRowHasAnyValue(row, ['name', 'cat', 'qty', 'loc', 'use', 'outcomes', 'condition', 'service', 'maintenance_notes', 'evidence'])))
             .map((row) => `${normalizeAppendixAiKey(row?.name)}||${normalizeAppendixAiKey(row?.loc)}`)
             .filter((value) => value && value !== '||')
         );
         let addedRows = 0;
         const appendedRows = [...equipmentRows];
+        const emptyRowIndexes = appendedRows
+          .map((row, index) => (
+            appendixRowHasAnyValue(row, ['name', 'cat', 'qty', 'loc', 'use', 'outcomes', 'condition', 'service', 'maintenance_notes', 'evidence'])
+              ? -1
+              : index
+          ))
+          .filter((index) => index >= 0);
         (result?.rows || []).forEach((row) => {
           const key = `${normalizeAppendixAiKey(row?.name)}||${normalizeAppendixAiKey(row?.loc)}`;
           if (!key || key === '||' || seenKeys.has(key)) return;
           seenKeys.add(key);
-          appendedRows.push({
+          const nextRow = {
             id: Date.now() + Math.floor(Math.random() * 1000) + addedRows,
             name: `${row?.name ?? ''}`,
             cat: `${row?.cat ?? ''}`,
@@ -452,7 +463,17 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
             service: `${row?.service ?? ''}`,
             maintenance_notes: `${row?.maintenance_notes ?? ''}`,
             evidence: '',
-          });
+          };
+          if (emptyRowIndexes.length > 0) {
+            const targetIndex = emptyRowIndexes.shift();
+            appendedRows[targetIndex] = {
+              ...appendedRows[targetIndex],
+              ...nextRow,
+              id: appendedRows[targetIndex]?.id ?? nextRow.id,
+            };
+          } else {
+            appendedRows.push(nextRow);
+          }
           addedRows += 1;
         });
         setEquipmentRows(appendedRows);
@@ -469,10 +490,10 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
 
     const renderAppendixCTable = () => (
       <div style={{ marginTop: '16px', overflowX: 'auto', overflowY: 'auto', maxHeight: '65vh', border: `1px solid ${colors.border}`, borderRadius: '10px' }}>
-        <table style={{ width: 'max-content', minWidth: `${Math.max(1200, equipmentColumnDefinitions.length * 230)}px`, borderCollapse: 'collapse', fontSize: '13px' }}>
+        <table style={{ width: 'max-content', minWidth: `${Math.max(1200, APPENDIX_C_EQUIPMENT_COLUMN_DEFINITIONS.length * 230)}px`, borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
             <tr style={{ backgroundColor: colors.primary, color: 'white' }}>
-              {equipmentColumnDefinitions.map((columnDef, index) => (
+              {APPENDIX_C_EQUIPMENT_COLUMN_DEFINITIONS.map((columnDef, index) => (
                 <th
                   key={`column-header-${index}`}
                   style={{
@@ -487,28 +508,12 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
                     minWidth: '220px',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input
-                      value={columnDef.column}
-                      onChange={(event) => updateEquipmentColumnDefinition(index, 'column', event.target.value)}
-                      style={{ width: '100%', border: '1px solid rgba(255,255,255,0.35)', borderRadius: '6px', padding: '8px', backgroundColor: 'rgba(255,255,255,0.12)', color: 'white', fontWeight: '700' }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveEquipmentColumnDefinition(index)}
-                      disabled={equipmentColumnDefinitions.length <= 1}
-                      style={{ border: '1px solid rgba(255,255,255,0.45)', backgroundColor: equipmentColumnDefinitions.length <= 1 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)', color: 'white', borderRadius: '6px', width: '28px', height: '28px', cursor: equipmentColumnDefinitions.length <= 1 ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-                      title="Delete column"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  <div style={{ padding: '8px', fontWeight: '700' }}>{columnDef.column}</div>
                 </th>
               ))}
             </tr>
-            {showEquipmentDescriptionRow ? (
               <tr style={{ backgroundColor: '#f8fafc', color: colors.mediumGray }}>
-                {equipmentColumnDefinitions.map((columnDef, index) => (
+                {APPENDIX_C_EQUIPMENT_COLUMN_DEFINITIONS.map((columnDef, index) => (
                   <th
                     key={`desc-${index}`}
                     style={{
@@ -524,40 +529,17 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
                       minWidth: '220px',
                     }}
                   >
-                    {index === 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <input
-                          value={columnDef.description_value || ''}
-                          placeholder={columnDef.description || ''}
-                          onChange={(event) => updateEquipmentColumnDefinition(index, 'description_value', event.target.value)}
-                          style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', backgroundColor: 'white', color: colors.darkGray, fontWeight: '500', fontSize: '12px' }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowEquipmentDescriptionRow(false)}
-                          style={{ border: `1px solid ${colors.border}`, backgroundColor: '#fff1f1', color: '#b42318', borderRadius: '6px', width: '30px', height: '30px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-                          title="Delete row"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <input
-                        value={columnDef.description_value || ''}
-                        placeholder={columnDef.description || ''}
-                        onChange={(event) => updateEquipmentColumnDefinition(index, 'description_value', event.target.value)}
-                        style={{ width: '100%', border: `1px solid ${colors.border}`, borderRadius: '6px', padding: '8px', backgroundColor: 'white', color: colors.darkGray, fontWeight: '500', fontSize: '12px' }}
-                      />
-                    )}
+                    <div style={{ padding: '8px', color: colors.darkGray, fontWeight: '500', fontSize: '12px', lineHeight: 1.45 }}>
+                      {columnDef.description}
+                    </div>
                   </th>
                 ))}
               </tr>
-            ) : null}
           </thead>
           <tbody>
                 {equipmentRows.map((row, rowIndex) => (
                   <tr key={row.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                    {equipmentColumnDefinitions.map((columnDef, index) => (
+                    {APPENDIX_C_EQUIPMENT_COLUMN_DEFINITIONS.map((columnDef, index) => (
                       <td
                         key={`readonly-cell-${rowIndex}-${index}`}
                     style={{
@@ -694,15 +676,6 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
 
               <button
                 type="button"
-                onClick={handleAddEquipmentColumnDefinition}
-                style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-              >
-                <Plus size={16} />
-                Add Column
-              </button>
-
-              <button
-                type="button"
                 onClick={handleAddEquipment}
                 style={{ backgroundColor: colors.lightGray, color: colors.primary, border: 'none', padding: '8px 12px', borderRadius: '6px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
               >
@@ -780,8 +753,14 @@ const normalizeAppendixAiKey = (value) => `${value ?? ''}`.trim().toLowerCase();
 
               <div style={{ padding: '22px', display: 'grid', gap: '16px' }}>
                 <label style={{ display: 'grid', gap: '8px', color: colors.darkGray, fontSize: '13px', fontWeight: '700' }}>
-                  Select Documentss
-                  <input type="file" multiple onChange={handleAppendixCDocSelection} style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }} />
+                  {isAppendixCExcelOnlyStructuredSection(appendixCDocModal.sectionTitle) ? 'Select Excel Files' : 'Select Documents'}
+                  <input
+                    type="file"
+                    multiple
+                    accept={isAppendixCExcelOnlyStructuredSection(appendixCDocModal.sectionTitle) ? '.xlsx,.xlsm' : undefined}
+                    onChange={handleAppendixCDocSelection}
+                    style={{ padding: '10px', border: `1px solid ${colors.border}`, borderRadius: '8px' }}
+                  />
                 </label>
                 <EvidenceLibraryImport
                   cycleId={cycleId}

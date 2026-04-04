@@ -2,6 +2,7 @@ from pathlib import Path
 from io import BytesIO
 from datetime import timedelta
 from unittest.mock import patch
+from urllib import error as urllib_error
 import zipfile
 import zlib
 
@@ -10,11 +11,119 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from .serializers import Criterion1StudentsSerializer
-from .textbox_ai import SECTION_REGISTRY, _build_background_program_history_llm_text, _build_gemini_background_file_parts, _extract_text_from_docx_bytes, _extract_text_from_pdf_bytes, _run_background_textbox_gemini, _run_textbox_gemini, extract_structured_section, extract_textbox_section, _run_ollama_command
+from .textbox_ai import SECTION_REGISTRY, _build_background_program_history_llm_text, _build_gemini_background_file_parts, _extract_text_from_docx_bytes, _extract_text_from_pdf_bytes, _run_background_textbox_gemini, _run_gemini_json_prompt, _run_textbox_gemini, extract_ai_section, extract_structured_section, extract_textbox_section, _run_ollama_command
 from .views import _validate_background_review_date
 
 
+def _xlsx_col_letter(index):
+    result = ''
+    current = index
+    while current > 0:
+        current, remainder = divmod(current - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def _build_test_xlsx_bytes(sheet_map):
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, 'w') as archive:
+        workbook_entries = []
+        rel_entries = []
+        for sheet_index, (sheet_name, rows) in enumerate(sheet_map.items(), start=1):
+            workbook_entries.append(
+                f'<sheet name="{sheet_name}" sheetId="{sheet_index}" r:id="rId{sheet_index}"/>'
+            )
+            rel_entries.append(
+                f'<Relationship Id="rId{sheet_index}" '
+                f'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                f'Target="worksheets/sheet{sheet_index}.xml"/>'
+            )
+            row_xml = []
+            for row_index, row in enumerate(rows, start=1):
+                cells_xml = []
+                for column_index, value in enumerate(row, start=1):
+                    if value in (None, ''):
+                        continue
+                    cell_ref = f'{_xlsx_col_letter(column_index)}{row_index}'
+                    escaped = (
+                        f'{value}'
+                        .replace('&', '&amp;')
+                        .replace('<', '&lt;')
+                        .replace('>', '&gt;')
+                    )
+                    cells_xml.append(
+                        f'<c r="{cell_ref}" t="inlineStr"><is><t>{escaped}</t></is></c>'
+                    )
+                row_xml.append(f'<row r="{row_index}">{"".join(cells_xml)}</row>')
+            archive.writestr(
+                f'xl/worksheets/sheet{sheet_index}.xml',
+                (
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                    f'<sheetData>{"".join(row_xml)}</sheetData>'
+                    '</worksheet>'
+                )
+            )
+
+        archive.writestr(
+            'xl/workbook.xml',
+            (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                f'<sheets>{"".join(workbook_entries)}</sheets>'
+                '</workbook>'
+            )
+        )
+        archive.writestr(
+            'xl/_rels/workbook.xml.rels',
+            (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                f'{"".join(rel_entries)}'
+                '</Relationships>'
+            )
+        )
+    return buffer.getvalue()
+
+
+def _build_test_xlsx_bytes_with_absolute_targets(sheet_map):
+    workbook_bytes = _build_test_xlsx_bytes(sheet_map)
+    source = BytesIO(workbook_bytes)
+    output = BytesIO()
+    with zipfile.ZipFile(source, 'r') as source_archive, zipfile.ZipFile(output, 'w') as output_archive:
+        for info in source_archive.infolist():
+            data = source_archive.read(info.filename)
+            if info.filename == 'xl/_rels/workbook.xml.rels':
+                text = data.decode('utf-8')
+                text = text.replace('Target="worksheets/', 'Target="/xl/worksheets/')
+                data = text.encode('utf-8')
+            output_archive.writestr(info, data)
+    return output.getvalue()
+
+
 class AiExtractionSafetyTests(SimpleTestCase):
+    def test_gemini_http_error_redacts_api_key_from_returned_message(self):
+        error_body = (
+            b'{"error":{"message":"Permission denied: Consumer '
+            b'\'api_key:AIzaSyAMj-XtjAQDSEAivkEODJbbpJacIVGrtj0\' has been suspended."}}'
+        )
+        http_error = urllib_error.HTTPError(
+            url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyAMj-XtjAQDSEAivkEODJbbpJacIVGrtj0',
+            code=403,
+            msg='Forbidden',
+            hdrs=None,
+            fp=BytesIO(error_body),
+        )
+
+        with patch.dict('os.environ', {'GEMINI_API_KEY': 'AIzaSyAMj-XtjAQDSEAivkEODJbbpJacIVGrtj0'}):
+            with patch('abet_criteria.textbox_ai.urllib_request.urlopen', side_effect=http_error):
+                parsed, error = _run_gemini_json_prompt('test prompt')
+
+        self.assertIsNone(parsed)
+        self.assertIn('[REDACTED_API_KEY]', error)
+        self.assertNotIn('AIzaSyAMj-XtjAQDSEAivkEODJbbpJacIVGrtj0', error)
+
     def test_docx_text_extraction_preserves_contact_fields(self):
         buffer = BytesIO()
         with zipfile.ZipFile(buffer, 'w') as archive:
@@ -557,7 +666,7 @@ class AiExtractionSafetyTests(SimpleTestCase):
         self.assertEqual(result['mergedFields']['contactName'], 'Dr. Karim Haddad')
         self.assertEqual(result['mergedFields']['positionTitle'], 'Program Coordinator')
 
-    def test_structured_fields_only_section_skips_llama_when_fields_are_already_filled(self):
+    def test_structured_fields_only_section_skips_gemini_when_fields_are_already_filled(self):
         current_state = {
             'fields': {
                 'total_number_of_offices': '12',
@@ -568,7 +677,7 @@ class AiExtractionSafetyTests(SimpleTestCase):
         }
         upload = SimpleUploadedFile('offices.txt', b'Office information.')
 
-        with patch('abet_criteria.textbox_ai._run_ollama_command') as mock_run:
+        with patch('abet_criteria.textbox_ai._run_gemini_json_prompt') as mock_run:
             result, error = extract_structured_section(
                 'criterion7',
                 'A. Offices',
@@ -581,6 +690,351 @@ class AiExtractionSafetyTests(SimpleTestCase):
         self.assertEqual(result['rows'], [])
         self.assertEqual(result['extractedFields'], current_state['fields'])
         self.assertIn('already filled', result['confidenceNotes'])
+
+    def test_criterion7_structured_rows_use_gemini_without_ollama_and_skip_existing_duplicates(self):
+        current_state = {
+            'fields': {},
+            'rows': [
+                {
+                    'classroom_room': 'ENG 203',
+                    'classroom_capacity': '',
+                    'classroom_multimedia': '',
+                    'classroom_internet_access': '',
+                    'classroom_typical_use': '',
+                    'classroom_adequacy_comments': '',
+                }
+            ],
+        }
+        workbook_bytes = _build_test_xlsx_bytes({
+            'Classrooms': [
+                ['Room', 'Capacity', 'Multimedia', 'Internet Access', 'Typical Use', 'Adequacy Comments'],
+                ['ENG 203', '45', 'Projector', 'Wi-Fi', 'Core lectures', 'Adequate'],
+                ['ENG 205', '32', 'Projector', 'Wi-Fi', 'Tutorials', 'Recently upgraded'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'classrooms.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+        gemini_payload = {
+            'fields': {},
+            'rows': [
+                {
+                    'classroom_room': 'ENG 203',
+                    'classroom_capacity': '45',
+                    'classroom_multimedia': 'Projector',
+                    'classroom_internet_access': 'Wi-Fi',
+                    'classroom_typical_use': 'Core lectures',
+                    'classroom_adequacy_comments': 'Adequate',
+                },
+                {
+                    'classroom_room': 'ENG 205',
+                    'classroom_capacity': '32',
+                    'classroom_multimedia': 'Projector',
+                    'classroom_internet_access': 'Wi-Fi',
+                    'classroom_typical_use': 'Tutorials',
+                    'classroom_adequacy_comments': 'Recently upgraded',
+                },
+            ],
+            'confidenceNotes': 'Gemini extracted distinct classroom rows from the uploaded evidence.',
+        }
+
+        with patch('abet_criteria.textbox_ai._run_gemini_json_prompt', return_value=(gemini_payload, '')) as mock_gemini:
+            with patch('abet_criteria.textbox_ai._run_ollama_command') as mock_ollama:
+                result, error = extract_structured_section(
+                    'criterion7',
+                    'A. Classrooms',
+                    current_state,
+                    [upload],
+                )
+
+        self.assertIsNone(error)
+        self.assertTrue(mock_gemini.called)
+        self.assertFalse(mock_ollama.called)
+        self.assertEqual(len(result['rows']), 1)
+        self.assertEqual(result['rows'][0]['classroom_room'], 'ENG 205')
+        self.assertEqual(result['rows'][0]['classroom_capacity'], '32')
+
+    def test_criterion7_structured_partial_laboratory_row_is_preserved_when_name_is_missing(self):
+        current_state = {'fields': {}, 'rows': []}
+        workbook_bytes = _build_test_xlsx_bytes({
+            'Labs': [
+                ['Room', 'Category', 'Hardware', 'Courses'],
+                ['ENG-L1', 'Electronics', 'Oscilloscopes, power supplies', 'EECE 210'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'labs.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+        gemini_payload = {
+            'fields': {},
+            'rows': [
+                {
+                    'lab_name': '',
+                    'lab_room': 'ENG-L1',
+                    'lab_category': 'Electronics',
+                    'lab_hardware_list': 'Oscilloscopes, power supplies',
+                    'lab_software_list': '',
+                    'lab_open_hours': '',
+                    'lab_courses_using_lab': 'EECE 210',
+                }
+            ],
+            'confidenceNotes': 'Gemini extracted a partial lab row from the uploaded evidence.',
+        }
+
+        with patch('abet_criteria.textbox_ai._run_gemini_json_prompt', return_value=(gemini_payload, '')):
+            result, error = extract_structured_section(
+                'criterion7',
+                'A. Laboratories',
+                current_state,
+                [upload],
+            )
+
+        self.assertIsNone(error)
+        self.assertEqual(len(result['rows']), 1)
+        self.assertEqual(result['rows'][0]['lab_room'], 'ENG-L1')
+        self.assertEqual(result['rows'][0]['lab_category'], 'Electronics')
+        self.assertEqual(result['rows'][0]['lab_courses_using_lab'], 'EECE 210')
+
+    def test_criterion7_structured_sections_do_not_fall_back_to_ollama_when_gemini_fails(self):
+        current_state = {'fields': {}, 'rows': []}
+        workbook_bytes = _build_test_xlsx_bytes({
+            'Labs': [
+                ['Laboratory', 'Room'],
+                ['Signals Lab', 'ENG-L3'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'labs.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+        with patch('abet_criteria.textbox_ai._run_gemini_json_prompt', return_value=(None, 'quota exceeded')) as mock_gemini:
+            with patch('abet_criteria.textbox_ai._run_ollama_command') as mock_ollama:
+                result, error = extract_structured_section(
+                    'criterion7',
+                    'A. Laboratories',
+                    current_state,
+                    [upload],
+                )
+
+        self.assertIsNone(error)
+        self.assertTrue(mock_gemini.called)
+        self.assertFalse(mock_ollama.called)
+        self.assertEqual(len(result['rows']), 1)
+        self.assertEqual(result['rows'][0]['lab_name'], 'Signals Lab')
+        self.assertIn('Gemini was not used', result['confidenceNotes'])
+
+    def test_criterion7_laboratories_excel_prompt_includes_multiple_rows(self):
+        current_state = {'fields': {}, 'rows': []}
+        workbook_bytes = _build_test_xlsx_bytes({
+            'Labs': [
+                ['Laboratory', 'Room', 'Category', 'Hardware', 'Software', 'Hours', 'Courses'],
+                ['Circuits Lab', 'ENG-L1', 'Electronics', 'Oscilloscopes', 'Multisim', '08:00-18:00', 'EECE 210'],
+                ['Networks Lab', 'ENG-L2', 'Communications', 'Routers', 'Wireshark', '09:00-17:00', 'EECE 330'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'labs.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        captured_prompt = {}
+
+        def fake_gemini(prompt, model_name='gemini-2.5-flash', timeout=30, extra_parts=None):
+            captured_prompt['value'] = prompt
+            return ({
+                'fields': {},
+                'rows': [
+                    {
+                        'lab_name': 'Circuits Lab',
+                        'lab_room': 'ENG-L1',
+                        'lab_category': 'Electronics',
+                        'lab_hardware_list': 'Oscilloscopes',
+                        'lab_software_list': 'Multisim',
+                        'lab_open_hours': '08:00-18:00',
+                        'lab_courses_using_lab': 'EECE 210',
+                    },
+                    {
+                        'lab_name': 'Networks Lab',
+                        'lab_room': 'ENG-L2',
+                        'lab_category': 'Communications',
+                        'lab_hardware_list': 'Routers',
+                        'lab_software_list': 'Wireshark',
+                        'lab_open_hours': '09:00-17:00',
+                        'lab_courses_using_lab': 'EECE 330',
+                    },
+                ],
+                'confidenceNotes': 'Gemini extracted two laboratory rows from the spreadsheet evidence.',
+            }, '')
+
+        with patch('abet_criteria.textbox_ai._run_gemini_json_prompt', side_effect=fake_gemini):
+            result, error = extract_structured_section(
+                'criterion7',
+                'A. Laboratories',
+                current_state,
+                [upload],
+            )
+
+        self.assertIsNone(error)
+        self.assertEqual(len(result['rows']), 2)
+        self.assertIn('Circuits Lab', captured_prompt['value'])
+        self.assertIn('Networks Lab', captured_prompt['value'])
+        self.assertIn('Detected headers', captured_prompt['value'])
+
+    def test_criterion7_structured_sections_require_excel_files(self):
+        current_state = {'fields': {}, 'rows': []}
+        upload = SimpleUploadedFile('facilities.docx', b'not excel')
+
+        result, error = extract_structured_section(
+            'criterion7',
+            'D. Maintenance and Upgrading',
+            current_state,
+            [upload],
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(error, 'This table extractor currently supports Excel files only (.xlsx or .xlsm).')
+
+    def test_extract_ai_section_prefers_structured_path_for_criterion7_maintenance_table_payload(self):
+        current_state = {'fields': {'maintenance_policy_description': ''}, 'rows': []}
+        workbook_bytes = _build_test_xlsx_bytes({
+            'Maintenance': [
+                ['Facility / Lab', 'Last Upgrade', 'Next Scheduled', 'Responsible Staff', 'Notes'],
+                ['Signals Lab', '2026-01-10', '2026-08-01', 'Facilities Team', 'Cable replacement'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'maintenance.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+        result, error = extract_ai_section(
+            'criterion7',
+            'D. Maintenance and Upgrading',
+            current_state,
+            [upload],
+        )
+
+        self.assertIsNone(error)
+        self.assertEqual(result['mode'], 'structured')
+        self.assertEqual(len(result['rows']), 1)
+        self.assertEqual(result['rows'][0]['facility_name'], 'Signals Lab')
+
+    def test_criterion8_staffing_uses_gemini_path_without_ollama(self):
+        current_state = {'fields': {'additional_narrative_on_staffing': ''}, 'rows': []}
+        workbook_bytes = _build_test_xlsx_bytes({
+            'Staffing': [
+                ['Category', 'Number', 'Primary Role', 'Training / Retention Practices'],
+                ['Technical', '4', 'Lab support', 'Safety training and mentoring'],
+                ['Administrative', '2', 'Scheduling', 'Annual development workshops'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'staffing.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        gemini_payload = {
+            'fields': {'additional_narrative_on_staffing': 'Staffing support is adequate for current program operations.'},
+            'rows': [
+                {
+                    'category': 'Technical',
+                    'number_of_staff': '4',
+                    'primary_role': 'Lab support',
+                    'training_retention_practices': 'Safety training and mentoring',
+                },
+                {
+                    'category': 'Administrative',
+                    'number_of_staff': '2',
+                    'primary_role': 'Scheduling',
+                    'training_retention_practices': 'Annual development workshops',
+                },
+            ],
+            'confidenceNotes': 'Gemini extracted staffing rows from the spreadsheet evidence.',
+        }
+
+        with patch('abet_criteria.textbox_ai._run_gemini_json_prompt', return_value=(gemini_payload, '')) as mock_gemini:
+            with patch('abet_criteria.textbox_ai._run_ollama_command') as mock_ollama:
+                result, error = extract_structured_section(
+                    'criterion8',
+                    'C. Staffing',
+                    current_state,
+                    [upload],
+                )
+
+        self.assertIsNone(error)
+        self.assertTrue(mock_gemini.called)
+        self.assertFalse(mock_ollama.called)
+        self.assertEqual(len(result['rows']), 2)
+        self.assertEqual(result['rows'][0]['category'], 'Technical')
+
+    def test_criterion8_staffing_accepts_workbook_relationships_with_absolute_sheet_targets(self):
+        current_state = {'fields': {'additional_narrative_on_staffing': ''}, 'rows': []}
+        workbook_bytes = _build_test_xlsx_bytes_with_absolute_targets({
+            'Staffing': [
+                ['Category', 'Number', 'Primary Role', 'Training / Retention Practices'],
+                ['Technical', '4', 'System Maintenance', 'Regular training'],
+                ['Administrative', '3', 'Office Management', 'Retention bonuses'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'staffing.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        gemini_payload = {
+            'fields': {'additional_narrative_on_staffing': 'Staffing remains adequate.'},
+            'rows': [
+                {
+                    'category': 'Technical',
+                    'number_of_staff': '4',
+                    'primary_role': 'System Maintenance',
+                    'training_retention_practices': 'Regular training',
+                },
+                {
+                    'category': 'Administrative',
+                    'number_of_staff': '3',
+                    'primary_role': 'Office Management',
+                    'training_retention_practices': 'Retention bonuses',
+                },
+            ],
+            'confidenceNotes': 'Gemini extracted staffing rows from the spreadsheet evidence.',
+        }
+
+        with patch('abet_criteria.textbox_ai._run_gemini_json_prompt', return_value=(gemini_payload, '')) as mock_gemini:
+            result, error = extract_structured_section(
+                'criterion8',
+                'C. Staffing',
+                current_state,
+                [upload],
+            )
+
+        self.assertIsNone(error)
+        self.assertTrue(mock_gemini.called)
+        self.assertEqual(len(result['rows']), 2)
+        self.assertEqual(result['rows'][0]['category'], 'Technical')
+
+    def test_appendixc_inventory_requires_excel_files(self):
+        current_state = {'fields': {}, 'rows': []}
+        upload = SimpleUploadedFile('inventory.pdf', b'not excel')
+
+        result, error = extract_structured_section(
+            'appendixc',
+            'Inventory Sheet',
+            current_state,
+            [upload],
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(error, 'This table extractor currently supports Excel files only (.xlsx or .xlsm).')
 
     def test_background_review_date_allows_today(self):
         today = timezone.localdate()

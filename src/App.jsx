@@ -40,6 +40,19 @@ const pathToPage = Object.entries(pageToPath).reduce((acc, [key, value]) => {
   return acc;
 }, {});
 
+const normalizeAppPath = (pathname) => {
+  if (!pathname) {
+    return '/login';
+  }
+  if (pathname === '/abet') {
+    return '/';
+  }
+  if (pathname.startsWith('/abet/')) {
+    return pathname.slice('/abet'.length) || '/';
+  }
+  return pathname;
+};
+
 const cycleRequiredPages = new Set([
   'checklist',
   'background',
@@ -63,7 +76,8 @@ const AUBAccreditationSystem = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const firstLoadRef = useRef(true);
-  const initialPage = useMemo(() => pathToPage[location.pathname] || 'login', [location.pathname]);
+  const normalizedPath = useMemo(() => normalizeAppPath(location.pathname), [location.pathname]);
+  const initialPage = useMemo(() => pathToPage[normalizedPath] || 'login', [normalizedPath]);
   const [currentPage, setCurrentPageState] = useState(initialPage);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [facultyExpanded, setFacultyExpanded] = useState(false);
@@ -89,16 +103,16 @@ const AUBAccreditationSystem = () => {
   };
 
   useEffect(() => {
-    const nextPage = pathToPage[location.pathname] || 'login';
+    const nextPage = pathToPage[normalizedPath] || 'login';
     if (nextPage !== currentPage) {
       setCurrentPageState(nextPage);
     }
-  }, [location.pathname, currentPage]);
+  }, [normalizedPath, currentPage]);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
-    const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
-    const nextPage = pathToPage[location.pathname];
+    const isAuthPage = normalizedPath === '/login' || normalizedPath === '/register';
+    const nextPage = pathToPage[normalizedPath];
     const hasSelectedCycle = Boolean(localStorage.getItem('currentCycleId'));
 
     if (firstLoadRef.current) {
@@ -113,14 +127,10 @@ const AUBAccreditationSystem = () => {
       navigate('/login', { replace: true });
       return;
     }
-    if (token && isAuthPage) {
-      navigate(hasSelectedCycle ? '/checklist' : '/selection', { replace: true });
-      return;
-    }
     if (token && cycleRequiredPages.has(nextPage) && !hasSelectedCycle) {
       navigate('/selection', { replace: true });
     }
-  }, [location.pathname, navigate]);
+  }, [normalizedPath, navigate]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
