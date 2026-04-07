@@ -747,7 +747,6 @@ const SyllabusModal = ({
                 <Upload size={15} />
                 Upload Syllabus Documents
               </button>
-              <button type="button" disabled style={{ backgroundColor: '#d8d8dd', color: '#6c757d', border: 'none', borderRadius: '8px', padding: '10px 14px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed' }}>Extract with AI</button>
             </div>
           </SectionCard>
 
@@ -986,7 +985,6 @@ const SyllabusModal = ({
             </div>
             <div style={{ padding: '16px 22px 22px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: `1px solid ${colors.border}` }}>
               <button type="button" onClick={() => setDocsOpen(false)} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: 'pointer' }}>Close</button>
-              <button type="button" disabled style={{ backgroundColor: '#d8d8dd', border: 'none', color: '#6c757d', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: 'not-allowed' }}>Extract with AI</button>
             </div>
           </div>
         </div>

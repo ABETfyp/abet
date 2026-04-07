@@ -2227,9 +2227,6 @@ const getFacultyDocById = async (docId) => {
                     <Upload size={14} />
                     Upload Documents
                   </button>
-                  <button type="button" disabled style={{ backgroundColor: '#eceef2', color: colors.mediumGray, border: `1px solid ${colors.border}`, padding: '8px 12px', borderRadius: '6px', fontWeight: '700', cursor: 'not-allowed', opacity: 0.9 }}>
-                    Extract with AI
-                  </button>
                 </div>
               </div>
             </div>
@@ -2331,9 +2328,6 @@ const getFacultyDocById = async (docId) => {
                   programId={resolvedProgramId || localStorage.getItem('currentProgramId') || 1}
                   onImportFiles={handleCvFiles}
                 />
-                <button type="button" disabled style={{ padding: '10px 14px', borderRadius: '8px', border: `1px solid ${colors.border}`, backgroundColor: '#eceef2', color: colors.mediumGray, fontWeight: '700', cursor: 'not-allowed' }}>
-                  Extract with AI
-                </button>
                 {cvStatus && (
                   <div style={{ padding: '10px 12px', borderRadius: '8px', backgroundColor: '#f3f4f6', color: colors.mediumGray, fontSize: '13px' }}>
                     {cvStatus}
