@@ -6,7 +6,7 @@ import { apiRequest } from './utils/api';
 import { LoginPage, RegisterPage } from './pages/AuthPages';
 import SelectionPage from './pages/SelectionPage';
 import ChecklistPage from './pages/ChecklistPage';
-import { BackgroundPage } from './pages/ReportPages';
+import { BackgroundPage, FullReportPage } from './pages/ReportPages';
 import { Criterion1Page, Criterion2Page, Criterion3Page, Criterion4Page, Criterion5Page, Criterion7Page, Criterion8Page } from './pages/CriterionPages';
 import Criterion6Page from './pages/Criterion6Page';
 import { AppendicesPage, AppendixCPage, AppendixDPage } from './pages/AppendixPages';
@@ -20,6 +20,7 @@ const pageToPath = {
   register: '/register',
   selection: '/selection',
   checklist: '/checklist',
+  fullReport: '/full-report',
   background: '/background',
   criterion1: '/criterion-1',
   criterion2: '/criterion-2',
@@ -55,6 +56,7 @@ const normalizeAppPath = (pathname) => {
 
 const cycleRequiredPages = new Set([
   'checklist',
+  'fullReport',
   'background',
   'criterion1',
   'criterion2',
@@ -215,6 +217,8 @@ const AUBAccreditationSystem = () => {
             onBack={handleBackToChecklist}
           />
         );
+      case 'fullReport':
+        return <FullReportPage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
       case 'background':
         return <BackgroundPage onToggleSidebar={handleToggleSidebar} onBack={handleBackToChecklist} />;
       case 'criterion1':
@@ -271,6 +275,7 @@ const AUBAccreditationSystem = () => {
         <Route path="/register" element={renderPage()} />
         <Route path="/selection" element={renderPage()} />
         <Route path="/checklist" element={renderPage()} />
+        <Route path="/full-report" element={renderPage()} />
         <Route path="/background" element={renderPage()} />
         <Route path="/criterion-1" element={renderPage()} />
         <Route path="/criterion-2" element={renderPage()} />

@@ -20,6 +20,7 @@ import jwt
 from datetime import timedelta
 from io import BytesIO
 from .textbox_ai import extract_ai_section, _run_ollama_command
+from .self_study_ai import augment_self_study_payload_with_ai, build_self_study_ai_options
 from .models import (
     Criterion1Students,
     Criterion4,
@@ -512,6 +513,581 @@ def cycle_detail(request, cycle_id):
         'end_year': cycle.end_year,
         'progress': float(cycle.overall_progress_percentage or 0),
         'status': _cycle_status(cycle.overall_progress_percentage),
+    })
+
+
+def _serialize_faculty_profile_payload(faculty_id, cycle_id=None):
+    qualification = Qualification.objects.filter(faculty_id=faculty_id).order_by('-qualification_id').first()
+    profile_payload = {
+        'qualification': {
+            'degree_field': qualification.degree_field if qualification else '',
+            'degree_institution': qualification.degree_institution if qualification else '',
+            'degree_year': qualification.degree_year if qualification else '',
+            'years_industry_government': qualification.years_industry_government if qualification else '',
+            'years_at_institution': qualification.years_at_institution if qualification else '',
+        },
+        'certifications': list(Certification.objects.filter(faculty_id=faculty_id).order_by('certification_id').values_list('certification_title', flat=True)),
+        'memberships': list(ProfessionalMembership.objects.filter(faculty_id=faculty_id).order_by('membership_id').values_list('membership_description', flat=True)),
+        'industry_experience': list(IndustryExperience.objects.filter(faculty_id=faculty_id).order_by('experience_id').values_list('experience_discription', flat=True)),
+        'honors': list(HonorAward.objects.filter(faculty_id=faculty_id).order_by('award_id').values_list('award_discription', flat=True)),
+        'services': list(ServiceActivity.objects.filter(faculty_id=faculty_id).order_by('service_id').values_list('service_description', flat=True)),
+        'publications': list(Publication.objects.filter(faculty_id=faculty_id).order_by('publication_id').values_list('publication_discription', flat=True)),
+    }
+    if cycle_id:
+        criterion6 = Criterion6Faculty.objects.filter(cycle_id=cycle_id).order_by('-criterion6_id').first()
+        if criterion6:
+            profile_payload['development_activities'] = list(
+                ProfessionalDevelopment.objects.filter(faculty_id=faculty_id, criterion6_id=criterion6.criterion6_id)
+                .order_by('development_id')
+                .values_list('activity_description', flat=True)
+            )
+        else:
+            profile_payload['development_activities'] = []
+    else:
+        profile_payload['development_activities'] = list(
+            ProfessionalDevelopment.objects.filter(faculty_id=faculty_id).order_by('development_id').values_list('activity_description', flat=True)
+        )
+    return profile_payload
+
+
+def _build_criterion3_course_links(program_id, cycle_id):
+    so_payload = []
+    so_lookup = {}
+    for so_row in _program_so_rows(program_id):
+        serialized = _serialize_so(so_row)
+        serialized.update({
+            'linked_courses': [],
+            'linked_clos': [],
+            'course_clos': [],
+            '_course_map': {},
+            '_clo_map': {},
+        })
+        so_lookup[int(serialized['so_id'])] = serialized
+        so_payload.append(serialized)
+
+    _ensure_syllabus_clo_so_map_table()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            '''
+            SELECT
+              m.so_id,
+              c.Course_ID,
+              COALESCE(c.Course_Code, ''),
+              m.clo_id,
+              COALESCE(clo.description, ''),
+              COALESCE(clo.level, '')
+            FROM SYLLABUS_CLO_SO_MAP m
+            INNER JOIN STUDENT_OUTCOME so ON so.so_id = m.so_id
+            INNER JOIN INSTRUCTOR_SYLLABUS s ON s.syllabus_id = m.syllabus_id
+            INNER JOIN COURSE c ON c.Course_ID = s.Course_ID
+            LEFT JOIN CLO clo ON clo.clo_id = m.clo_id
+            WHERE so.program_id = %s AND c.Cycle_ID = %s
+            ORDER BY m.so_id, c.Course_Code, m.clo_id
+            ''',
+            [program_id, cycle_id]
+        )
+        rows = cursor.fetchall()
+
+    for row in rows:
+        so_id = int(row[0])
+        course_id = int(row[1])
+        course_code = f'{row[2] or ""}'.strip() or f'Course {course_id}'
+        clo_id = int(row[3]) if row[3] is not None else None
+        clo_description = f'{row[4] or ""}'.strip()
+        clo_level = f'{row[5] or ""}'.strip()
+
+        so_entry = so_lookup.get(so_id)
+        if not so_entry:
+            continue
+
+        if course_id not in so_entry['_course_map']:
+            so_entry['_course_map'][course_id] = {
+                'course_id': course_id,
+                'course_code': course_code,
+            }
+        if clo_id is not None and clo_id not in so_entry['_clo_map']:
+            so_entry['_clo_map'][clo_id] = {
+                'clo_id': clo_id,
+                'clo_code': clo_level or f'CLO{clo_id}',
+                'description': clo_description,
+            }
+        if clo_id is not None:
+            so_entry['course_clos'].append({
+                'course_id': course_id,
+                'course_code': course_code,
+                'clo_id': clo_id,
+                'clo_code': clo_level or f'CLO{clo_id}',
+                'clo_description': clo_description,
+            })
+
+    for so_entry in so_payload:
+        so_entry['linked_courses'] = list(so_entry.pop('_course_map').values())
+        so_entry['linked_clos'] = list(so_entry.pop('_clo_map').values())
+
+    return so_payload
+
+
+def _build_criterion3_payload(cycle):
+    program_id = cycle.program_id
+    return {
+        'criterion3_id': getattr(cycle, 'criterion3_id', None),
+        'student_outcomes': [_serialize_so(row) for row in _program_so_rows(program_id)],
+        'peos': [_serialize_peo(row) for row in _program_peo_rows(program_id)],
+        'clos': [_serialize_clo(row) for row in _program_clo_rows(program_id)],
+        'so_peo_mappings': _program_so_peo_mappings(program_id),
+        'so_course_links': _build_criterion3_course_links(program_id, cycle.cycle_id),
+    }
+
+
+def _empty_criterion7_payload(cycle):
+    return {
+        'criterion7_id': None,
+        'is_complete': False,
+        'total_number_of_offices': None,
+        'average_workspace_size': None,
+        'guidance_description': '',
+        'responsible_faculty_name': '',
+        'maintenance_policy_description': '',
+        'technical_collections_and_journals': '',
+        'electronic_databases_and_eresources': '',
+        'faculty_book_request_process': '',
+        'library_access_hours_and_systems': '',
+        'facilities_support_student_outcomes': '',
+        'safety_and_inspection_processes': '',
+        'compliance_with_university_policy': '',
+        'student_availability_details': '',
+        'cycle': cycle.cycle_id,
+        'classrooms': [],
+        'laboratories': [],
+        'computing_resources': [],
+        'upgrading_facilities': [],
+    }
+
+
+def _build_criterion7_payload(cycle):
+    criterion7 = Criterion7Facilities.objects.filter(cycle=cycle).order_by('-criterion7_id').first()
+    if not criterion7:
+        return _empty_criterion7_payload(cycle)
+    return Criterion7FacilitiesSerializer(criterion7).data
+
+
+def _empty_criterion8_payload(cycle):
+    return {
+        'criterion8_id': None,
+        'leadership_structure_description': '',
+        'leadership_adequacy_description': '',
+        'leadership_participation_description': '',
+        'budget_process_continuity': '',
+        'teaching_support_description': '',
+        'infrastructure_funding_description': '',
+        'resource_adequacy_description': '',
+        'hiring_process_description': '',
+        'retention_strategies_description': '',
+        'professional_development_support_types': '',
+        'professional_development_request_process': '',
+        'professional_development_funding_details': '',
+        'additional_narrative_on_staffing': '',
+        'cycle': cycle.cycle_id,
+        'item': None,
+        'staffing_rows': [],
+    }
+
+
+def _build_criterion8_payload(cycle):
+    criterion8 = Criterion8InstitutionalSupport.objects.filter(cycle=cycle).order_by('-criterion8_id').first()
+    if not criterion8:
+        return _empty_criterion8_payload(cycle)
+    return Criterion8InstitutionalSupportSerializer(criterion8).data
+
+
+def _build_appendix_a_payload(cycle):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            '''
+            SELECT Course_ID, Course_Code, Credits, Contact_Hours, Course_Type
+            FROM COURSE
+            WHERE Cycle_ID = %s
+            ORDER BY Course_Code, Course_ID
+            ''',
+            [cycle.cycle_id]
+        )
+        rows = cursor.fetchall()
+
+    course_payloads = []
+    for row in rows:
+        course_payload = _serialize_course_row(row)
+        course_id = int(course_payload.get('course_id') or 0)
+        sections = _course_sections_rows(course_id)
+        first_section = sections[0] if sections else None
+        syllabus = None
+        if first_section and first_section.get('syllabus_id'):
+            syllabus = _load_syllabus_payload(cycle.program_id, cycle.cycle_id, course_id, int(first_section['syllabus_id']))
+        course_payloads.append({
+            **course_payload,
+            'all_sections': sections,
+            'syllabus_preview': syllabus,
+        })
+
+    return {
+        'appendixA_id': getattr(cycle, 'appendixA_id', None),
+        'courses': course_payloads,
+    }
+
+
+def _build_appendix_b_payload(cycle):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT Faculty_ID FROM ASSIGNED_TO WHERE program_id = %s ORDER BY Faculty_ID',
+            [cycle.program_id]
+        )
+        faculty_ids = [int(row[0]) for row in cursor.fetchall()]
+
+    faculty_list = FacultyMember.objects.filter(faculty_id__in=faculty_ids).order_by('full_name')
+    return {
+        'faculty': [
+            {
+                **FacultyMemberSerializer(faculty).data,
+                'profile': _serialize_faculty_profile_payload(faculty.faculty_id, cycle.cycle_id),
+            }
+            for faculty in faculty_list
+        ],
+    }
+
+
+def _build_self_study_toc():
+    return [
+        {'id': 'background', 'title': 'Background Information'},
+        {'id': 'criterion1', 'title': 'Criterion 1 - Students'},
+        {'id': 'criterion2', 'title': 'Criterion 2 - Program Educational Objectives'},
+        {'id': 'criterion3', 'title': 'Criterion 3 - Student Outcomes'},
+        {'id': 'criterion4', 'title': 'Criterion 4 - Continuous Improvement'},
+        {'id': 'criterion5', 'title': 'Criterion 5 - Curriculum'},
+        {'id': 'criterion6', 'title': 'Criterion 6 - Faculty'},
+        {'id': 'criterion7', 'title': 'Criterion 7 - Facilities'},
+        {'id': 'criterion8', 'title': 'Criterion 8 - Institutional Support'},
+        {'id': 'appendixA', 'title': 'Appendix A - Course Syllabi'},
+        {'id': 'appendixB', 'title': 'Appendix B - Faculty Vitae'},
+        {'id': 'appendixC', 'title': 'Appendix C - Equipment'},
+        {'id': 'appendixD', 'title': 'Appendix D - Institutional Summary'},
+    ]
+
+
+def _build_self_study_payload(cycle):
+    background, _ = _ensure_background(cycle)
+    criterion1, _ = _get_or_create_criterion1(cycle)
+    criterion4, criterion4_item = _get_or_create_criterion4(cycle)
+    criterion5, _ = _get_or_create_criterion5(cycle)
+    criterion6, criterion6_item = _get_or_create_criterion6(cycle)
+    appendixc = _get_or_create_appendixc(cycle)
+    appendixd = _get_or_create_appendixd(cycle)
+
+    evidence_queryset = EvidenceFile.objects.select_related('user', 'cycle', 'program').filter(
+        cycle_id=cycle.cycle_id
+    ).order_by('-uploaded_at', '-evidence_id')
+
+    payload = {
+        'metadata': {
+            'cycle_id': cycle.cycle_id,
+            'program_id': cycle.program_id,
+            'program_name': cycle.program.program_name if cycle.program_id else '',
+            'cycle_label': _cycle_label(cycle),
+            'start_year': cycle.start_year,
+            'end_year': cycle.end_year,
+            'generated_at': timezone.now().isoformat(),
+        },
+        'toc': _build_self_study_toc(),
+        'sections': {
+            'background': _serialize_background_payload(background),
+            'criterion1': Criterion1StudentsSerializer(criterion1).data,
+            'criterion2': Criterion2PeosSerializer(cycle.criterion2).data,
+            'criterion3': _build_criterion3_payload(cycle),
+            'criterion4': _serialize_criterion4_payload(cycle, criterion4, criterion4_item, cycle.program_id),
+            'criterion5': {
+                **Criterion5CurriculumSerializer(criterion5).data,
+                'checklist_item_id': getattr(
+                    ChecklistItem.objects.filter(checklist=cycle.checklist, item_name__icontains='Criterion 5').order_by('-item_id').first(),
+                    'item_id',
+                    None,
+                ),
+            },
+            'criterion6': _serialize_criterion6_payload(cycle, criterion6, criterion6_item),
+            'criterion7': _build_criterion7_payload(cycle),
+            'criterion8': _build_criterion8_payload(cycle),
+            'appendixA': _build_appendix_a_payload(cycle),
+            'appendixB': _build_appendix_b_payload(cycle),
+            'appendixC': {
+                'appendix': AppendixCEquipmentSerializer(appendixc).data,
+                'equipment_rows': EquipmentItemSerializer(
+                    EquipmentItem.objects.filter(appendix_c=appendixc).order_by('equipment_id'),
+                    many=True,
+                ).data,
+            },
+            'appendixD': _serialize_appendixd_payload(appendixd),
+        },
+        'evidence_files': EvidenceFileSerializer(evidence_queryset, many=True).data,
+    }
+    payload['ai_options'] = build_self_study_ai_options(payload)
+    return payload
+
+
+def _get_or_create_criterion7_for_cycle(cycle):
+    criterion7 = Criterion7Facilities.objects.filter(cycle=cycle).order_by('-criterion7_id').first()
+    if criterion7:
+        return criterion7
+    return Criterion7Facilities.objects.create(cycle=cycle)
+
+
+def _ensure_criterion8_item_for_cycle(cycle):
+    criterion8_item = ChecklistItem.objects.filter(
+        checklist=cycle.checklist,
+        item_name__icontains='criterion 8'
+    ).order_by('-item_id').first()
+    if criterion8_item:
+        return criterion8_item
+    return ChecklistItem.objects.create(
+        item_name='Criterion 8 - Institutional Support',
+        status=0,
+        completion_percentage=0,
+        checklist=cycle.checklist,
+    )
+
+
+def _get_or_create_criterion8_for_cycle(cycle):
+    criterion8 = Criterion8InstitutionalSupport.objects.filter(cycle=cycle).order_by('-criterion8_id').first()
+    if criterion8:
+        return criterion8
+    return Criterion8InstitutionalSupport.objects.create(
+        leadership_structure_description='',
+        leadership_adequacy_description='',
+        leadership_participation_description='',
+        budget_process_continuity='',
+        teaching_support_description='',
+        infrastructure_funding_description='',
+        resource_adequacy_description='',
+        hiring_process_description='',
+        retention_strategies_description='',
+        professional_development_support_types='',
+        professional_development_request_process='',
+        professional_development_funding_details='',
+        additional_narrative_on_staffing='',
+        cycle=cycle,
+        item=_ensure_criterion8_item_for_cycle(cycle),
+    )
+
+
+def _persist_self_study_ai_fields(cycle, payload, applied_fields):
+    if not applied_fields:
+        return
+
+    background, _ = _ensure_background(cycle)
+    criterion1, _ = _get_or_create_criterion1(cycle)
+    criterion4, criterion4_item = _get_or_create_criterion4(cycle)
+    criterion5, _ = _get_or_create_criterion5(cycle)
+    criterion6, _ = _get_or_create_criterion6(cycle)
+    criterion7 = _get_or_create_criterion7_for_cycle(cycle)
+    criterion8 = _get_or_create_criterion8_for_cycle(cycle)
+    appendixd = _get_or_create_appendixd(cycle)
+
+    model_map = {
+        'background': (
+            background,
+            {
+                'majorChanges': 'summary_of_major_changes',
+            },
+        ),
+        'criterion1': (
+            criterion1,
+            {
+                'admission_requirements': 'admission_requirements',
+                'admission_process_summary': 'admission_process_summary',
+                'transfer_pathways': 'transfer_pathways',
+                'pperformance_evaluation_process': 'pperformance_evaluation_process',
+                'prerequisite_verification_method': 'prerequisite_verification_method',
+                'prerequisite_not_met_action': 'prerequisite_not_met_action',
+                'transfer_policy_summary': 'transfer_policy_summary',
+                'transfer_credit_evaluation_process': 'transfer_credit_evaluation_process',
+                'articulation_agreements': 'articulation_agreements',
+                'advising_providers': 'advising_providers',
+                'advising_frequency': 'advising_frequency',
+                'career_guidance_description': 'career_guidance_description',
+                'work_in_lieu_policies': 'work_in_lieu_policies',
+                'work_in_lieu_approval_process': 'work_in_lieu_approval_process',
+                'essential_courses_categories': 'essential_courses_categories',
+                'transcript_format_explanation': 'transcript_format_explanation',
+                'program_name_on_transcript': 'program_name_on_transcript',
+            },
+        ),
+        'criterion2': (
+            cycle.criterion2,
+            {
+                'institutional_mission_statement': 'institutional_mission_statement',
+                'program_mission_statement': 'program_mission_statement',
+                'peos_mission_alignment_explanation': 'peos_mission_alignment_explanation',
+                'constituencies_list': 'constituencies_list',
+                'constituencies_contribution_description': 'constituencies_contribution_description',
+                'peo_review_frequency': 'peo_review_frequency',
+                'peo_review_participants': 'peo_review_participants',
+                'feedback_collection_and_decision_process': 'feedback_collection_and_decision_process',
+                'changes_since_last_peo_review': 'changes_since_last_peo_review',
+            },
+        ),
+        'criterion5': (
+            criterion5,
+            {
+                'plan_of_study_description': 'plan_of_study_description',
+                'curriculum_alignment_description': 'curriculum_alignment_description',
+                'prerequisites_support_description': 'prerequisites_support_description',
+                'prerequisite_flowchart_description': 'prerequisite_flowchart_description',
+                'hours_depth_by_subject_area_description': 'hours_depth_by_subject_area_description',
+                'broad_education_component_description': 'broad_education_component_description',
+                'cooperative_education_description': 'cooperative_education_description',
+                'materials_available_description': 'materials_available_description',
+                'culminating_design_experience': 'culminating_design_experience',
+            },
+        ),
+        'criterion6': (
+            criterion6,
+            {
+                'faculty_composition_narrative': 'faculty_composition_narrative',
+                'faculty_worklaod_expectations_description': 'faculty_worklaod_expectations_description',
+                'workload_expectations_desciption': 'workload_expectations_desciption',
+                'faculty_size_adequacy_description': 'faculty_size_adequacy_description',
+                'advising_and_student_interaction_description': 'advising_and_student_interaction_description',
+                'service_and_industry_engagement_description': 'service_and_industry_engagement_description',
+                'course_creation_role_description': 'course_creation_role_description',
+                'peo_ro_role_description': 'peo_ro_role_description',
+                'leadership_roles_description': 'leadership_roles_description',
+            },
+        ),
+        'criterion7': (
+            criterion7,
+            {
+                'guidance_description': 'guidance_description',
+                'maintenance_policy_description': 'maintenance_policy_description',
+                'technical_collections_and_journals': 'technical_collections_and_journals',
+                'electronic_databases_and_eresources': 'electronic_databases_and_eresources',
+                'faculty_book_request_process': 'faculty_book_request_process',
+                'library_access_hours_and_systems': 'library_access_hours_and_systems',
+                'facilities_support_student_outcomes': 'facilities_support_student_outcomes',
+                'safety_and_inspection_processes': 'safety_and_inspection_processes',
+                'compliance_with_university_policy': 'compliance_with_university_policy',
+                'student_availability_details': 'student_availability_details',
+            },
+        ),
+        'criterion8': (
+            criterion8,
+            {
+                'leadership_structure_description': 'leadership_structure_description',
+                'leadership_adequacy_description': 'leadership_adequacy_description',
+                'leadership_participation_description': 'leadership_participation_description',
+                'budget_process_continuity': 'budget_process_continuity',
+                'teaching_support_description': 'teaching_support_description',
+                'infrastructure_funding_description': 'infrastructure_funding_description',
+                'resource_adequacy_description': 'resource_adequacy_description',
+                'additional_narrative_on_staffing': 'additional_narrative_on_staffing',
+                'hiring_process_description': 'hiring_process_description',
+                'retention_strategies_description': 'retention_strategies_description',
+                'professional_development_support_types': 'professional_development_support_types',
+                'professional_development_request_process': 'professional_development_request_process',
+                'professional_development_funding_details': 'professional_development_funding_details',
+            },
+        ),
+        'appendixD': (
+            appendixd,
+            {
+                'institutionalAccreditations': 'institutional_accreditations',
+                'accreditationEvaluationDates': 'accreditation_evalutaion_dates',
+                'controlTypeDescription': 'control_type_description',
+                'administrativeChainDescription': 'administrative_chain_description',
+                'creditHourDefinition': 'credit_hour_definition',
+                'deviationsFromStandard': 'deviations_from_standard',
+            },
+        ),
+    }
+
+    sections = (payload or {}).get('sections') or {}
+    dirty_models = {}
+
+    for row in applied_fields:
+      section_id = row.get('sectionId')
+      field_key = row.get('fieldKey')
+      section_payload = sections.get(section_id) or {}
+      if field_key not in section_payload:
+          continue
+      model_entry = model_map.get(section_id)
+      if not model_entry:
+          continue
+      instance, field_mapping = model_entry
+      model_field = field_mapping.get(field_key)
+      if not instance or not model_field:
+          continue
+      setattr(instance, model_field, section_payload.get(field_key) or '')
+      dirty_models.setdefault(instance, set()).add(model_field)
+
+    if 'criterion4' in sections:
+        criterion4_payload = sections.get('criterion4') or {}
+        stored_state = _serialize_criterion4_payload(cycle, criterion4, criterion4_item, cycle.program_id)
+        changed = False
+        for row in applied_fields:
+            if row.get('sectionId') != 'criterion4':
+                continue
+            field_key = row.get('fieldKey')
+            if field_key not in ('programNarrative', 'recordsMaintenance'):
+                continue
+            stored_state[field_key] = criterion4_payload.get(field_key) or ''
+            if field_key == 'programNarrative':
+                stored_state['programNarrativeStatus'] = 'completed' if stored_state[field_key] else 'not_started'
+            if field_key == 'recordsMaintenance':
+                stored_state['recordsMaintenanceStatus'] = 'completed' if stored_state[field_key] else 'not_started'
+            changed = True
+        if changed:
+            criterion4.assessment_processes_description = json.dumps(stored_state)
+            dirty_models.setdefault(criterion4, set()).add('assessment_processes_description')
+
+    for instance, update_fields in dirty_models.items():
+        if update_fields:
+            instance.save(update_fields=sorted(update_fields))
+
+
+@api_view(['GET'])
+def cycle_self_study(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response(_build_self_study_payload(cycle))
+
+
+@api_view(['POST'])
+def cycle_self_study_ai_draft(request, cycle_id):
+    cycle = _ensure_cycle(cycle_id)
+    if not cycle:
+        return Response({'detail': 'Accreditation cycle not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    base_payload = _build_self_study_payload(cycle)
+    selected_fields = request.data.get('selectedFields', [])
+    save_to_backend = bool(request.data.get('saveToBackend'))
+    augmented_payload, applied_fields, invalid_fields, error = augment_self_study_payload_with_ai(
+        base_payload,
+        selected_fields,
+    )
+    if error:
+        return Response({'detail': error, 'invalidFields': invalid_fields}, status=status.HTTP_400_BAD_REQUEST)
+
+    response_payload = augmented_payload
+    if save_to_backend:
+        _persist_self_study_ai_fields(cycle, augmented_payload, applied_fields)
+        response_payload = _build_self_study_payload(cycle)
+
+    return Response({
+        'payload': response_payload,
+        'appliedFields': applied_fields,
+        'invalidFields': invalid_fields,
+        'savedToBackend': save_to_backend,
+        'message': (
+            f'AI drafted {len(applied_fields)} field{"s" if len(applied_fields) != 1 else ""}'
+            f'{" and saved them to the cycle records" if save_to_backend else ""}.'
+        ),
     })
 
 

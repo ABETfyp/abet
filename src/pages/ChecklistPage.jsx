@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, FileText } from 'lucide-react';
 import GlobalHeader from '../components/layout/GlobalHeader';
 import { apiRequest } from '../utils/api';
 import { colors } from '../styles/theme';
@@ -371,6 +371,25 @@ const ChecklistPage = ({ setCurrentPage, onToggleSidebar }) => {
             alignItems: 'center'
           }}>
             <div />
+            <button
+              onClick={() => setCurrentPage('fullReport')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 16px',
+                backgroundColor: '#8b1538',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: '700'
+              }}
+            >
+              <FileText size={16} />
+              Full Report
+            </button>
           </div>
         </div>
 

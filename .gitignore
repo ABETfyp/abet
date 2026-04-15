@@ -11,3 +11,6 @@ node_modules/
 db.sqlite3
 .env.*
 __pycache__/
+self_study_payload*.json
+self-study-*.docx
+subset-*.docx

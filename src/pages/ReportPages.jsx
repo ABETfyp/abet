@@ -5,6 +5,7 @@ import { colors, fontStack } from '../styles/theme';
 import { apiRequest } from '../utils/api';
 import { getActiveContext } from '../utils/activeContext';
 import EvidenceLibraryImport from '../components/shared/EvidenceLibraryImport';
+import { exportSelfStudyReport } from '../utils/selfStudyExport';
 import { buildTextboxAiStatus, extractTextboxSectionWithLocalAi } from '../utils/textboxAi';
 
 const BG_DOCS_DB_NAME = 'abet-background-documents';
@@ -105,7 +106,17 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 };
 
   const FullReportPage = ({ onToggleSidebar, onBack }) => {
+    const cycleId = localStorage.getItem('currentCycleId') || 1;
     const { programName, cycleLabel } = getActiveContext();
+    const [exporting, setExporting] = useState(false);
+    const [exportError, setExportError] = useState('');
+    const [exportSuccess, setExportSuccess] = useState('');
+    const [reportPayload, setReportPayload] = useState(null);
+    const [aiOptions, setAiOptions] = useState([]);
+    const [selectedAiFields, setSelectedAiFields] = useState([]);
+    const [aiModalOpen, setAiModalOpen] = useState(false);
+    const [aiModalError, setAiModalError] = useState('');
+    const [aiDrafting, setAiDrafting] = useState(false);
 
     const completedItems = [
 
@@ -130,6 +141,117 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
       'Appendices A & B'
 
     ];
+
+    const fieldSelectionKey = (sectionId, fieldKey) => `${sectionId}::${fieldKey}`;
+    const selectedCount = selectedAiFields.length;
+    const allSelectableKeys = aiOptions.flatMap((group) =>
+      (Array.isArray(group?.fields) ? group.fields : []).map((field) => fieldSelectionKey(field.sectionId, field.fieldKey))
+    );
+    const allFieldsSelected = allSelectableKeys.length > 0 && allSelectableKeys.every((key) => selectedAiFields.includes(key));
+
+    const resetAiModalState = () => {
+      setAiModalOpen(false);
+      setAiModalError('');
+      setAiOptions([]);
+      setSelectedAiFields([]);
+      setReportPayload(null);
+      setAiDrafting(false);
+    };
+
+    const handlePrepareReportGeneration = async () => {
+      try {
+        setExporting(true);
+        setExportError('');
+        setExportSuccess('');
+        setAiModalError('');
+        const payload = await apiRequest(`/cycles/${cycleId}/self-study/`, { method: 'GET' });
+        setReportPayload(payload);
+        setAiOptions(Array.isArray(payload?.ai_options) ? payload.ai_options : []);
+        setSelectedAiFields([]);
+        setAiModalOpen(true);
+      } catch (error) {
+        setExportError(`Unable to prepare the report: ${error?.message || 'Unknown error'}`);
+      } finally {
+        setExporting(false);
+      }
+    };
+
+    const handleToggleAiField = (sectionId, fieldKey) => {
+      const key = fieldSelectionKey(sectionId, fieldKey);
+      setSelectedAiFields((prev) => (
+        prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]
+      ));
+    };
+
+    const handleToggleAllAiFields = () => {
+      setSelectedAiFields(allFieldsSelected ? [] : allSelectableKeys);
+    };
+
+    const handleExportPayload = async (payload, successMessage) => {
+      await exportSelfStudyReport(payload, { allowSavePicker: false });
+      setExportSuccess(successMessage);
+    };
+
+    const handleGenerateReportAsIs = async () => {
+      if (!reportPayload) {
+        setAiModalError('The report payload is not ready yet.');
+        return;
+      }
+      try {
+        setExporting(true);
+        setExportError('');
+        setExportSuccess('');
+        await handleExportPayload(reportPayload, 'Full report exported successfully.');
+        resetAiModalState();
+      } catch (error) {
+        setAiModalError(error?.message || 'Unable to export the report.');
+      } finally {
+        setExporting(false);
+      }
+    };
+
+    const handleGenerateReportWithAi = async () => {
+      if (!reportPayload) {
+        setAiModalError('The report payload is not ready yet.');
+        return;
+      }
+      if (selectedAiFields.length === 0) {
+        setAiModalError('Select at least one field for AI drafting, or use Generate As Is.');
+        return;
+      }
+      try {
+        setAiDrafting(true);
+        setExportError('');
+        setExportSuccess('');
+        setAiModalError('');
+
+        const selectedFields = selectedAiFields.map((key) => {
+          const [sectionId, fieldKey] = key.split('::');
+          return { sectionId, fieldKey };
+        });
+
+        const result = await apiRequest(`/cycles/${cycleId}/self-study/ai-draft/`, {
+          method: 'POST',
+          body: JSON.stringify({ selectedFields, saveToBackend: true })
+        });
+
+        if (!result?.payload) {
+          throw new Error('The AI drafting response did not include a report payload.');
+        }
+
+        setExporting(true);
+      await handleExportPayload(
+        result.payload,
+        `Full report exported successfully with AI-expanded writing in ${Array.isArray(result?.appliedFields) ? result.appliedFields.length : selectedAiFields.length} field(s), and the website content was updated.`
+      );
+        resetAiModalState();
+      } catch (error) {
+        setAiModalError(error?.message || 'Unable to generate AI-assisted report text.');
+      } finally {
+        setAiDrafting(false);
+        setExporting(false);
+      }
+    };
 
 
 
@@ -181,10 +303,15 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
             <div style={{ color: colors.mediumGray, fontSize: '13px', marginTop: '12px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
 
-              <span>Last updated: November 25, 2025</span>
+              <div style={{ display: 'grid', gap: '4px' }}>
+                <span>Last updated: November 25, 2025</span>
+                <span>Select which narrative fields ChatGPT should expand before export.</span>
+              </div>
 
               <button
 
+                onClick={handlePrepareReportGeneration}
+                disabled={exporting || aiDrafting}
                 style={{
 
                   display: 'inline-flex',
@@ -203,11 +330,13 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
                   border: 'none',
 
-                  cursor: 'pointer',
+                  cursor: exporting || aiDrafting ? 'not-allowed' : 'pointer',
 
                   fontSize: '14px',
 
                   fontWeight: '700',
+
+                  opacity: exporting || aiDrafting ? 0.7 : 1,
 
                   letterSpacing: '0.2px'
 
@@ -217,11 +346,39 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
                 <FileText size={18} />
 
-                Generate Full Report
+                {exporting ? 'Preparing...' : 'Generate Full Report'}
 
               </button>
 
             </div>
+
+            {exportSuccess ? (
+              <div style={{
+                marginTop: '12px',
+                padding: '12px 16px',
+                backgroundColor: '#d4edda',
+                border: '1px solid #c3e6cb',
+                borderRadius: '6px',
+                color: '#155724',
+                fontSize: '14px'
+              }}>
+                {exportSuccess}
+              </div>
+            ) : null}
+
+            {exportError ? (
+              <div style={{
+                marginTop: '12px',
+                padding: '12px 16px',
+                backgroundColor: '#f8d7da',
+                border: '1px solid #f5c6cb',
+                borderRadius: '6px',
+                color: '#721c24',
+                fontSize: '14px'
+              }}>
+                {exportError}
+              </div>
+            ) : null}
 
           </div>
 
@@ -323,6 +480,178 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
         </div>
 
+        {aiModalOpen ? (
+          <div
+            onClick={() => {
+              if (!aiDrafting && !exporting) {
+                resetAiModalState();
+              }
+            }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(20, 25, 35, 0.52)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '20px',
+              zIndex: 1800
+            }}
+          >
+            <div
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '980px',
+                maxHeight: '85vh',
+                overflow: 'hidden',
+                backgroundColor: 'white',
+                borderRadius: '14px',
+                border: `1px solid ${colors.border}`,
+                boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
+                display: 'grid',
+                gridTemplateRows: 'auto 1fr auto'
+              }}
+            >
+              <div style={{ padding: '18px 22px', background: `linear-gradient(120deg, ${colors.primaryDark || colors.primary} 0%, ${colors.primary} 100%)`, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+                <div>
+                  <div style={{ fontSize: '18px', fontWeight: '800' }}>AI Writing for Full Report</div>
+                  <div style={{ fontSize: '12px', opacity: 0.92, marginTop: '2px' }}>
+                    Select the narrative fields you want ChatGPT to expand before the report is exported.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetAiModalState}
+                  disabled={aiDrafting || exporting}
+                  style={{ background: 'none', border: 'none', color: 'white', cursor: aiDrafting || exporting ? 'not-allowed' : 'pointer', fontSize: '18px', fontWeight: '700' }}
+                  aria-label="Close"
+                >
+                  x
+                </button>
+              </div>
+
+              <div style={{ padding: '22px', overflowY: 'auto', display: 'grid', gap: '18px', backgroundColor: '#fafafa' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ color: colors.darkGray, fontSize: '14px', fontWeight: '700' }}>
+                    {selectedCount} field{selectedCount === 1 ? '' : 's'} selected for AI drafting
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleToggleAllAiFields}
+                    style={{
+                      backgroundColor: 'white',
+                      border: `1px solid ${colors.border}`,
+                      color: colors.primary,
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {allFieldsSelected ? 'Clear Selection' : 'Select All'}
+                  </button>
+                </div>
+
+                {aiOptions.length === 0 ? (
+                  <div style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, borderRadius: '10px', padding: '20px', color: colors.mediumGray, fontSize: '14px' }}>
+                    No AI-eligible narrative fields were found in this report payload. You can still generate the report as-is.
+                  </div>
+                ) : (
+                  aiOptions.map((group) => (
+                    <div key={group.sectionId} style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, borderRadius: '12px', padding: '18px' }}>
+                      <div style={{ fontSize: '16px', fontWeight: '800', color: colors.darkGray, marginBottom: '14px' }}>
+                        {group.sectionTitle}
+                      </div>
+                      <div style={{ display: 'grid', gap: '10px' }}>
+                        {(Array.isArray(group.fields) ? group.fields : []).map((field) => {
+                          const key = fieldSelectionKey(field.sectionId, field.fieldKey);
+                          const checked = selectedAiFields.includes(key);
+                          return (
+                            <label
+                              key={key}
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: '18px 1fr',
+                                gap: '12px',
+                                alignItems: 'start',
+                                padding: '12px 14px',
+                                border: checked ? `1px solid ${colors.primary}` : `1px solid ${colors.border}`,
+                                borderRadius: '10px',
+                                backgroundColor: checked ? 'rgba(139, 21, 56, 0.06)' : '#fff'
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => handleToggleAiField(field.sectionId, field.fieldKey)}
+                                style={{ marginTop: '2px' }}
+                              />
+                              <div style={{ display: 'grid', gap: '6px' }}>
+                                <div style={{ color: colors.darkGray, fontSize: '14px', fontWeight: '700' }}>{field.label}</div>
+                                <div style={{ color: colors.mediumGray, fontSize: '12px', lineHeight: 1.5 }}>
+                                  {field.currentValue ? `Current text: ${field.currentValue}` : 'Current text is empty. AI will draft a report-ready version from the section context when possible.'}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {aiModalError ? (
+                  <div style={{ padding: '12px 16px', backgroundColor: '#f8d7da', border: '1px solid #f5c6cb', borderRadius: '8px', color: '#721c24', fontSize: '14px' }}>
+                    {aiModalError}
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={{ padding: '16px 22px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', borderTop: `1px solid ${colors.border}`, flexWrap: 'wrap' }}>
+                <div style={{ color: colors.mediumGray, fontSize: '12px', maxWidth: '520px', lineHeight: 1.5 }}>
+                  Tables and uploaded files are excluded. The AI step only rewrites selected narrative fields, then the report is exported with the same DOCX format.
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={resetAiModalState}
+                    disabled={aiDrafting || exporting}
+                    style={{ backgroundColor: 'white', border: `1px solid ${colors.border}`, color: colors.mediumGray, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: aiDrafting || exporting ? 'not-allowed' : 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGenerateReportAsIs}
+                    disabled={aiDrafting || exporting}
+                    style={{ backgroundColor: 'white', border: `1px solid ${colors.primary}`, color: colors.primary, borderRadius: '8px', padding: '10px 14px', fontWeight: '700', cursor: aiDrafting || exporting ? 'not-allowed' : 'pointer' }}
+                  >
+                    {exporting && !aiDrafting ? 'Generating...' : 'Generate As Is'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGenerateReportWithAi}
+                    disabled={aiDrafting || exporting || selectedCount === 0}
+                    style={{
+                      backgroundColor: aiDrafting || exporting || selectedCount === 0 ? '#d8d8dd' : colors.primary,
+                      border: 'none',
+                      color: aiDrafting || exporting || selectedCount === 0 ? '#6c757d' : 'white',
+                      borderRadius: '8px',
+                      padding: '10px 16px',
+                      fontWeight: '700',
+                      cursor: aiDrafting || exporting || selectedCount === 0 ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {aiDrafting ? 'Writing with AI...' : `Generate with AI (${selectedCount})`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
     );
