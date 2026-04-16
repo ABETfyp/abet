@@ -8,7 +8,7 @@ from urllib import request as urllib_request
 
 OPENAI_REPORT_MODEL = os.environ.get('OPENAI_REPORT_MODEL', 'gpt-4.1-mini')
 OPENAI_REPORT_TIMEOUT_SECONDS = 90
-MAX_SELECTED_AI_FIELDS = 30
+OPENAI_REPORT_BATCH_SIZE = 20
 
 
 SELF_STUDY_AI_FIELD_GROUPS = {
@@ -425,43 +425,44 @@ def augment_self_study_payload_with_ai(payload, selected_fields):
     selected_pairs = _normalize_selected_fields(selected_fields)
     if not selected_pairs:
         return copy.deepcopy(payload), [], [], None
-    if len(selected_pairs) > MAX_SELECTED_AI_FIELDS:
-        return None, [], [], f'Please select at most {MAX_SELECTED_AI_FIELDS} fields for AI drafting at one time.'
 
     targets, invalid_targets = _build_target_descriptors(payload, selected_pairs)
     if not targets:
         return None, [], invalid_targets, 'None of the selected fields are eligible for AI drafting.'
 
-    prompt = _build_rewrite_prompt((payload or {}).get('metadata') or {}, targets)
-    parsed_response, error = _run_openai_json_prompt(prompt)
-    if error:
-        return None, [], invalid_targets, error
-
-    rewrite_rows = parsed_response.get('rewrites') if isinstance(parsed_response, dict) else None
-    if not isinstance(rewrite_rows, list):
-        return None, [], invalid_targets, 'OpenAI did not return the expected rewrite format.'
-
     augmented_payload = copy.deepcopy(payload)
     applied = []
-    sections = (augmented_payload or {}).get('sections') or {}
     valid_lookup = {(target['section_id'], target['field_key']): target for target in targets}
+    sections = (augmented_payload or {}).get('sections') or {}
+    metadata = (payload or {}).get('metadata') or {}
 
-    for row in rewrite_rows:
-        section_id = _clean_text((row or {}).get('section_id'))
-        field_key = _clean_text((row or {}).get('field_key'))
-        rewritten_text = _clean_text((row or {}).get('text'))
-        if not section_id or not field_key or not rewritten_text:
-            continue
-        if (section_id, field_key) not in valid_lookup:
-            continue
-        if section_id not in sections or field_key not in sections[section_id]:
-            continue
-        sections[section_id][field_key] = rewritten_text
-        applied.append({
-            'sectionId': section_id,
-            'fieldKey': field_key,
-            'label': valid_lookup[(section_id, field_key)]['field_label'],
-        })
+    for start_index in range(0, len(targets), OPENAI_REPORT_BATCH_SIZE):
+        batch_targets = targets[start_index:start_index + OPENAI_REPORT_BATCH_SIZE]
+        prompt = _build_rewrite_prompt(metadata, batch_targets)
+        parsed_response, error = _run_openai_json_prompt(prompt)
+        if error:
+            return None, applied, invalid_targets, error
+
+        rewrite_rows = parsed_response.get('rewrites') if isinstance(parsed_response, dict) else None
+        if not isinstance(rewrite_rows, list):
+            return None, applied, invalid_targets, 'OpenAI did not return the expected rewrite format.'
+
+        for row in rewrite_rows:
+            section_id = _clean_text((row or {}).get('section_id'))
+            field_key = _clean_text((row or {}).get('field_key'))
+            rewritten_text = _clean_text((row or {}).get('text'))
+            if not section_id or not field_key or not rewritten_text:
+                continue
+            if (section_id, field_key) not in valid_lookup:
+                continue
+            if section_id not in sections or field_key not in sections[section_id]:
+                continue
+            sections[section_id][field_key] = rewritten_text
+            applied.append({
+                'sectionId': section_id,
+                'fieldKey': field_key,
+                'label': valid_lookup[(section_id, field_key)]['field_label'],
+            })
 
     if not applied:
         return None, [], invalid_targets, 'OpenAI did not return usable text for the selected fields.'

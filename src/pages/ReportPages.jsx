@@ -117,6 +117,7 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
     const [aiModalOpen, setAiModalOpen] = useState(false);
     const [aiModalError, setAiModalError] = useState('');
     const [aiDrafting, setAiDrafting] = useState(false);
+    const [checklistData, setChecklistData] = useState(null);
 
     const completedItems = [
 
@@ -148,6 +149,51 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
       (Array.isArray(group?.fields) ? group.fields : []).map((field) => fieldSelectionKey(field.sectionId, field.fieldKey))
     );
     const allFieldsSelected = allSelectableKeys.length > 0 && allSelectableKeys.every((key) => selectedAiFields.includes(key));
+
+    useEffect(() => {
+      let cancelled = false;
+      const fetchChecklist = async () => {
+        try {
+          const result = await apiRequest(`/cycles/${cycleId}/checklist/`, { method: 'GET' });
+          if (!cancelled) {
+            setChecklistData(result);
+          }
+        } catch (_error) {
+          if (!cancelled) {
+            setChecklistData(null);
+          }
+        }
+      };
+      fetchChecklist();
+      return () => {
+        cancelled = true;
+      };
+    }, [cycleId]);
+
+    const checklistItems = Array.isArray(checklistData?.items) ? checklistData.items : [];
+    const trackedCriteria = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const bestByCriterion = new Map();
+    checklistItems.forEach((item) => {
+      const criterionNumber = Number(item?.criterion_number);
+      if (!trackedCriteria.has(criterionNumber)) return;
+      const currentValue = Number(item?.completion_percentage || 0);
+      const previousValue = bestByCriterion.get(criterionNumber) ?? -1;
+      if (currentValue > previousValue) {
+        bestByCriterion.set(criterionNumber, currentValue);
+      }
+    });
+    const overallProgress = typeof checklistData?.overall_progress_percentage === 'number'
+      ? Math.round(checklistData.overall_progress_percentage)
+      : Math.round(Array.from(trackedCriteria).reduce((sum, criterionNumber) => sum + (bestByCriterion.get(criterionNumber) ?? 0), 0) / trackedCriteria.size);
+    const displayedChecklistItems = checklistItems.filter((item, index, list) => {
+      const itemName = `${item?.item_name || ''}`.trim().toLowerCase();
+      const isBackground = Number(item?.criterion_number) === 0 || itemName === 'background information';
+      if (!isBackground) return true;
+      return list.findIndex((candidate) => {
+        const candidateName = `${candidate?.item_name || ''}`.trim().toLowerCase();
+        return Number(candidate?.criterion_number) === 0 || candidateName === 'background information';
+      }) === index;
+    });
 
     const resetAiModalState = () => {
       setAiModalOpen(false);
@@ -281,7 +327,7 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
               <div style={{ textAlign: 'right' }}>
 
-                <div style={{ fontSize: '42px', fontWeight: '800', color: colors.success, marginBottom: '4px', letterSpacing: '-1px' }}>100%</div>
+                <div style={{ fontSize: '42px', fontWeight: '800', color: colors.primary, marginBottom: '4px', letterSpacing: '-1px' }}>{overallProgress}%</div>
 
                 <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Overall Progress</div>
 
@@ -295,7 +341,7 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
             <div style={{ height: '14px', backgroundColor: colors.lightGray, borderRadius: '7px', overflow: 'hidden', border: `1px solid ${colors.border}` }}>
 
-              <div style={{ width: '100%', height: '100%', backgroundColor: colors.success, transition: 'width 0.3s' }}></div>
+              <div style={{ width: `${Math.max(0, Math.min(100, overallProgress))}%`, height: '100%', backgroundColor: colors.primary, transition: 'width 0.3s' }}></div>
 
             </div>
 
@@ -394,7 +440,7 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-              {completedItems.map((name, index) => (
+              {(displayedChecklistItems.length ? displayedChecklistItems : completedItems.map((itemName) => ({ item_name: itemName, completion_percentage: 100 }))).map((item, index) => (
 
                 <div
 
@@ -428,15 +474,15 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
 
-                      <h4 style={{ color: colors.darkGray, fontSize: '16px', fontWeight: '700', margin: 0, letterSpacing: '-0.1px' }}>{name}</h4>
+                      <h4 style={{ color: colors.darkGray, fontSize: '16px', fontWeight: '700', margin: 0, letterSpacing: '-0.1px' }}>{item?.item_name || item}</h4>
 
-                      <span style={{ color: colors.darkGray, fontSize: '15px', fontWeight: '700', marginRight: '20px' }}>100%</span>
+                      <span style={{ color: colors.darkGray, fontSize: '15px', fontWeight: '700', marginRight: '20px' }}>{Math.round(Number(item?.completion_percentage ?? 100))}%</span>
 
                     </div>
 
                     <div style={{ height: '8px', backgroundColor: colors.lightGray, borderRadius: '4px', overflow: 'hidden' }}>
 
-                      <div style={{ width: '100%', height: '100%', backgroundColor: colors.success, transition: 'width 0.3s' }}></div>
+                      <div style={{ width: `${Math.max(0, Math.min(100, Number(item?.completion_percentage ?? 100)))}%`, height: '100%', backgroundColor: Number(item?.completion_percentage ?? 100) >= 100 ? colors.success : colors.primary, transition: 'width 0.3s' }}></div>
 
                     </div>
 

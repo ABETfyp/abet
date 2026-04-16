@@ -274,11 +274,37 @@ const bulletParagraphs = (items) => {
   }));
 };
 
+const extractNamedAttachment = (value) => {
+  if (!value) return '';
+  if (typeof value === 'object') {
+    return sanitizeText(
+      value.file_name
+      || value.name
+      || value.filename
+      || value.originalName
+      || value.original_name
+      || ''
+    );
+  }
+  if (typeof value !== 'string') return '';
+
+  const raw = value.trim();
+  if (!raw.startsWith('{') || !raw.endsWith('}')) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    return extractNamedAttachment(parsed);
+  } catch (_error) {
+    return '';
+  }
+};
+
 const toDisplayValue = (value) => {
   if (value === null || value === undefined) return '';
   if (typeof value === 'number') return sanitizeText(`${value}`);
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (Array.isArray(value)) return sanitizeText(value.map((item) => toDisplayValue(item)).filter(Boolean).join(', '));
+  const attachmentName = extractNamedAttachment(value);
+  if (attachmentName) return attachmentName;
   if (typeof value === 'object') return sanitizeText(JSON.stringify(value));
   return sanitizeText(`${value}`);
 };
@@ -307,6 +333,40 @@ const buildSimpleTable = (headers, rows) => {
       })),
     ],
   });
+};
+
+const appendDivider = (children) => {
+  children.push(new Paragraph({
+    spacing: { before: 80, after: 80 },
+    border: {
+      bottom: {
+        color: 'D0D5DD',
+        space: 1,
+        style: 'single',
+        size: 4,
+      },
+    },
+  }));
+};
+
+const textListParagraph = (title, lines) => {
+  const normalized = (Array.isArray(lines) ? lines : []).map((item) => sanitizeText(item)).filter(Boolean);
+  return [
+    minorTitle(title),
+    paragraph(normalized.length ? normalized.join('\n') : 'No entries are available.', {
+      indent: { left: NESTED_INDENT },
+    }),
+  ];
+};
+
+const normalizeProfileEntry = (entry) => {
+  if (!entry) return '';
+  if (typeof entry === 'string') return sanitizeText(entry);
+  if (typeof entry !== 'object') return sanitizeText(`${entry}`);
+  return Object.entries(entry)
+    .filter(([key, value]) => key !== 'id' && !/_id$/i.test(key) && hasValue(value))
+    .map(([key, value]) => `${prettifyLabel(key)}: ${sanitizeText(value)}`)
+    .join(' | ');
 };
 
 const objectTable = (items, preferredOrder = []) => {
@@ -680,6 +740,17 @@ const renderAppendixA = (appendixA) => {
   }
 
   courses.forEach((course) => {
+    const sections = Array.isArray(course?.all_sections) ? course.all_sections : [];
+    const syllabus = course?.syllabus_preview;
+    const syllabusBlock = syllabus?.syllabus || {};
+    const availableClos = Array.isArray(syllabus?.available_clos) ? syllabus.available_clos : [];
+    const availableSos = Array.isArray(syllabus?.available_sos) ? syllabus.available_sos : [];
+    const assessments = Array.isArray(syllabusBlock?.assessments) ? syllabusBlock.assessments : [];
+    const prerequisites = Array.isArray(syllabusBlock?.prerequisites) ? syllabusBlock.prerequisites : [];
+    const corequisites = Array.isArray(syllabusBlock?.corequisites) ? syllabusBlock.corequisites : [];
+    const textbooks = Array.isArray(syllabusBlock?.textbooks) ? syllabusBlock.textbooks : [];
+    const supplements = Array.isArray(syllabusBlock?.supplements) ? syllabusBlock.supplements : [];
+
     children.push(new Paragraph({
       pageBreakBefore: children.length > 1,
       indent: { left: SUBSECTION_INDENT },
@@ -693,61 +764,65 @@ const renderAppendixA = (appendixA) => {
       ],
       spacing: { before: 200, after: 120 },
     }));
-    children.push(keyValueParagraph('Credits', toDisplayValue(course?.credits)));
-    children.push(keyValueParagraph('Contact Hours', toDisplayValue(course?.contact_hours)));
-    children.push(keyValueParagraph('Course Type', toDisplayValue(course?.course_type)));
+    children.push(paragraph(`${Number(course?.credits || 0)} credits - ${Number(course?.contact_hours || 0)} hours - ${course?.course_type || 'Required'}`, {
+      indent: { left: SUBSECTION_INDENT },
+    }));
+    appendDivider(children);
 
-    const sections = Array.isArray(course?.all_sections) ? course.all_sections : [];
-    children.push(minorTitle('Sections'));
-    appendBlock(
-      children,
-      sections.length > 0
-        ? bulletParagraphs(sections.map((section) => {
+    if (sections.length > 1) {
+      appendBlock(children, textListParagraph(
+        'Covered Sections and Instructors',
+        sections.map((section) => {
           const term = section?.term || 'Unknown term';
           const facultyName = section?.faculty_name || 'Unassigned instructor';
-          const syllabusId = section?.syllabus_id ? ` (Syllabus ${section.syllabus_id})` : '';
-          return `${term} - ${facultyName}${syllabusId}`;
-        }))
-        : [paragraph('No sections are available.')]
-    );
-
-    const syllabus = course?.syllabus_preview;
-    children.push(minorTitle('Syllabus'));
-    if (!syllabus) {
-      children.push(paragraph('No syllabus preview is available.'));
-      return;
+          return `${term} - ${facultyName}`;
+        })
+      ));
+    } else {
+      children.push(keyValueParagraph('Instructor', sections[0]?.faculty_name || ''));
+      children.push(keyValueParagraph('Term', sections[0]?.term || ''));
     }
 
-    const syllabusBlock = syllabus?.syllabus || {};
-    children.push(keyValueParagraph('Catalog Description', syllabusBlock?.catalog_description || ''));
-    children.push(keyValueParagraph('Weekly Topics', syllabusBlock?.weekly_topics || ''));
-    children.push(keyValueParagraph('Design Content Percentage', toDisplayValue(syllabusBlock?.design_content_percentage)));
-    children.push(keyValueParagraph('Software or Lab Tools Used', syllabusBlock?.software_or_labs_tools_used || ''));
+    children.push(minorTitle('Catalog Description'));
+    children.push(paragraph(syllabusBlock?.catalog_description || 'No catalog description entered.', { indent: { left: NESTED_INDENT } }));
 
-    [
-      ['Textbooks', syllabusBlock?.textbooks],
-      ['Supplemental Materials', syllabusBlock?.supplements],
-      ['Prerequisites', syllabusBlock?.prerequisites],
-      ['Corequisites', syllabusBlock?.corequisites],
-      ['Assessments', syllabusBlock?.assessments],
-      ['CLO Mappings', syllabusBlock?.clo_mappings],
-    ].forEach(([titleText, rows]) => {
-      children.push(minorTitle(titleText));
-      const normalizedRows = Array.isArray(rows) ? rows : [];
-      if (normalizedRows.length === 0) {
-        children.push(paragraph('No rows are available.'));
-        return;
-      }
-      appendBlock(children, bulletParagraphs(normalizedRows.map((row) => {
+    appendBlock(children, textListParagraph(
+      'CLO List',
+      availableClos.map((clo) => `${clo.display_code || clo.clo_code || `CLO-${clo.clo_id}`}: ${clo.description || '-'}`)
+    ));
+    appendBlock(children, textListParagraph(
+      'SO List',
+      availableSos.map((so) => `${so.display_code || so.so_code || `SO-${so.so_id}`}: ${so.so_discription || so.description || '-'}`)
+    ));
+
+    children.push(minorTitle('Weekly Topics'));
+    if (hasValue(syllabusBlock?.weekly_topics)) {
+      children.push(paragraph(syllabusBlock.weekly_topics, { indent: { left: NESTED_INDENT } }));
+    } else {
+      children.push(paragraph('No weekly topics entered.', { indent: { left: NESTED_INDENT } }));
+    }
+
+    children.push(keyValueParagraph('Prerequisites', prerequisites.length ? prerequisites.map((item) => sanitizeText(item?.course_code || item)).filter(Boolean).join(', ') : 'None listed.'));
+    children.push(keyValueParagraph('Corequisites', corequisites.length ? corequisites.map((item) => sanitizeText(item?.course_code || item)).filter(Boolean).join(', ') : 'None listed.'));
+    children.push(keyValueParagraph('Software / Lab Tools', syllabusBlock?.software_or_labs_tools_used || 'No tools listed.'));
+
+    appendBlock(children, textListParagraph(
+      'Textbooks',
+      textbooks.map((row) => normalizeProfileEntry(row))
+    ));
+    appendBlock(children, textListParagraph(
+      'Supplemental Materials',
+      supplements.map((row) => normalizeProfileEntry(row))
+    ));
+    appendBlock(children, textListParagraph(
+      'Assessment Plan',
+      assessments.map((row) => {
         if (row && typeof row === 'object') {
-          return Object.entries(row)
-            .filter(([key]) => !/_id$/i.test(key) && key !== 'id')
-            .map(([key, value]) => `${prettifyLabel(key)}: ${toDisplayValue(value) || '-'}`)
-            .join(' | ');
+          return `${row.assessment_type || '-'} (${Number(row.weight_percentage || 0)}%)`;
         }
         return `${row}`;
-      })));
-    });
+      })
+    ));
   });
 
   return children;
@@ -764,6 +839,8 @@ const renderAppendixB = (appendixB) => {
   facultyRows.forEach((faculty) => {
     const profile = faculty?.profile || {};
     const qualification = profile?.qualification || {};
+    const academicRank = faculty?.academic_rank || faculty?.rank || '-';
+    const appointmentType = faculty?.appointment_type || '-';
 
     children.push(new Paragraph({
       pageBreakBefore: children.length > 1,
@@ -778,31 +855,26 @@ const renderAppendixB = (appendixB) => {
       ],
       spacing: { before: 200, after: 120 },
     }));
-    children.push(keyValueParagraph('Academic Rank', faculty?.academic_rank || ''));
-    children.push(keyValueParagraph('Appointment Type', faculty?.appointment_type || ''));
+    children.push(paragraph(`${academicRank} - ${appointmentType}`, { indent: { left: SUBSECTION_INDENT } }));
     children.push(keyValueParagraph('Email', faculty?.email || ''));
     children.push(keyValueParagraph('Office Hours', faculty?.office_hours || ''));
 
-    children.push(minorTitle('Qualification'));
-    appendBlock(children, primitiveFieldParagraphs(qualification, [
-      'degree_field',
-      'degree_institution',
-      'degree_year',
-      'years_industry_government',
-      'years_at_institution',
-    ]));
+    children.push(minorTitle('Education & Qualification'));
+    children.push(paragraph(
+      `Field: ${qualification?.degree_field || '-'}\nInstitution: ${qualification?.degree_institution || '-'}\nYear: ${qualification?.degree_year || '-'}\nIndustry Years: ${qualification?.years_industry_government || '-'}\nInstitution Years: ${qualification?.years_at_institution || '-'}`,
+      { indent: { left: NESTED_INDENT } }
+    ));
 
     [
-      ['Certifications', profile?.certifications],
+      ['Professional Certifications', profile?.certifications],
       ['Professional Memberships', profile?.memberships],
       ['Professional Development', profile?.development_activities],
-      ['Industry Experience', profile?.industry_experience],
-      ['Honors and Awards', profile?.honors],
+      ['Consulting / Industry Experience', profile?.industry_experience],
+      ['Honors & Awards', profile?.honors],
       ['Service Activities', profile?.services],
       ['Publications', profile?.publications],
     ].forEach(([titleText, items]) => {
-      children.push(minorTitle(titleText));
-      appendBlock(children, bulletParagraphs(items));
+      appendBlock(children, textListParagraph(titleText, (Array.isArray(items) ? items : []).map((item) => normalizeProfileEntry(item))));
     });
   });
 
@@ -968,15 +1040,6 @@ export const buildSelfStudyDocument = async (payload) => {
     documentSections.push({
       properties,
       children: await buildSectionChildren(sectionId, sections[sectionId], metadata),
-    });
-  }
-
-  if (Array.isArray(payload?.evidence_files) && payload.evidence_files.length > 0) {
-    documentSections.push({
-      children: [
-        sectionTitle('Evidence Files'),
-        objectTable(payload.evidence_files, ['name', 'type', 'uploadedAt', 'uploadedBy']) || paragraph('No evidence files are available.'),
-      ],
     });
   }
 
