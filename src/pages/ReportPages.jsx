@@ -185,9 +185,6 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
     const overallProgress = typeof checklistData?.overall_progress_percentage === 'number'
       ? Math.round(checklistData.overall_progress_percentage)
       : Math.round(Array.from(trackedCriteria).reduce((sum, criterionNumber) => sum + (bestByCriterion.get(criterionNumber) ?? 0), 0) / trackedCriteria.size);
-    const incompleteCriteria = Array.from(trackedCriteria)
-      .filter((criterionNumber) => (bestByCriterion.get(criterionNumber) ?? 0) < 100);
-    const reportReady = checklistItems.length > 0 && incompleteCriteria.length === 0 && overallProgress >= 100;
     const displayedChecklistItems = checklistItems.filter((item, index, list) => {
       const itemName = `${item?.item_name || ''}`.trim().toLowerCase();
       const isBackground = Number(item?.criterion_number) === 0 || itemName === 'background information';
@@ -208,10 +205,6 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
     };
 
     const handlePrepareReportGeneration = async () => {
-      if (!reportReady) {
-        setExportError('The full report can be generated only when the checklist progress is 100% and all criteria are complete.');
-        return;
-      }
       try {
         setExporting(true);
         setExportError('');
@@ -334,7 +327,7 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
               <div style={{ textAlign: 'right' }}>
 
-                <div style={{ fontSize: '42px', fontWeight: '800', color: reportReady ? colors.success : colors.primary, marginBottom: '4px', letterSpacing: '-1px' }}>{overallProgress}%</div>
+                <div style={{ fontSize: '42px', fontWeight: '800', color: colors.primary, marginBottom: '4px', letterSpacing: '-1px' }}>{overallProgress}%</div>
 
                 <div style={{ color: colors.mediumGray, fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Overall Progress</div>
 
@@ -348,7 +341,7 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
             <div style={{ height: '14px', backgroundColor: colors.lightGray, borderRadius: '7px', overflow: 'hidden', border: `1px solid ${colors.border}` }}>
 
-              <div style={{ width: `${Math.max(0, Math.min(100, overallProgress))}%`, height: '100%', backgroundColor: reportReady ? colors.success : colors.primary, transition: 'width 0.3s' }}></div>
+              <div style={{ width: `${Math.max(0, Math.min(100, overallProgress))}%`, height: '100%', backgroundColor: colors.primary, transition: 'width 0.3s' }}></div>
 
             </div>
 
@@ -364,7 +357,7 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
               <button
 
                 onClick={handlePrepareReportGeneration}
-                disabled={exporting || aiDrafting || !reportReady}
+                disabled={exporting || aiDrafting}
                 style={{
 
                   display: 'inline-flex',
@@ -383,13 +376,13 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
 
                   border: 'none',
 
-                  cursor: exporting || aiDrafting || !reportReady ? 'not-allowed' : 'pointer',
+                  cursor: exporting || aiDrafting ? 'not-allowed' : 'pointer',
 
                   fontSize: '14px',
 
                   fontWeight: '700',
 
-                  opacity: exporting || aiDrafting || !reportReady ? 0.7 : 1,
+                  opacity: exporting || aiDrafting ? 0.7 : 1,
 
                   letterSpacing: '0.2px'
 
@@ -404,20 +397,6 @@ const BACKGROUND_TEXTBOX_SECTION_FIELDS = {
               </button>
 
             </div>
-
-            {!reportReady ? (
-              <div style={{
-                marginTop: '12px',
-                padding: '12px 16px',
-                backgroundColor: '#fff3cd',
-                border: '1px solid #ffe69c',
-                borderRadius: '6px',
-                color: '#856404',
-                fontSize: '14px'
-              }}>
-                The report is locked until all criteria and appendices reach 100% completion.
-              </div>
-            ) : null}
 
             {exportSuccess ? (
               <div style={{

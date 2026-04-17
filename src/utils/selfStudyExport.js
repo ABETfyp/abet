@@ -369,7 +369,198 @@ const normalizeProfileEntry = (entry) => {
     .join(' | ');
 };
 
-const objectTable = (items, preferredOrder = []) => {
+const PROFILE_ENTRY_PREFIX = '__ABET_ENTRY__';
+
+const parseAppendixBProfileEntry = (rawValue) => {
+  const text = `${rawValue ?? ''}`.trim();
+  if (!text) {
+    return {
+      title: '',
+      description: '',
+      month: '',
+      year: '',
+      from_month: '',
+      from_year: '',
+      to_month: '',
+      to_year: '',
+    };
+  }
+  if (text.startsWith(PROFILE_ENTRY_PREFIX)) {
+    try {
+      const parsed = JSON.parse(text.slice(PROFILE_ENTRY_PREFIX.length));
+      return {
+        title: `${parsed?.title ?? ''}`.trim(),
+        description: `${parsed?.description ?? ''}`.trim(),
+        month: `${parsed?.month ?? ''}`.trim(),
+        year: `${parsed?.year ?? ''}`.replace(/\D/g, '').slice(0, 4),
+        from_month: `${parsed?.from_month ?? ''}`.trim(),
+        from_year: `${parsed?.from_year ?? ''}`.replace(/\D/g, '').slice(0, 4),
+        to_month: `${parsed?.to_month ?? ''}`.trim(),
+        to_year: `${parsed?.to_year ?? ''}`.replace(/\D/g, '').slice(0, 4),
+      };
+    } catch (_error) {
+      // fall through to legacy parsing
+    }
+  }
+
+  const matched = text.match(/^(.*?)(?:\s*\(([^)]+)\))?$/);
+  const title = `${matched?.[1] || text}`.trim();
+  const suffix = `${matched?.[2] || ''}`.trim();
+  let month = '';
+  let year = '';
+  const yearOnly = suffix.match(/^(\d{4})$/);
+  const monthYear = suffix.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (yearOnly) year = yearOnly[1];
+  if (monthYear) {
+    month = monthYear[1];
+    year = monthYear[2];
+  }
+  return { title, description: '', month, year, from_month: '', from_year: '', to_month: '', to_year: '' };
+};
+
+const parseAppendixBProfileEntries = (rows) => (Array.isArray(rows) ? rows : [])
+  .map((row) => parseAppendixBProfileEntry(row))
+  .filter((row) => hasValue(row.title) || hasValue(row.description) || hasValue(row.month) || hasValue(row.year) || hasValue(row.from_month) || hasValue(row.from_year) || hasValue(row.to_month) || hasValue(row.to_year));
+
+const appendixBEntryDate = (row) => [row?.month, row?.year].filter((v) => hasValue(v)).join(' ');
+
+const appendixBEntryDateRange = (row) => {
+  const fromDate = [row?.from_month, row?.from_year].filter((v) => hasValue(v)).join(' ');
+  const toDate = [row?.to_month, row?.to_year].filter((v) => hasValue(v)).join(' ');
+  if (fromDate && toDate) return `${fromDate}-${toDate}`;
+  if (fromDate) return `${fromDate}-Present`;
+  if (toDate) return toDate;
+  return appendixBEntryDate(row);
+};
+
+const appendixBSectionHeading = (text) => new Paragraph({
+  indent: { left: NESTED_INDENT },
+  spacing: { before: 140, after: 80 },
+  border: {
+    bottom: {
+      color: 'D8DEE5',
+      space: 1,
+      style: 'single',
+      size: 4,
+    },
+  },
+  children: [
+    new TextRun({
+      text: asText(text),
+      bold: true,
+      font: 'Georgia',
+      size: 22,
+      color: '667085',
+      allCaps: true,
+    }),
+  ],
+});
+
+const renderAppendixBEntryRows = (entries, emptyText, options = {}) => {
+  const datePlacement = options?.datePlacement || 'right';
+  const useRangeDate = options?.useRangeDate === true;
+  if (!entries.length) {
+    return [new Paragraph({
+      indent: { left: NESTED_INDENT },
+      spacing: { after: 100 },
+      children: [
+        new TextRun({
+          text: emptyText,
+          font: 'Georgia',
+          size: 26,
+          color: '475467',
+        }),
+      ],
+    })];
+  }
+
+  return entries.flatMap((entry, index) => {
+    const dateText = (useRangeDate ? appendixBEntryDateRange(entry) : appendixBEntryDate(entry)) || '-';
+    const blocks = [];
+    if (datePlacement === 'left') {
+      blocks.push(new Paragraph({
+        indent: { left: NESTED_INDENT },
+        spacing: { after: 40 },
+        children: [
+          new TextRun({
+            text: dateText,
+            font: 'Georgia',
+            size: 24,
+            color: '667085',
+            bold: true,
+          }),
+        ],
+      }));
+      blocks.push(new Paragraph({
+        indent: { left: NESTED_INDENT },
+        spacing: { after: hasValue(entry?.description) ? 30 : 90 },
+        children: [
+          new TextRun({
+            text: entry?.title || 'Untitled entry',
+            font: 'Georgia',
+            size: 28,
+            bold: true,
+            color: '111827',
+          }),
+        ],
+      }));
+    } else {
+      blocks.push(new Paragraph({
+        indent: { left: NESTED_INDENT },
+        spacing: { after: hasValue(entry?.description) ? 30 : 90 },
+        children: [
+          new TextRun({
+            text: entry?.title || 'Untitled entry',
+            font: 'Georgia',
+            size: 28,
+            bold: true,
+            color: '111827',
+          }),
+          new TextRun({
+            text: `    ${dateText}`,
+            font: 'Georgia',
+            size: 24,
+            color: '667085',
+            bold: true,
+          }),
+        ],
+      }));
+    }
+
+    if (hasValue(entry?.description)) {
+      blocks.push(new Paragraph({
+        indent: { left: NESTED_INDENT },
+        spacing: { after: 90 },
+        children: [
+          new TextRun({
+            text: entry.description,
+            font: 'Georgia',
+            size: 26,
+            color: '374151',
+          }),
+        ],
+      }));
+    }
+
+    if (index < entries.length - 1) {
+      blocks.push(new Paragraph({
+        indent: { left: NESTED_INDENT },
+        spacing: { after: 60 },
+        border: {
+          bottom: {
+            color: 'E5E7EB',
+            space: 1,
+            style: 'single',
+            size: 3,
+          },
+        },
+      }));
+    }
+    return blocks;
+  });
+};
+
+const objectTable = (items, preferredOrder = [], headerLabels = {}) => {
   const normalizedItems = Array.isArray(items) ? items.filter((item) => item && typeof item === 'object') : [];
   if (normalizedItems.length === 0) return null;
 
@@ -383,7 +574,7 @@ const objectTable = (items, preferredOrder = []) => {
   const trailingKeys = [...allKeys].filter((key) => !preferredOrder.includes(key));
   const orderedKeys = [...preferredOrder.filter((key) => allKeys.has(key)), ...trailingKeys];
   return buildSimpleTable(
-    orderedKeys.map(prettifyLabel),
+    orderedKeys.map((key) => headerLabels[key] || prettifyLabel(key)),
     normalizedItems.map((item) => orderedKeys.map((key) => toDisplayValue(item?.[key]))),
   );
 };
@@ -574,29 +765,214 @@ const renderCriterion3 = (criterion3) => {
 
 const renderCriterion4 = (criterion4) => {
   const children = [sectionTitle('Criterion 4 - Continuous Improvement')];
+  const loopStatusLabelMap = {
+    open: 'Open',
+    monitoring: 'Monitoring',
+    closed: 'Closed',
+  };
+  const loopOutcomeLabelMap = {
+    yes: 'Threshold met',
+    partial: 'Partial improvement',
+    no: 'No meaningful improvement',
+  };
+  const criterion4DetailParagraph = (text) => paragraph(text, { indent: { left: NESTED_INDENT } });
+  const criterion4DetailKeyValue = (label, value) => new Paragraph({
+    indent: { left: NESTED_INDENT },
+    spacing: { after: 100 },
+    children: [
+      new TextRun({ text: sanitizeText(label), bold: true, font: FONT_FAMILY, size: BODY_SIZE }),
+      new TextRun({ text: hasValue(value) ? sanitizeText(`: ${value}`) : `: ${EMPTY_TEXT}`, font: FONT_FAMILY, size: BODY_SIZE }),
+    ],
+  });
+  const criterion4BlockTitle = (text) => new Paragraph({
+    indent: { left: BODY_INDENT },
+    spacing: { before: 140, after: 90 },
+    children: [
+      new TextRun({
+        text: asText(text),
+        bold: true,
+        font: FONT_FAMILY,
+        size: SUBTITLE_SIZE,
+      }),
+    ],
+  });
+  const sos = Array.isArray(criterion4?.sos) ? criterion4.sos.filter((row) => row && typeof row === 'object') : [];
+  const pis = Array.isArray(criterion4?.pis) ? criterion4.pis.filter((row) => row && typeof row === 'object') : [];
+  const results = Array.isArray(criterion4?.results) ? criterion4.results.filter((row) => row && typeof row === 'object') : [];
+  const loops = Array.isArray(criterion4?.loops) ? criterion4.loops.filter((row) => row && typeof row === 'object') : [];
+  const meetings = Array.isArray(criterion4?.meetings) ? criterion4.meetings.filter((row) => row && typeof row === 'object') : [];
+  const instruments = Array.isArray(criterion4?.instruments) ? criterion4.instruments.filter((row) => row && typeof row === 'object') : [];
+  const courses = Array.isArray(criterion4?.courses) ? criterion4.courses.filter((row) => row && typeof row === 'object') : [];
 
-  children.push(subTitle('Program-Level Narrative'));
-  children.push(paragraph(criterion4?.programNarrative));
-  children.push(subTitle('Records and Maintenance'));
+  const findCourseCode = (courseId) => {
+    const course = courses.find((item) => String(item?.id) === String(courseId) || String(item?.course_id) === String(courseId));
+    return course?.code || course?.name || toDisplayValue(courseId);
+  };
+  const getCoursesForPi = (pi) => {
+    const ids = Array.isArray(pi?.assessedCourseIds) ? pi.assessedCourseIds : [];
+    return ids.map((courseId) => findCourseCode(courseId)).filter(Boolean);
+  };
+  const getResultsForPi = (piId) => results.filter((row) => row?.piId === piId);
+  const soNarrativeBlocks = sos.flatMap((so) => {
+    const soPis = pis.filter((pi) => pi?.soId === so?.id);
+    return [
+      new Paragraph({
+        indent: { left: NESTED_INDENT },
+        spacing: { before: 120, after: 80 },
+        children: [
+          new TextRun({
+            text: `${toDisplayValue(so?.id)} - ${toDisplayValue(so?.label)}`,
+            bold: true,
+            font: FONT_FAMILY,
+            size: SUBTITLE_SIZE,
+          }),
+        ],
+      }),
+      criterion4DetailParagraph(so?.narrative || 'No outcome-level narrative entered yet.'),
+      criterion4DetailKeyValue('PIs', soPis.length ? soPis.map((pi) => pi?.id).filter(Boolean).join(', ') : 'None yet'),
+    ];
+  });
+
+  children.push(subTitle('A. Student Outcomes'));
+  children.push(paragraph(criterion4?.programNarrative || 'No program-level 4A narrative entered yet.'));
+
+  children.push(criterion4BlockTitle('Outcome Narratives'));
+  if (soNarrativeBlocks.length) {
+    children.push(...soNarrativeBlocks);
+  } else {
+    children.push(criterion4DetailParagraph('No student outcome narratives are available.'));
+  }
+
+  children.push(criterion4BlockTitle('Assessment Processes'));
+  if (pis.length) {
+    children.push(buildSimpleTable(
+      ['SO', 'PI', 'Assessment Process / Instrument', 'Frequency', 'Expected Attainment', 'Mapped Courses'],
+      pis.map((pi) => [
+        toDisplayValue(pi?.soId),
+        toDisplayValue(pi?.id),
+        toDisplayValue(pi?.desc || pi?.instrument || pi?.type),
+        toDisplayValue(pi?.freq),
+        pi?.threshold === '' || pi?.threshold == null ? '' : `${pi.threshold}%`,
+        getCoursesForPi(pi).join(', '),
+      ]),
+    ));
+  } else {
+    children.push(paragraph('No assessment processes are available.'));
+  }
+
+  children.push(criterion4BlockTitle('Results Log'));
+  if (results.length) {
+    children.push(buildSimpleTable(
+      ['SO', 'PI', 'Course', 'Semester', 'Students', '% Met', 'Threshold', 'Interpretation'],
+      results.map((row) => {
+        const pi = pis.find((item) => item?.id === row?.piId);
+        return [
+          toDisplayValue(row?.soId),
+          toDisplayValue(row?.piId),
+          findCourseCode(row?.courseId),
+          toDisplayValue(row?.semester),
+          toDisplayValue(row?.n),
+          row?.pct === '' || row?.pct == null ? '' : `${row.pct}%`,
+          pi?.threshold === '' || pi?.threshold == null ? '' : `${pi.threshold}%`,
+          toDisplayValue(row?.interpretation),
+        ];
+      }),
+    ));
+  } else {
+    children.push(paragraph('No attainment results logged yet.'));
+  }
+
+  children.push(criterion4BlockTitle('PI Coverage Gaps'));
+  const pisWithoutResults = pis.filter((pi) => getResultsForPi(pi?.id).length === 0);
+  if (pisWithoutResults.length) {
+    children.push(buildSimpleTable(
+      ['SO', 'PI Code', 'PI Description', 'Mapped Courses'],
+      pisWithoutResults.map((pi) => [
+        toDisplayValue(pi?.soId),
+        toDisplayValue(pi?.id),
+        toDisplayValue(pi?.desc),
+        getCoursesForPi(pi).join(', ') || 'None',
+      ]),
+    ));
+  } else {
+    children.push(paragraph('All PIs have at least one logged result.'));
+  }
+
+  children.push(criterion4BlockTitle('How Results Are Documented and Maintained'));
   children.push(paragraph(criterion4?.recordsMaintenance));
 
-  const tableSpecs = [
-    ['Performance Indicators', criterion4?.pis],
-    ['Results Log', criterion4?.results],
-    ['Improvement Actions', criterion4?.loops],
-    ['Meetings', criterion4?.meetings],
-    ['Assessment Instruments', criterion4?.instruments],
-  ];
+  children.push(subTitle('B. Continuous Improvement'));
+  if (loops.length) {
+    children.push(buildSimpleTable(
+      ['SO', 'Status', 'Action Type', 'Course', 'Implementation Semester'],
+      loops.map((loop) => [
+        Array.isArray(loop?.sos) && loop.sos.length ? loop.sos.join(', ') : (loop?.soId || ''),
+        loopStatusLabelMap[loop?.status] || toDisplayValue(loop?.status),
+        toDisplayValue(loop?.type || loop?.customType),
+        toDisplayValue(loop?.coursesText || loop?.courseId),
+        toDisplayValue(loop?.implSemester || loop?.semester),
+      ]),
+    ));
 
-  tableSpecs.forEach(([title, rows]) => {
-    const table = objectTable(rows);
-    children.push(subTitle(title));
-    if (table) {
-      children.push(table);
-    } else {
-      children.push(paragraph('No rows are available.'));
-    }
-  });
+    loops.forEach((loop, index) => {
+      const soLabel = Array.isArray(loop?.sos) && loop.sos.length ? loop.sos.join(', ') : (loop?.soId || 'N/A');
+      children.push(criterion4BlockTitle(`Action ${index + 1}: ${soLabel} - ${toDisplayValue(loop?.type || loop?.customType || 'Improvement action')}`));
+      children.push(criterion4DetailKeyValue('Status', loopStatusLabelMap[loop?.status] || loop?.status));
+      children.push(criterion4DetailKeyValue('Course', loop?.coursesText || loop?.courseId));
+      children.push(criterion4DetailKeyValue('Implementation Semester', loop?.implSemester || loop?.semester));
+      children.push(criterion4DetailKeyValue('Decision Meeting / Date', loop?.decisionMeeting || loop?.meeting || `${loop?.decisionMeetingName || ''} ${loop?.decisionMeetingDate || ''}`.trim()));
+      children.push(criterion4DetailKeyValue('Finding', loop?.finding));
+      children.push(criterion4DetailKeyValue('Action', loop?.action));
+      children.push(criterion4DetailKeyValue('Planned Next Step', loop?.plan));
+      children.push(criterion4DetailKeyValue('Re-assessment Semester', loop?.reassessmentSemester || loop?.rsem));
+      children.push(criterion4DetailKeyValue(
+        'Re-assessment %',
+        loop?.reassessmentPct === '' || loop?.reassessmentPct == null ? '' : `${loop.reassessmentPct}%`,
+      ));
+      children.push(criterion4DetailKeyValue(
+        'Re-assessment Outcome',
+        loopOutcomeLabelMap[loop?.reassessmentOutcome] || loop?.reassessmentOutcome,
+      ));
+      children.push(criterion4DetailKeyValue('Re-assessment Narrative', loop?.reassessmentNarrative || loop?.rnarr));
+    });
+  } else {
+    children.push(paragraph('No improvement loops logged yet.'));
+  }
+
+  children.push(subTitle('C. Additional Information'));
+  children.push(criterion4BlockTitle('Assessment Instruments'));
+  if (instruments.length) {
+    children.push(buildSimpleTable(
+      ['SO', 'PI', 'Instrument Name', 'Type', 'Status', 'File'],
+      instruments.map((instrument) => [
+        toDisplayValue(instrument?.soId),
+        toDisplayValue(instrument?.piId),
+        toDisplayValue(instrument?.name),
+        toDisplayValue(instrument?.type),
+        extractNamedAttachment(instrument?.file) ? 'Uploaded' : 'Missing',
+        extractNamedAttachment(instrument?.file) || 'None',
+      ]),
+    ));
+  } else {
+    children.push(paragraph('No assessment instruments linked yet.'));
+  }
+
+  children.push(criterion4BlockTitle('Decision Meetings'));
+  if (meetings.length) {
+    children.push(buildSimpleTable(
+      ['Date', 'Title', 'Type', 'SOs', 'Attendees', 'Minutes Status'],
+      meetings.map((meeting) => [
+        toDisplayValue(meeting?.date),
+        toDisplayValue(meeting?.title),
+        toDisplayValue(meeting?.type),
+        Array.isArray(meeting?.sos) ? meeting.sos.join(', ') : toDisplayValue(meeting?.sos),
+        toDisplayValue(meeting?.attendees),
+        toDisplayValue(meeting?.minutesStatus),
+      ]),
+    ));
+  } else {
+    children.push(paragraph('No meetings logged yet.'));
+  }
 
   return children;
 };
@@ -718,9 +1094,9 @@ const renderGenericSection = (title, payload, config = {}) => {
 
   appendBlock(children, primitiveFieldParagraphs(payload, orderedFields, excludedFields));
 
-  tableFields.forEach(({ key, title: tableTitle, order }) => {
+  tableFields.forEach(({ key, title: tableTitle, order, headerLabels }) => {
     children.push(subTitle(tableTitle || prettifyLabel(key)));
-    const table = objectTable(payload?.[key], order || []);
+    const table = objectTable(payload?.[key], order || [], headerLabels || {});
     if (table) {
       children.push(table);
     } else {
@@ -838,44 +1214,103 @@ const renderAppendixB = (appendixB) => {
 
   facultyRows.forEach((faculty) => {
     const profile = faculty?.profile || {};
-    const qualification = profile?.qualification || {};
-    const academicRank = faculty?.academic_rank || faculty?.rank || '-';
-    const appointmentType = faculty?.appointment_type || '-';
+    const q = profile?.qualification || {};
+    const certs = parseAppendixBProfileEntries(profile?.certifications);
+    const members = parseAppendixBProfileEntries(profile?.memberships);
+    const dev = parseAppendixBProfileEntries(profile?.development_activities);
+    const industry = parseAppendixBProfileEntries(profile?.industry_experience);
+    const honors = parseAppendixBProfileEntries(profile?.honors);
+    const service = parseAppendixBProfileEntries(profile?.services);
+    const pubs = parseAppendixBProfileEntries(profile?.publications);
+    const name = faculty?.full_name || faculty?.name || 'Faculty Member';
+    const rank = `${faculty?.academic_rank || faculty?.rank || '-'} - ${faculty?.appointment_type || '-'}`;
 
     children.push(new Paragraph({
       pageBreakBefore: children.length > 1,
-      indent: { left: SUBSECTION_INDENT },
+      indent: { left: BODY_INDENT },
       children: [
         new TextRun({
-          text: faculty?.full_name || faculty?.name || 'Faculty Member',
+          text: 'Faculty Curriculum Vitae',
           bold: true,
-          font: FONT_FAMILY,
-          size: SUBTITLE_SIZE,
+          font: 'Georgia',
+          size: 34,
+          color: '1F2937',
         }),
       ],
-      spacing: { before: 200, after: 120 },
+      spacing: { before: 140, after: 20 },
     }));
-    children.push(paragraph(`${academicRank} - ${appointmentType}`, { indent: { left: SUBSECTION_INDENT } }));
-    children.push(keyValueParagraph('Email', faculty?.email || ''));
-    children.push(keyValueParagraph('Office Hours', faculty?.office_hours || ''));
+    children.push(new Paragraph({
+      alignment: AlignmentType.RIGHT,
+      spacing: { after: 140 },
+      children: [
+        new TextRun({
+          text: 'Appendix B',
+          font: 'Georgia',
+          size: 22,
+          color: '6B7280',
+        }),
+      ],
+    }));
+    children.push(new Paragraph({
+      indent: { left: BODY_INDENT },
+      spacing: { after: 60 },
+      children: [
+        new TextRun({
+          text: name,
+          bold: true,
+          font: 'Georgia',
+          size: 40,
+          color: '111827',
+        }),
+      ],
+    }));
+    children.push(new Paragraph({
+      indent: { left: BODY_INDENT },
+      spacing: { after: 140 },
+      children: [
+        new TextRun({
+          text: rank,
+          font: 'Georgia',
+          size: 24,
+          color: '475467',
+        }),
+      ],
+    }));
 
-    children.push(minorTitle('Education & Qualification'));
-    children.push(paragraph(
-      `Field: ${qualification?.degree_field || '-'}\nInstitution: ${qualification?.degree_institution || '-'}\nYear: ${qualification?.degree_year || '-'}\nIndustry Years: ${qualification?.years_industry_government || '-'}\nInstitution Years: ${qualification?.years_at_institution || '-'}`,
-      { indent: { left: NESTED_INDENT } }
-    ));
+    children.push(appendixBSectionHeading('Education & Qualification'));
+    children.push(new Paragraph({
+      indent: { left: NESTED_INDENT },
+      spacing: { after: 100 },
+      children: [
+        new TextRun({
+          text: `Field: ${q?.degree_field || '-'}\nInstitution: ${q?.degree_institution || '-'}\nYear: ${q?.degree_year || '-'}\nIndustry Years: ${q?.years_industry_government || '-'}\nInstitution Years: ${q?.years_at_institution || '-'}`,
+          font: 'Georgia',
+          size: 26,
+          color: '1F2937',
+        }),
+      ],
+    }));
 
-    [
-      ['Professional Certifications', profile?.certifications],
-      ['Professional Memberships', profile?.memberships],
-      ['Professional Development', profile?.development_activities],
-      ['Consulting / Industry Experience', profile?.industry_experience],
-      ['Honors & Awards', profile?.honors],
-      ['Service Activities', profile?.services],
-      ['Publications', profile?.publications],
-    ].forEach(([titleText, items]) => {
-      appendBlock(children, textListParagraph(titleText, (Array.isArray(items) ? items : []).map((item) => normalizeProfileEntry(item))));
-    });
+    children.push(appendixBSectionHeading('Professional Certifications'));
+    children.push(...renderAppendixBEntryRows(certs, 'No certifications listed.'));
+
+    children.push(appendixBSectionHeading('Professional Memberships'));
+    children.push(...renderAppendixBEntryRows(members, 'No memberships listed.', { useRangeDate: true }));
+
+    children.push(appendixBSectionHeading('Professional Development'));
+    children.push(...renderAppendixBEntryRows(dev, 'No professional development activities listed.', { useRangeDate: true }));
+
+    children.push(appendixBSectionHeading('Consulting / Industry Experience'));
+    children.push(...renderAppendixBEntryRows(industry, 'No consulting or industry experience listed.', { useRangeDate: true }));
+
+    children.push(appendixBSectionHeading('Honors & Awards'));
+    children.push(...renderAppendixBEntryRows(honors, 'No honors or awards listed.'));
+
+    children.push(appendixBSectionHeading('Service Activities'));
+    children.push(...renderAppendixBEntryRows(service, 'No service activities listed.'));
+
+    children.push(appendixBSectionHeading('Publications'));
+    children.push(...renderAppendixBEntryRows(pubs, 'No publications listed.'));
   });
 
   return children;
@@ -934,8 +1369,38 @@ const buildSectionChildren = async (sectionId, sectionPayload, metadata = {}) =>
       return renderGenericSection('Criterion 6 - Faculty', sectionPayload, {
         excludedFields: ['criterion6_id', 'cycle', 'item', 'faculty_options', 'faculty_name_lookup'],
         tableFields: [
-          { key: 'qualification_rows', title: 'Table 6-1. Faculty Qualifications' },
-          { key: 'workload_rows', title: 'Table 6-2. Faculty Workload Summary' },
+          {
+            key: 'qualification_rows',
+            title: 'Table 6-1. Faculty Qualifications',
+            headerLabels: {
+              faculty_name: 'Faculty',
+              highest_degree_field: 'Field',
+              highest_degree_year: 'Deg. Year',
+              academic_rank: 'Rank',
+              academic_appointment: 'Appt.',
+              full_time_or_part_time: 'FT/PT',
+              years_in_govt_industry: 'Yrs Ind.',
+              years_teaching: 'Yrs Teach.',
+              years_at_institution: 'Yrs Inst.',
+              professional_registration: 'Prof. Reg.',
+            },
+          },
+          {
+            key: 'workload_rows',
+            title: 'Table 6-2. Faculty Workload Summary',
+            headerLabels: {
+              faculty_name: 'Faculty',
+              full_time_or_part_time: 'FT/PT',
+              academic_year: 'Acad. Year',
+              term: 'Term',
+              courses_taught: 'Courses',
+              teaching_load: 'Teach. Load',
+              student_advising: 'Advising',
+              scholarship_research: 'Research',
+              service: 'Service',
+              other_assignments: 'Other',
+            },
+          },
           { key: 'professional_development_rows', title: 'Professional Development' },
         ],
       });
@@ -1026,7 +1491,7 @@ export const buildSelfStudyDocument = async (payload) => {
   for (const entry of toc) {
     const sectionId = entry?.id;
     if (!sectionId || !sections[sectionId]) continue;
-    const properties = sectionId === 'criterion3'
+    const properties = sectionId === 'criterion3' || sectionId === 'criterion4'
       ? {
         page: {
           size: {
