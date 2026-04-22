@@ -76,6 +76,15 @@ const removeDoc = async (docId) => {
   });
 };
 
+const getDefaultAcademicTerm = () => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  if (month >= 8 && month <= 12) return `Fall ${year}`;
+  if (month >= 1 && month <= 5) return `Spring ${year}`;
+  return `Summer ${year}`;
+};
+
 const emptyAssessment = () => ({ assessment_type: '', weight_percentage: '' });
 const emptyMapping = () => ({ clo_id: '', so_id: '' });
 const emptyWeekTopic = () => ({ week: '', topic: '' });
@@ -1032,7 +1041,7 @@ const CourseSummaryModal = ({
         method: 'POST',
         body: JSON.stringify({
           cycle_id: Number(selectedCourse.cycle_id || localStorage.getItem('currentCycleId') || 0),
-          term: 'TBD',
+          term: getDefaultAcademicTerm(),
           faculty_id: ''
         })
       });

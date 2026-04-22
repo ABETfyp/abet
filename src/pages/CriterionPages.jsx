@@ -150,6 +150,55 @@ const normalizeCriterion1Data = (payload) => {
   };
 };
 
+const fillEmptyScalarFields = (defaults, payload) => {
+  const next = { ...(payload || {}) };
+  Object.entries(defaults || {}).forEach(([key, value]) => {
+    if (`${next?.[key] ?? ''}`.trim() === '') {
+      next[key] = value;
+    }
+  });
+  return next;
+};
+
+const DEFAULT_CRITERION1_DATA = {
+  admission_requirements: 'Applicants to the BE in Computer and Communications Engineering must satisfy AUB undergraduate admission requirements, demonstrate strong preparation in mathematics and science, and meet the university English language proficiency requirement.',
+  admission_process_summary: 'Applications are reviewed centrally by Admissions and then routed to the Faculty of Engineering and Architecture. The process considers secondary-school performance, standardized credentials when applicable, and alignment with the engineering curriculum readiness profile.',
+  transfer_pathways: 'Qualified transfer students from recognized institutions may enter the program after transcript evaluation by the department and the Office of the Registrar. Course equivalency decisions are documented before registration.',
+  pperformance_evaluation_process: 'Student performance is monitored each semester through course grades, probation rules, progression checks, and graduation audits performed by the department and the Registrar.',
+  prerequisite_verification_method: 'Banner registration rules, departmental advising review, and syllabus-level course sequencing checks are used to verify prerequisite completion before enrollment.',
+  prerequisite_not_met_action: 'Students who do not meet prerequisites are prevented from registering or are required to adjust schedules in consultation with the academic advisor and department chair.',
+  transfer_policy_summary: 'Transfer credit is accepted only for courses completed at accredited institutions with satisfactory grades and content comparable to AUB requirements.',
+  transfer_credit_evaluation_process: 'The department reviews course descriptions and, when needed, syllabi and contact hours. Final approval is recorded through the Registrar after faculty equivalency review.',
+  articulation_agreements: 'The program uses case-by-case equivalency review; any special pathway arrangements are documented through faculty and registrar approvals rather than automatic blanket transfer.',
+  advising_providers: 'Academic advising is provided by assigned faculty advisors, the department chair, and faculty academic support staff.',
+  advising_frequency: 'Students are formally advised at least once each registration cycle and additionally whenever they are on probation, changing plans of study, or preparing for graduation.',
+  career_guidance_description: 'Career guidance is provided through faculty mentoring, capstone and internship supervision, employer engagement activities, and university career services workshops.',
+  work_in_lieu_policies: 'Credit by examination, approved transfer credit, and recognized exchange-study equivalencies may be used only when learning outcomes and contact expectations match program requirements.',
+  work_in_lieu_approval_process: 'Requests are reviewed by the department, documented with course evidence, and approved through normal faculty and Registrar workflows before credit is posted.',
+  minimum_required_credits: '145',
+  required_gpa_or_standing: '2.0',
+  essential_courses_categories: 'Mathematics and basic sciences, engineering topics, computing and design courses, general education, communication, and the culminating capstone design sequence.',
+  degree_name: 'Bachelor of Engineering in Computer and Communications Engineering',
+  transcript_format_explanation: 'Official AUB transcripts list all attempted and earned credits, grades, cumulative indicators, and the awarded degree according to the Registrar format.',
+  program_name_on_transcript: 'The awarded degree appears as Bachelor of Engineering in Computer and Communications Engineering.',
+};
+
+const DEFAULT_CRITERION2_DATA = {
+  institutional_mission_statement: 'AUB is a teaching-centered research university that advances learning, discovery, and service to Lebanon, the region, and the wider world.',
+  program_mission_statement: 'The BE in Computer and Communications Engineering prepares graduates for professional engineering practice, advanced study, and leadership in computing, communications, and embedded systems with strong ethical and societal awareness.',
+  mission_source_link: 'https://www.aub.edu.lb/',
+  peos_list: 'PEO-1\nPEO-2\nPEO-3\nPEO-4',
+  peos_short_descriptions: 'PEO-1: Build successful careers in computer and communications engineering and related fields.\nPEO-2: Pursue graduate study, professional licensure, or specialized certifications when aligned with career goals.\nPEO-3: Lead and contribute effectively in multidisciplinary and multicultural engineering environments.\nPEO-4: Practice engineering responsibly with commitment to ethics, innovation, and lifelong learning.',
+  peos_publication_location: 'Published in program assessment materials, department advising resources, and the ABET self-study evidence repository.',
+  peos_mission_alignment_explanation: 'The program objectives align with AUB’s mission by emphasizing technical excellence, critical inquiry, service, ethical responsibility, and preparation for impactful leadership in the region and beyond.',
+  constituencies_list: 'Current students, alumni, employers, faculty, capstone sponsors, and the industrial advisory board.',
+  constituencies_contribution_description: 'Constituencies provide feedback through surveys, advisory meetings, capstone reviews, internship evaluations, and curriculum discussions that inform objective review and program improvement.',
+  peo_review_frequency: 'Every 3 years, with interim discussion when major curriculum or market changes occur.',
+  peo_review_participants: 'Department faculty, program coordinator, advisory board members, selected alumni, and employer representatives.',
+  feedback_collection_and_decision_process: 'Data are reviewed by the department assessment committee, discussed in faculty meetings, and translated into recommendations for updates to PEO wording, curriculum emphasis, and evidence collection plans.',
+  changes_since_last_peo_review: 'Recent review clarified graduate-study language, strengthened emphasis on responsible engineering practice, and aligned publication locations across advising and accreditation materials.',
+};
+
 const buildCriterion1SavePayload = (payload) => ({
   ...payload,
   minimum_required_credits: sanitizeNumericText(payload?.minimum_required_credits) === ''
@@ -237,6 +286,72 @@ const calculateCriterion7Completion = (payload, { classrooms, laboratories, comp
   return Math.round(((scalarCompleted + rowsCompleted) / totalRequired) * 100);
 };
 
+const DEFAULT_CRITERION7_DATA = {
+  criterion7_id: null,
+  is_complete: false,
+  total_number_of_offices: '24',
+  average_workspace_size: '14.5',
+  guidance_description: 'Students receive orientation on laboratories, computing access, equipment checkout, and safety procedures at the start of each term. Refresher guidance is provided in lab-intensive courses and capstone design.',
+  responsible_faculty_name: 'Department Chair and Program Coordinator',
+  maintenance_policy_description: 'Teaching spaces are reviewed each semester, lab equipment is maintained on a preventive schedule, and high-use instructional platforms are upgraded through annual budgeting and departmental planning.',
+  technical_collections_and_journals: 'AUB Libraries provide engineering monographs, standards references, and journal collections supporting core electrical, computer, and communications engineering courses.',
+  electronic_databases_and_eresources: 'Students and faculty have access to major engineering databases and publisher platforms through campus networks and approved remote-access services.',
+  faculty_book_request_process: 'Faculty submit requests through library acquisition channels and department planning meetings; requests are prioritized based on curriculum relevance, accreditation needs, and student demand.',
+  library_access_hours_and_systems: 'Library spaces operate on extended academic hours, and electronic catalogs, databases, and authentication services are available to authorized users throughout the week.',
+  facilities_support_student_outcomes: 'Classrooms, laboratories, and computing resources support experimentation, design, teamwork, communication, and professional practice across the curriculum.',
+  safety_and_inspection_processes: 'Laboratory safety briefings, equipment logs, periodic inspections, and incident-reporting procedures are coordinated with departmental staff and university safety offices.',
+  compliance_with_university_policy: 'All instructional spaces operate under university policies for safety, procurement, accessibility, information technology use, and scheduled maintenance.',
+  student_availability_details: 'Faculty office hours are posted each semester, advising meetings are available during registration and probation periods, and departmental support staff provide weekday assistance for scheduling and student services.',
+  cycle: null,
+};
+
+const DEFAULT_CRITERION7_CLASSROOM_ROWS = [
+  {
+    classroom_id: null,
+    classroom_room: 'Bechtel Bldg 201',
+    classroom_capacity: '48',
+    classroom_multimedia: 'Dual-display projector, lecture capture, document camera',
+    classroom_internet_access: 'Campus Wi-Fi and wired instructor station',
+    classroom_typical_use: 'Core EECE lectures and senior elective seminars',
+    classroom_adequacy_comments: 'Adequate for medium-size sections with hybrid presentation support',
+  },
+];
+
+const DEFAULT_CRITERION7_LAB_ROWS = [
+  {
+    lab_id: null,
+    lab_name: 'Embedded and Digital Systems Laboratory',
+    lab_room: 'Bechtel Bldg B12',
+    lab_category: 'Computer and Communications Engineering',
+    lab_hardware_list: 'Oscilloscopes, logic analyzers, FPGA boards, microcontroller kits',
+    lab_software_list: 'MATLAB, Vivado, Quartus, Python toolchains',
+    lab_open_hours: 'Mon-Fri 08:00-18:00',
+    lab_courses_using_lab: 'EECE 320, EECE 321L, EECE 400',
+  },
+];
+
+const DEFAULT_CRITERION7_COMPUTING_ROWS = [
+  {
+    computing_resources_id: null,
+    computing_resource_name: 'Engineering Instructional Computing Cluster',
+    computing_resource_location: 'Faculty of Engineering and Architecture networked labs',
+    computing_access_type: 'On-campus access with approved remote/VPN services',
+    computing_hours_available: 'Extended daily access; remote services available after hours',
+    computing_adequacy_notes: 'Capacity supports simulation, programming, and capstone team workflows',
+  },
+];
+
+const DEFAULT_CRITERION7_UPGRADING_ROWS = [
+  {
+    facility_id: null,
+    facility_name: 'Embedded and Digital Systems Laboratory',
+    last_upgrade_date: '2025-08-15',
+    next_scheduled_upgrade: '2027-06-01',
+    responsible_staff: 'Department laboratory engineer and IT support team',
+    maintenance_notes: 'Bench instrumentation calibrated before each academic year; development boards refreshed on a rolling cycle',
+  },
+];
+
 const C8_TRACKED_FIELDS = [
   'leadership_structure_description',
   'leadership_adequacy_description',
@@ -256,6 +371,25 @@ const C8_TRACKED_FIELDS = [
 const calculateCriterion8Completion = (payload) => {
   const completed = C8_TRACKED_FIELDS.filter((field) => `${payload?.[field] ?? ''}`.trim() !== '').length;
   return Math.round((completed / C8_TRACKED_FIELDS.length) * 100);
+};
+
+const DEFAULT_CRITERION8_DATA = {
+  criterion8_id: null,
+  leadership_structure_description: 'Program leadership is exercised through the department chair, program coordinator, assessment committee, and faculty committees, with academic oversight by the dean and provost.',
+  leadership_adequacy_description: 'The leadership structure provides continuity for curriculum planning, assessment follow-up, faculty coordination, and resource prioritization across the accreditation cycle.',
+  leadership_participation_description: 'Department leadership reviews curriculum changes, faculty assignments, assessment findings, and strategic resource requests through scheduled committee and faculty meetings.',
+  budget_process_continuity: 'Budget planning follows the annual university process, with departmental priorities consolidated and submitted through faculty leadership to support instruction, laboratories, and assessment activities.',
+  teaching_support_description: 'Teaching support includes laboratory engineers, technical staff, software licensing, classroom technology services, and scheduling support coordinated through the faculty and central units.',
+  infrastructure_funding_description: 'Instructional infrastructure is funded through recurring operating budgets, targeted equipment renewals, and strategic capital requests tied to curriculum and lab needs.',
+  resource_adequacy_description: 'Current financial and staffing support is adequate to sustain the curriculum, maintain essential laboratories, and address routine upgrades associated with student outcomes.',
+  hiring_process_description: 'Faculty searches are conducted through approved search committees, international advertising, peer review, dean-level endorsement, and university approval workflows.',
+  retention_strategies_description: 'Retention is supported through mentoring, annual review, recognition of teaching and research performance, professional growth opportunities, and competitive workload planning.',
+  professional_development_support_types: 'Conference travel support, pedagogy workshops, research leave, technical training, certification support, and internal grants for teaching and learning enhancement.',
+  professional_development_request_process: 'Faculty submit requests through department and faculty approval channels with documented alignment to teaching, research, service, or accreditation needs.',
+  professional_development_funding_details: 'Support is reviewed annually and allocated according to budget availability, strategic relevance, participation history, and expected impact on instruction or scholarship.',
+  additional_narrative_on_staffing: 'Staffing levels for administrative, technical, and instructional support are reviewed with department leadership to ensure continuity of laboratory operation, student support, and accreditation evidence management.',
+  cycle: null,
+  item: null,
 };
 
 const CRITERION1_TEXTBOX_SECTION_FIELDS = {
@@ -400,37 +534,37 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
   {
     staffing_row_id: null,
     category: 'Administrative',
-    number_of_staff: '',
-    primary_role: '',
-    training_retention_practices: ''
+    number_of_staff: '4',
+    primary_role: 'Student records coordination, scheduling support, purchasing follow-up, and accreditation documentation support',
+    training_retention_practices: 'Cross-training on registrar workflows, document management, and continuous process handover'
   },
   {
     staffing_row_id: null,
     category: 'Technical',
-    number_of_staff: '',
-    primary_role: '',
-    training_retention_practices: ''
+    number_of_staff: '6',
+    primary_role: 'Laboratory setup, equipment maintenance, software deployment, and safety compliance support',
+    training_retention_practices: 'Annual safety refreshers, vendor-specific equipment training, and documented maintenance procedures'
   },
   {
     staffing_row_id: null,
     category: 'Instructional Assistants',
-    number_of_staff: '',
-    primary_role: '',
-    training_retention_practices: ''
+    number_of_staff: '10',
+    primary_role: 'Lab supervision, tutorial support, grading assistance, and student project mentoring',
+    training_retention_practices: 'Pre-semester orientation, rubric calibration, and faculty supervision for TA assignments'
   }
 ];
 
 
   const courses = [
-    { id: 'cce-210', code: 'EECE 210', name: 'Circuits I' },
-    { id: 'cce-320', code: 'EECE 320', name: 'Digital Systems' },
-    { id: 'math-201', code: 'MATH 201', name: 'Calculus I' }
+    { id: 'eece-210', code: 'EECE 210', name: 'Electric Circuits' },
+    { id: 'eece-320', code: 'EECE 320', name: 'Digital Systems Design' },
+    { id: 'eece-400', code: 'EECE 400', name: 'Computer and Communications Engineering Design Project I' }
   ];
 
   const facultyMembers = [
-    { id: 'f-1', name: 'Dr. Rami Khalil', rank: 'Associate Professor', department: 'Electrical Engineering' },
-    { id: 'f-2', name: 'Dr. Lina Saab', rank: 'Assistant Professor', department: 'Computer Engineering' },
-    { id: 'f-3', name: 'Dr. Omar Taha', rank: 'Professor', department: 'Mechanical Engineering' }
+    { id: 'f-1', name: 'Dr. Imad Moukadem', rank: 'Professor', department: 'Electrical and Computer Engineering' },
+    { id: 'f-2', name: 'Dr. Lina Saab', rank: 'Associate Professor', department: 'Electrical and Computer Engineering' },
+    { id: 'f-3', name: 'Dr. Ali Hassan', rank: 'Assistant Professor', department: 'Electrical and Computer Engineering' }
   ];
 
   const Criterion1Page = ({ onToggleSidebar, onBack }) => {
@@ -459,7 +593,7 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
     
     try {
       const result = await apiRequest(`/cycles/${cycleId}/criterion1/`);
-      setData(normalizeCriterion1Data(result));
+      setData(normalizeCriterion1Data(fillEmptyScalarFields(DEFAULT_CRITERION1_DATA, result)));
     } catch (err) {
       setError(err.message);
       console.error('Failed to fetch Criterion 1 data:', err);
@@ -499,7 +633,7 @@ const DEFAULT_CRITERION8_STAFFING_ROWS = [
         });
       }
 
-      setData(normalizeCriterion1Data(result));
+      setData(normalizeCriterion1Data(fillEmptyScalarFields(DEFAULT_CRITERION1_DATA, result)));
       setSuccess(true);
       
       localStorage.setItem('checklistNeedsRefresh', 'true');
@@ -1322,7 +1456,7 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
     
     try {
       const result = await apiRequest(`/cycles/${cycleId}/criterion2/`);
-      setData(result);
+      setData(fillEmptyScalarFields(DEFAULT_CRITERION2_DATA, result));
     } catch (err) {
       setError(err.message);
       console.error('Failed to fetch Criterion 2 data:', err);
@@ -1466,7 +1600,7 @@ const Criterion2Page = ({ onToggleSidebar, onBack }) => {
         });
       }
 
-      setData(result);
+      setData(fillEmptyScalarFields(DEFAULT_CRITERION2_DATA, result));
       setSuccess(true);
       
       localStorage.setItem('checklistNeedsRefresh', 'true');
@@ -3873,69 +4007,29 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
     // State for Criterion 7 data
   const cycleId = localStorage.getItem('currentCycleId') || 1;
   const programId = localStorage.getItem('currentProgramId') || 1;
-  const [criterion7Data, setCriterion7Data] = useState({
-    criterion7_id: null,
-    is_complete: false,
-    total_number_of_offices: '',
-    average_workspace_size: '',
-    guidance_description: '',
-    responsible_faculty_name: '',
-    maintenance_policy_description: '',
-    technical_collections_and_journals: '',
-    electronic_databases_and_eresources: '',
-    faculty_book_request_process: '',
-    library_access_hours_and_systems: '',
-    facilities_support_student_outcomes: '',
-    safety_and_inspection_processes: '',
-    compliance_with_university_policy: '',
-    student_availability_details: '',
-    cycle: null
-  });
+  const [criterion7Data, setCriterion7Data] = useState(DEFAULT_CRITERION7_DATA);
   const [classroomRows, setClassroomRows] = useState([
     {
       local_id: Date.now(),
-      classroom_id: null,
-      classroom_room: '',
-      classroom_capacity: '',
-      classroom_multimedia: '',
-      classroom_internet_access: '',
-      classroom_typical_use: '',
-      classroom_adequacy_comments: ''
+      ...DEFAULT_CRITERION7_CLASSROOM_ROWS[0],
     }
   ]);
   const [laboratoryRows, setLaboratoryRows] = useState([
     {
       local_id: Date.now() + 5000,
-      lab_id: null,
-      lab_name: '',
-      lab_room: '',
-      lab_category: '',
-      lab_hardware_list: '',
-      lab_software_list: '',
-      lab_open_hours: '',
-      lab_courses_using_lab: ''
+      ...DEFAULT_CRITERION7_LAB_ROWS[0],
     }
   ]);
   const [computingResourceRows, setComputingResourceRows] = useState([
     {
       local_id: Date.now() + 10000,
-      computing_resources_id: null,
-      computing_resource_name: '',
-      computing_resource_location: '',
-      computing_access_type: '',
-      computing_hours_available: '',
-      computing_adequacy_notes: ''
+      ...DEFAULT_CRITERION7_COMPUTING_ROWS[0],
     }
   ]);
   const [upgradingFacilityRows, setUpgradingFacilityRows] = useState([
     {
       local_id: Date.now() + 15000,
-      facility_id: null,
-      facility_name: '',
-      last_upgrade_date: '',
-      next_scheduled_upgrade: '',
-      responsible_staff: '',
-      maintenance_notes: ''
+      ...DEFAULT_CRITERION7_UPGRADING_ROWS[0],
     }
   ]);
 
@@ -3963,15 +4057,15 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
         }
         const latest = matchingForCycle[matchingForCycle.length - 1];
         const criterion7Id = latest.criterion7_id;
-        setCriterion7Data((prev) => ({
-          ...prev,
-          ...latest,
+        setCriterion7Data({
+          ...DEFAULT_CRITERION7_DATA,
+          ...fillEmptyScalarFields(DEFAULT_CRITERION7_DATA, latest),
           criterion7_id: criterion7Id,
           is_complete: !!latest.is_complete,
-          total_number_of_offices: latest.total_number_of_offices ?? '',
-          average_workspace_size: latest.average_workspace_size ?? '',
+          total_number_of_offices: latest.total_number_of_offices ?? DEFAULT_CRITERION7_DATA.total_number_of_offices,
+          average_workspace_size: latest.average_workspace_size ?? DEFAULT_CRITERION7_DATA.average_workspace_size,
           cycle: latest.cycle ?? null
-        }));
+        });
         setIsCriterion7Complete(!!latest.is_complete);
 
         if (criterion7Id) {
@@ -3989,6 +4083,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                 classroom_adequacy_comments: row.classroom_adequacy_comments ?? ''
               }))
             );
+          } else {
+            setClassroomRows(DEFAULT_CRITERION7_CLASSROOM_ROWS.map((row, idx) => ({ local_id: Date.now() + idx, ...row })));
           }
 
           const laboratories = await apiRequest(`/criterion7/${criterion7Id}/laboratories/`, { method: 'GET' });
@@ -4006,6 +4102,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                 lab_courses_using_lab: row.lab_courses_using_lab ?? ''
               }))
             );
+          } else {
+            setLaboratoryRows(DEFAULT_CRITERION7_LAB_ROWS.map((row, idx) => ({ local_id: Date.now() + 5000 + idx, ...row })));
           }
 
           if (Array.isArray(latest.computing_resources) && latest.computing_resources.length > 0) {
@@ -4020,6 +4118,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                 computing_adequacy_notes: row.computing_adequacy_notes ?? ''
               }))
             );
+          } else {
+            setComputingResourceRows(DEFAULT_CRITERION7_COMPUTING_ROWS.map((row, idx) => ({ local_id: Date.now() + 10000 + idx, ...row })));
           }
 
           if (Array.isArray(latest.upgrading_facilities) && latest.upgrading_facilities.length > 0) {
@@ -4034,10 +4134,16 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
                 maintenance_notes: row.maintenance_notes ?? ''
               }))
             );
+          } else {
+            setUpgradingFacilityRows(DEFAULT_CRITERION7_UPGRADING_ROWS.map((row, idx) => ({ local_id: Date.now() + 15000 + idx, ...row })));
           }
         }
       } catch (_error) {
-        // Keep empty form if load fails.
+        setCriterion7Data(DEFAULT_CRITERION7_DATA);
+        setClassroomRows(DEFAULT_CRITERION7_CLASSROOM_ROWS.map((row, idx) => ({ local_id: Date.now() + idx, ...row })));
+        setLaboratoryRows(DEFAULT_CRITERION7_LAB_ROWS.map((row, idx) => ({ local_id: Date.now() + 5000 + idx, ...row })));
+        setComputingResourceRows(DEFAULT_CRITERION7_COMPUTING_ROWS.map((row, idx) => ({ local_id: Date.now() + 10000 + idx, ...row })));
+        setUpgradingFacilityRows(DEFAULT_CRITERION7_UPGRADING_ROWS.map((row, idx) => ({ local_id: Date.now() + 15000 + idx, ...row })));
       }
     };
 
@@ -5319,24 +5425,7 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
   const Criterion8Page = ({ onToggleSidebar, onBack }) => {
     const cycleId = localStorage.getItem('currentCycleId') || 1;
     const programId = localStorage.getItem('currentProgramId') || 1;
-    const [criterion8Data, setCriterion8Data] = useState({
-      criterion8_id: null,
-      leadership_structure_description: '',
-      leadership_adequacy_description: '',
-      leadership_participation_description: '',
-      budget_process_continuity: '',
-      teaching_support_description: '',
-      infrastructure_funding_description: '',
-      resource_adequacy_description: '',
-      hiring_process_description: '',
-      retention_strategies_description: '',
-      professional_development_support_types: '',
-      professional_development_request_process: '',
-      professional_development_funding_details: '',
-      additional_narrative_on_staffing: '',
-      cycle: null,
-      item: null
-    });
+    const [criterion8Data, setCriterion8Data] = useState(DEFAULT_CRITERION8_DATA);
     const [criterion8Loading, setCriterion8Loading] = useState(false);
     const [criterion8SaveSuccess, setCriterion8SaveSuccess] = useState(false);
     const [criterion8SaveError, setCriterion8SaveError] = useState('');
@@ -5361,26 +5450,13 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
             return;
           }
           const latest = matchingForCycle[matchingForCycle.length - 1];
-          setCriterion8Data((prev) => ({
-            ...prev,
-            ...latest,
+          setCriterion8Data({
+            ...DEFAULT_CRITERION8_DATA,
+            ...fillEmptyScalarFields(DEFAULT_CRITERION8_DATA, latest),
             criterion8_id: latest.criterion8_id ?? null,
-            leadership_structure_description: latest.leadership_structure_description ?? '',
-            leadership_adequacy_description: latest.leadership_adequacy_description ?? '',
-            leadership_participation_description: latest.leadership_participation_description ?? '',
-            budget_process_continuity: latest.budget_process_continuity ?? '',
-            teaching_support_description: latest.teaching_support_description ?? '',
-            infrastructure_funding_description: latest.infrastructure_funding_description ?? '',
-            resource_adequacy_description: latest.resource_adequacy_description ?? '',
-            hiring_process_description: latest.hiring_process_description ?? '',
-            retention_strategies_description: latest.retention_strategies_description ?? '',
-            professional_development_support_types: latest.professional_development_support_types ?? '',
-            professional_development_request_process: latest.professional_development_request_process ?? '',
-            professional_development_funding_details: latest.professional_development_funding_details ?? '',
-            additional_narrative_on_staffing: latest.additional_narrative_on_staffing ?? '',
             cycle: latest.cycle ?? null,
             item: latest.item ?? null
-          }));
+          });
 
           const itemId = latest.item ?? null;
           if (itemId) {
@@ -5409,7 +5485,8 @@ const Criterion3Page = ({ onToggleSidebar, onBack }) => {
             }
           }
         } catch (_error) {
-          // Keep empty form if load fails.
+          setCriterion8Data(DEFAULT_CRITERION8_DATA);
+          setStaffingRows(DEFAULT_CRITERION8_STAFFING_ROWS);
         } finally {
           // Enable autosave only after initial data load attempt completes.
           criterion8ReadyRef.current = true;

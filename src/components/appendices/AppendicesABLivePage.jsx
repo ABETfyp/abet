@@ -86,8 +86,16 @@ const supplementRows = (rows) => (Array.isArray(rows) ? rows : [])
 const courseIdOf = (course) => Number(course?.course_id || course?.id || 0);
 const sectionEntriesOf = (course) => (Array.isArray(course?.sections) ? course.sections : [])
   .filter((section) => Number(section?.syllabus_id || 0) > 0);
+const fallbackAcademicTermLabel = () => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  if (month >= 8 && month <= 12) return `Fall ${year}`;
+  if (month >= 1 && month <= 5) return `Spring ${year}`;
+  return `Summer ${year}`;
+};
 const sectionDisplayLabel = (section) => {
-  const term = `${section?.term || ''}`.trim() || 'TBD';
+  const term = `${section?.term || ''}`.trim() || fallbackAcademicTermLabel();
   const faculty = `${section?.faculty_name || ''}`.trim() || 'Unassigned instructor';
   return `${term} - ${faculty}`;
 };

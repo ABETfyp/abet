@@ -3723,9 +3723,23 @@ def _program_so_peo_mappings(program_id):
 def _program_clo_rows(program_id):
     prefix = f'P{program_id}-CLO'
     with connection.cursor() as cursor:
+        # Find CLOs either tagged with the program prefix OR linked via course syllabi
         cursor.execute(
-            'SELECT clo_id, description, level FROM CLO WHERE level LIKE %s ORDER BY clo_id',
-            [f'{prefix}%']
+            '''
+            SELECT DISTINCT c.clo_id, c.description, c.level
+            FROM CLO c
+            WHERE c.level LIKE %s
+            UNION
+            SELECT DISTINCT c.clo_id, c.description, c.level
+            FROM CLO c
+            JOIN HAS_CLO hc ON hc.clo_id = c.clo_id
+            JOIN INSTRUCTOR_SYLLABUS s ON s.syllabus_id = hc.syllabus_id
+            JOIN COURSE co ON co.Course_ID = s.Course_ID
+            JOIN ACCREDIATION_CYCLE ac ON ac.Cycle_ID = co.Cycle_ID
+            WHERE ac.program_id = %s
+            ORDER BY clo_id
+            ''',
+            [f'{prefix}%', program_id]
         )
         rows = cursor.fetchall()
     return [
@@ -3751,12 +3765,21 @@ def _extract_clo_number(level_value):
 
 
 def _serialize_clo(row):
-    number = _extract_clo_number(row.get('level'))
-    display_code = f'CLO{number}' if number > 0 else f"CLO{row.get('clo_id')}"
+    level = row.get('level') or ''
+    number = _extract_clo_number(level)
+    # If level is a plain progression word (not a CLO code), use clo_id for numbering
+    progression_words = {'introduced', 'reinforced', 'mastered', 'assessed'}
+    if level.strip().lower() in progression_words:
+        display_code = f"CLO{row.get('clo_id')}"
+        clo_code = display_code
+    else:
+        display_code = f'CLO{number}' if number > 0 else f"CLO{row.get('clo_id')}"
+        clo_code = level or display_code
     return {
         'clo_id': int(row.get('clo_id') or 0),
-        'clo_code': row.get('level') or display_code,
+        'clo_code': clo_code,
         'display_code': display_code,
+        'level': level,
         'description': row.get('description') or '',
     }
 
@@ -3815,13 +3838,26 @@ def _course_sections_rows(course_id):
     ]
 
 
+COURSE_TITLE_MAP = {
+    'EECE 210': 'Electric Circuits',
+    'EECE 230': 'Introduction to Programming and Problem Solving',
+    'EECE 455': 'Computer Communication Networks',
+}
+
+
+def _course_display_name(course_code):
+    normalized = f'{course_code or ""}'.strip().upper()
+    return COURSE_TITLE_MAP.get(normalized, normalized or course_code or '')
+
+
 def _serialize_course_row(row):
     course_id = int(row[0])
+    course_code = row[1] or ''
     return {
         'id': course_id,
         'course_id': course_id,
-        'code': row[1] or '',
-        'name': row[1] or '',
+        'code': course_code,
+        'name': _course_display_name(course_code),
         'credits': int(row[2] or 0),
         'contact_hours': int(row[3] or 0),
         'course_type': row[4] or 'Required',
@@ -4314,7 +4350,7 @@ def program_courses(request, program_id):
             'id': course_id,
             'course_id': course_id,
             'code': course_code,
-            'name': course_code,
+            'name': _course_display_name(course_code),
             'credits': credits,
             'contact_hours': contact_hours,
             'course_type': course_type,
@@ -4408,7 +4444,7 @@ def program_course_detail(request, program_id, course_id):
             'id': int(course_id),
             'course_id': int(course_id),
             'code': next_code,
-            'name': next_code,
+            'name': _course_display_name(next_code),
             'credits': next_credits,
             'contact_hours': next_contact_hours,
             'course_type': next_type,

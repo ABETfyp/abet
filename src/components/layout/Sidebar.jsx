@@ -24,6 +24,15 @@ const soTitleMap = {
 
 const getSoShortTitle = (row) => soTitleMap[row?.display_code || row?.so_code] || '';
 
+const getDefaultAcademicTerm = () => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  if (month >= 8 && month <= 12) return `Fall ${year}`;
+  if (month >= 1 && month <= 5) return `Spring ${year}`;
+  return `Summer ${year}`;
+};
+
 const openSoDocsDb = () => new Promise((resolve, reject) => {
   const request = window.indexedDB.open(SO_DOCS_DB_NAME, 1);
   request.onupgradeneeded = () => {
@@ -1943,7 +1952,7 @@ const Sidebar = ({
                               method: 'POST',
                               body: JSON.stringify({
                                 cycle_id: Number(cycleId),
-                                term: 'TBD',
+                                term: getDefaultAcademicTerm(),
                                 faculty_id: ''
                               }),
                             });
