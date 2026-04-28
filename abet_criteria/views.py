@@ -419,6 +419,17 @@ def programs_list(request):
     }, status=status.HTTP_201_CREATED)
 
 
+@api_view(['DELETE'])
+def program_detail(request, program_id):
+    try:
+        program = Program.objects.get(pk=program_id)
+    except Program.DoesNotExist:
+        return Response({'detail': 'Program not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    program.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 @api_view(['POST'])
 def program_cycles_create(request, program_id):
     try:

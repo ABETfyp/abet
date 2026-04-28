@@ -17,7 +17,7 @@ import { apiRequest } from '../utils/api';
     const [programModalError, setProgramModalError] = useState('');
     const [cycleModalError, setCycleModalError] = useState('');
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-    const [deletingCycle, setDeletingCycle] = useState(false);
+    const [deletingItem, setDeletingItem] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [programForm, setProgramForm] = useState({
       name: '',
@@ -228,34 +228,61 @@ import { apiRequest } from '../utils/api';
       }
     };
 
-    const openDeleteConfirm = (programId, cycleId, cycleLabel) => {
-      setDeleteTarget({ programId, cycleId, cycleLabel });
+    const openDeleteCycleConfirm = (programId, cycleId, cycleLabel) => {
+      setDeleteTarget({ type: 'cycle', programId, cycleId, cycleLabel });
       setDeleteConfirmOpen(true);
     };
 
-    const handleDeleteCycle = async () => {
+    const openDeleteProgramConfirm = (programId, programName) => {
+      setDeleteTarget({ type: 'program', programId, programName });
+      setDeleteConfirmOpen(true);
+    };
+
+    const clearStoredSelection = (targetProgramId, targetCycleId = null) => {
+      const currentCycleId = localStorage.getItem('currentCycleId');
+      const storedProgramName = localStorage.getItem('currentProgramName');
+      const targetProgram = programs.find((program) => Number(program.id) === Number(targetProgramId));
+
+      if (targetCycleId !== null && Number(currentCycleId) === Number(targetCycleId)) {
+        localStorage.removeItem('currentCycleId');
+        localStorage.removeItem('currentProgramName');
+        localStorage.removeItem('currentCycleLabel');
+        return;
+      }
+
+      if (targetProgram && storedProgramName === targetProgram.name) {
+        localStorage.removeItem('currentCycleId');
+        localStorage.removeItem('currentProgramName');
+        localStorage.removeItem('currentCycleLabel');
+      }
+    };
+
+    const handleDeleteTarget = async () => {
       if (!deleteTarget) return;
-      const { programId, cycleId } = deleteTarget;
-      setDeletingCycle(true);
+      const { type, programId, cycleId } = deleteTarget;
+      setDeletingItem(true);
       try {
         setError('');
-        await apiRequest(`/programs/${programId}/cycles/${cycleId}/`, {
-          method: 'DELETE',
-          headers: authHeader()
-        });
-        const currentCycleId = localStorage.getItem('currentCycleId');
-        if (Number(currentCycleId) === Number(cycleId)) {
-          localStorage.removeItem('currentCycleId');
-          localStorage.removeItem('currentProgramName');
-          localStorage.removeItem('currentCycleLabel');
+        if (type === 'program') {
+          await apiRequest(`/programs/${programId}/`, {
+            method: 'DELETE',
+            headers: authHeader()
+          });
+          clearStoredSelection(programId);
+        } else {
+          await apiRequest(`/programs/${programId}/cycles/${cycleId}/`, {
+            method: 'DELETE',
+            headers: authHeader()
+          });
+          clearStoredSelection(programId, cycleId);
         }
         setDeleteConfirmOpen(false);
         setDeleteTarget(null);
         await fetchPrograms(selectedFramework);
       } catch (err) {
-        setError(err.message || 'Unable to delete cycle');
+        setError(err.message || `Unable to delete ${type === 'program' ? 'program' : 'cycle'}`);
       } finally {
-        setDeletingCycle(false);
+        setDeletingItem(false);
       }
     };
 
@@ -552,10 +579,31 @@ import { apiRequest } from '../utils/api';
                       <div style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: colors.softHighlight, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.primary }}>
                         <Icon size={22} />
                       </div>
-                      <div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <h3 style={{ color: colors.darkGray, fontSize: '19px', fontWeight: '800', margin: 0, letterSpacing: '-0.2px' }}>{program.name}</h3>
                         <div style={{ color: colors.mediumGray, fontSize: '12px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>{program.level} Program</div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => openDeleteProgramConfirm(program.id, program.name)}
+                        style={{
+                          backgroundColor: 'white',
+                          border: `1px solid ${colors.border}`,
+                          color: colors.danger,
+                          width: '34px',
+                          height: '34px',
+                          borderRadius: '8px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          flexShrink: 0
+                        }}
+                        title={`Delete ${program.name}`}
+                        aria-label={`Delete ${program.name}`}
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
 
                     <div style={{ marginBottom: '24px' }}>
@@ -614,7 +662,7 @@ import { apiRequest } from '../utils/api';
                             </button>
                             <button
                               type="button"
-                              onClick={() => openDeleteConfirm(program.id, cycle.id, cycle.label)}
+                              onClick={() => openDeleteCycleConfirm(program.id, cycle.id, cycle.label)}
                               style={{
                                 backgroundColor: 'white',
                                 border: `1px solid ${colors.border}`,
@@ -918,7 +966,7 @@ import { apiRequest } from '../utils/api';
       {deleteConfirmOpen && (
         <div
           onClick={() => {
-            if (deletingCycle) return;
+            if (deletingItem) return;
             setDeleteConfirmOpen(false);
             setDeleteTarget(null);
           }}
@@ -946,18 +994,22 @@ import { apiRequest } from '../utils/api';
             }}
           >
             <div style={{ padding: '18px 22px', backgroundColor: '#fff3f3', borderBottom: `1px solid ${colors.border}` }}>
-              <div style={{ color: colors.danger, fontSize: '17px', fontWeight: '800' }}>Delete Cycle?</div>
+              <div style={{ color: colors.danger, fontSize: '17px', fontWeight: '800' }}>
+                {deleteTarget?.type === 'program' ? 'Delete Program?' : 'Delete Cycle?'}
+              </div>
             </div>
 
             <div style={{ padding: '22px', color: colors.darkGray, fontSize: '14px', lineHeight: '1.5' }}>
-              Are you sure you want to delete <strong>{deleteTarget?.cycleLabel || 'this cycle'}</strong>? This action cannot be undone.
+              Are you sure you want to delete{' '}
+              <strong>{deleteTarget?.type === 'program' ? (deleteTarget?.programName || 'this program') : (deleteTarget?.cycleLabel || 'this cycle')}</strong>
+              ? This action cannot be undone.
             </div>
 
             <div style={{ padding: '0 22px 22px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button
                 type="button"
                 onClick={() => {
-                  if (deletingCycle) return;
+                  if (deletingItem) return;
                   setDeleteConfirmOpen(false);
                   setDeleteTarget(null);
                 }}
@@ -967,11 +1019,11 @@ import { apiRequest } from '../utils/api';
               </button>
               <button
                 type="button"
-                onClick={handleDeleteCycle}
-                disabled={deletingCycle}
-                style={{ backgroundColor: colors.danger, border: 'none', color: 'white', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: deletingCycle ? 'not-allowed' : 'pointer', opacity: deletingCycle ? 0.7 : 1 }}
+                onClick={handleDeleteTarget}
+                disabled={deletingItem}
+                style={{ backgroundColor: colors.danger, border: 'none', color: 'white', borderRadius: '8px', padding: '10px 16px', fontWeight: '700', cursor: deletingItem ? 'not-allowed' : 'pointer', opacity: deletingItem ? 0.7 : 1 }}
               >
-                {deletingCycle ? 'Deleting...' : 'Delete'}
+                {deletingItem ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
